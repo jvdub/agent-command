@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentic Command</title>
+    <link
+      rel="stylesheet"
+      href="../../node_modules/@xterm/xterm/css/xterm.css"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="tab-sidebar">
+        <div class="tab-sidebar-header">
+          <button
+            type="button"
+            id="new-session-button"
+            class="new-session-trigger"
+            aria-label="Create session"
+          >
+            +
+          </button>
+          <div>
+            <p class="eyebrow">Sessions</p>
+            <p class="status-meta">Active terminals</p>
+          </div>
+        </div>
+
+        <div id="new-session-popover" class="launch-popover hidden">
+          <div class="panel-header compact">
+            <h2>New Session</h2>
+          </div>
+          <form id="session-form" class="session-form">
+            <label>
+              <span>Session Name</span>
+              <input
+                id="label"
+                name="label"
+                placeholder="Optional: Docs audit, Auth bugfix, Refactor"
+                autocomplete="off"
+              />
+            </label>
+
+            <label>
+              <span>Command</span>
+              <input
+                id="command"
+                name="command"
+                value="copilot"
+                autocomplete="off"
+              />
+            </label>
+
+            <label>
+              <span>Arguments</span>
+              <input
+                id="args"
+                name="args"
+                placeholder='Optional: --continue, --resume, -i "prompt"'
+                autocomplete="off"
+              />
+            </label>
+
+            <label>
+              <span>Working Directory</span>
+              <div class="path-row">
+                <input
+                  id="cwd"
+                  name="cwd"
+                  placeholder="/path/to/project"
+                  autocomplete="off"
+                />
+                <button type="button" id="pick-directory" class="secondary">
+                  Browse
+                </button>
+              </div>
+            </label>
+
+            <div class="button-row">
+              <button type="submit" id="start-session">Start Session</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="session-tabs-list" class="session-tabs-list"></div>
+
+        <div class="status-card compact-status">
+          <p class="status-label">Launcher Status</p>
+          <p id="session-status" class="status-value">Idle</p>
+          <p id="session-meta" class="status-meta">
+            Use + to create a session.
+          </p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section id="empty-view" class="empty-state">
+          <p class="eyebrow">No Session Selected</p>
+          <h2>Pick a tab or launch a new session</h2>
+          <p class="status-meta">
+            The terminal area appears here after you select a session.
+          </p>
+          <div class="button-row">
+            <button type="button" id="open-launcher-empty" class="secondary">
+              New Session
+            </button>
+          </div>
+        </section>
+
+        <section id="terminal-view" class="terminal-panel hidden">
+          <div
+            class="workspace-tabs"
+            role="tablist"
+            aria-label="Workspace Views"
+          >
+            <button
+              type="button"
+              id="workspace-tab-agent"
+              class="workspace-tab active"
+              role="tab"
+              aria-selected="true"
+            >
+              Agent
+            </button>
+            <button
+              type="button"
+              id="workspace-tab-terminal"
+              class="workspace-tab"
+              role="tab"
+              aria-selected="false"
+            >
+              Terminal
+            </button>
+          </div>
+
+          <section id="agent-pane" class="workspace-pane">
+            <div class="panel-header terminal-header">
+              <div class="terminal-heading">
+                <div>
+                  <p class="eyebrow">PTY</p>
+                  <h2 id="terminal-title">Raw Terminal</h2>
+                  <p id="terminal-subtitle" class="status-meta"></p>
+                </div>
+              </div>
+              <div class="button-row">
+                <button
+                  type="button"
+                  id="toggle-process-panel"
+                  class="secondary"
+                >
+                  Processes
+                </button>
+                <button type="button" id="send-interrupt" class="secondary">
+                  Ctrl+C
+                </button>
+                <button type="button" id="stop-session" class="secondary">
+                  Stop
+                </button>
+              </div>
+            </div>
+
+            <section id="process-details-panel" class="process-panel hidden">
+              <div class="process-panel-header">
+                <p class="status-label">Spawned Processes</p>
+                <p id="process-panel-meta" class="status-meta"></p>
+              </div>
+              <div id="process-details-list" class="process-details-list"></div>
+            </section>
+
+            <div id="terminal" class="terminal"></div>
+          </section>
+
+          <section id="manual-pane" class="workspace-pane hidden">
+            <div class="panel-header terminal-header">
+              <div>
+                <p class="eyebrow">Workspace Shell</p>
+                <h2 id="manual-terminal-title">Integrated Terminal</h2>
+                <p id="manual-terminal-subtitle" class="status-meta"></p>
+              </div>
+              <div class="button-row">
+                <button
+                  type="button"
+                  id="manual-send-interrupt"
+                  class="secondary"
+                >
+                  Ctrl+C
+                </button>
+              </div>
+            </div>
+
+            <div id="manual-terminal" class="terminal"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="terminal-context-menu" class="terminal-context-menu hidden">
+      <button type="button" id="terminal-context-copy" class="terminal-context-action">
+        Copy
+      </button>
+      <button type="button" id="terminal-context-paste" class="terminal-context-action">
+        Paste
+      </button>
+      <button type="button" id="terminal-context-clear" class="terminal-context-action">
+        Clear
+      </button>
+    </div>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
