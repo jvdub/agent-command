@@ -51,6 +51,7 @@ const terminalContextClearButton = document.querySelector(
 );
 
 const IDLE_THRESHOLD_MS = 20000;
+const UI_REFRESH_INTERVAL_MS = 150;
 
 const PERMISSION_PATTERNS = [
   // Explicit confirmation prompts
@@ -212,6 +213,7 @@ const sessionProcesses = new Map();
 
 let activeSessionId = null;
 let refreshScheduled = false;
+let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
 let activeWorkspaceTab = "agent";
 let terminalContextTarget = null;
@@ -885,10 +887,11 @@ function scheduleUiRefresh() {
   }
 
   refreshScheduled = true;
-  requestAnimationFrame(() => {
+  refreshTimeoutId = window.setTimeout(() => {
     refreshScheduled = false;
+    refreshTimeoutId = null;
     refreshVisibleUi();
-  });
+  }, UI_REFRESH_INTERVAL_MS);
 }
 
 function setTerminalActionsEnabled(session) {
@@ -910,17 +913,17 @@ function getSessionStatusLabel(session) {
 }
 
 function renderSessionTabs() {
-  const runningSessions = Array.from(sessions.values())
-    .filter((session) => session.isRunning)
-    .sort((left, right) => right.createdAt - left.createdAt);
+  const allSessions = Array.from(sessions.values()).sort(
+    (left, right) => right.createdAt - left.createdAt,
+  );
 
-  if (runningSessions.length === 0) {
+  if (allSessions.length === 0) {
     sessionTabsList.innerHTML =
-      '<p class="status-meta">No running sessions</p>';
+      '<p class="status-meta">No sessions</p>';
     return;
   }
 
-  const tabs = runningSessions
+  const tabs = allSessions
     .map((session) => {
       const attention = deriveAttentionStatus(session);
       const procs = sessionProcesses.get(session.id) || [];
@@ -930,6 +933,24 @@ function renderSessionTabs() {
         procs.length > 0
           ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
           : "";
+
+      if (!session.isRunning) {
+        return `
+          <div class="session-tab-group ${isActive ? "active" : ""}">
+            <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
+              <div class="session-tab-top">
+                <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
+                <p class="session-tab-id">#${shortId(session.id)}</p>
+              </div>
+              <p class="session-tab-attention">${attention.label}</p>
+            </button>
+            <div class="session-tab-actions">
+              <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
+              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
+            </div>
+          </div>
+        `;
+      }
 
       return `
         <button type="button" class="session-tab ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">
@@ -1045,9 +1066,12 @@ function updateSessions(payload) {
   sessions.clear();
   for (const session of payload) {
     sessions.set(session.id, session);
+    const priorBuffer = sessionBuffers.get(session.id) || "";
+    const incomingBuffer =
+      typeof session.outputBuffer === "string" ? session.outputBuffer : null;
     sessionBuffers.set(
       session.id,
-      session.outputBuffer || sessionBuffers.get(session.id) || "",
+      incomingBuffer !== null ? incomingBuffer : priorBuffer,
     );
     rehydrateInsightFromBuffer(session);
   }
@@ -1264,6 +1288,10 @@ function toggleProcessPanel() {
   isProcessPanelOpen = !isProcessPanelOpen;
   toggleProcessPanelButton.classList.toggle("active", isProcessPanelOpen);
   renderProcessDetails(activeSessionId);
+
+  if (isProcessPanelOpen) {
+    pollSessionProcesses();
+  }
 }
 
 window.addEventListener("resize", () => {
@@ -1304,7 +1332,57 @@ function selectSessionFromSidebar(event) {
   }
 }
 
+async function restartSessionFromSidebar(sessionId) {
+  try {
+    const result = await window.agenticApp.restartSession(sessionId);
+    const session = result.session;
+
+    ensureSessionBuffer(session.id);
+    ensureSessionInsight(session.id);
+    createSessionTerminal(session.id);
+
+    setStatus("Running", `${getSessionDisplayName(session)} (${session.cwd})`);
+    openTerminalView(session.id);
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to restart session");
+  }
+}
+
+async function removeSessionFromSidebar(sessionId) {
+  try {
+    await window.agenticApp.removeSession(sessionId);
+    setStatus("Removed", "Session deleted");
+    if (activeSessionId === sessionId) {
+      showEmptyView(false);
+    }
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to remove session");
+  }
+}
+
 sessionTabsList.addEventListener("pointerdown", selectSessionFromSidebar);
+sessionTabsList.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const restartBtn = target.closest(".session-action-restart");
+  if (restartBtn?.dataset.sessionId) {
+    event.preventDefault();
+    event.stopPropagation();
+    restartSessionFromSidebar(restartBtn.dataset.sessionId);
+    return;
+  }
+
+  const removeBtn = target.closest(".session-action-remove");
+  if (removeBtn?.dataset.sessionId) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeSessionFromSidebar(removeBtn.dataset.sessionId);
+    return;
+  }
+});
 sessionTabsList.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     selectSessionFromSidebar(event);
@@ -1382,15 +1460,26 @@ async function pollSessionProcesses() {
   for (const [id, session] of sessions.entries()) {
     if (!session.isRunning) {
       sessionProcesses.delete(id);
-      continue;
     }
+  }
 
-    try {
-      const result = await window.agenticApp.getSessionProcesses(id);
-      sessionProcesses.set(id, result.processes || []);
-    } catch {
-      sessionProcesses.set(id, []);
-    }
+  if (!activeSessionId || !isProcessPanelOpen) {
+    scheduleUiRefresh();
+    return;
+  }
+
+  const activeSession = sessions.get(activeSessionId);
+  if (!activeSession?.isRunning) {
+    sessionProcesses.delete(activeSessionId);
+    scheduleUiRefresh();
+    return;
+  }
+
+  try {
+    const result = await window.agenticApp.getSessionProcesses(activeSessionId);
+    sessionProcesses.set(activeSessionId, result.processes || []);
+  } catch {
+    sessionProcesses.set(activeSessionId, []);
   }
 
   scheduleUiRefresh();

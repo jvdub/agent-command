@@ -181,6 +181,66 @@ textarea {
   color: var(--danger);
 }
 
+.session-tab-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.session-tab-group.active {
+  background: rgba(238, 108, 77, 0.12);
+}
+
+.stopped-tab {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  padding: 8px;
+  opacity: 0.7;
+}
+
+.stopped-tab.active {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.session-tab-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.session-action-restart,
+.session-action-remove {
+  flex: 1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.session-action-restart:hover {
+  background: rgba(111, 211, 159, 0.2);
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.session-action-remove:hover {
+  background: rgba(223, 134, 116, 0.2);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .launch-popover {
   position: absolute;
   top: 64px;

@@ -7,6 +7,76 @@ const pty = require("node-pty");
 let mainWindow;
 const sessions = new Map();
 const manualTerminals = new Map();
+const sessionStoreFile = path.join(app.getPath("userData"), "sessions.json");
+
+function getSessionStoreFile() {
+  return path.join(app.getPath("userData"), "sessions.json");
+}
+
+function ensureSessionStoreDir() {
+  const dir = path.dirname(getSessionStoreFile());
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function loadSessionsFromDisk() {
+  try {
+    const storeFile = getSessionStoreFile();
+    if (fs.existsSync(storeFile)) {
+      const data = fs.readFileSync(storeFile, "utf-8");
+      const stored = JSON.parse(data);
+      if (Array.isArray(stored)) {
+        for (const sessionData of stored) {
+          sessions.set(sessionData.id, {
+            id: sessionData.id,
+            ptyProcess: null,
+            label: sessionData.label,
+            cwd: sessionData.cwd,
+            command: sessionData.command,
+            args: sessionData.args || [],
+            outputBuffer: sessionData.outputBuffer || "",
+            createdAt: sessionData.createdAt,
+            isRunning: false,
+            endedAt: sessionData.endedAt || null,
+            exitCode: sessionData.exitCode || null,
+            signal: sessionData.signal || null,
+            dispose() {},
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load sessions from disk:", error);
+  }
+}
+
+function saveSessionsToDisk() {
+  try {
+    ensureSessionStoreDir();
+    const sessionArray = Array.from(sessions.values()).map((session) => ({
+      id: session.id,
+      label: session.label,
+      cwd: session.cwd,
+      command: session.command,
+      args: session.args,
+      outputBuffer: session.outputBuffer,
+      createdAt: session.createdAt,
+      isRunning: session.isRunning,
+      endedAt: session.endedAt,
+      exitCode: session.exitCode,
+      signal: session.signal,
+    }));
+    fs.writeFileSync(getSessionStoreFile(), JSON.stringify(sessionArray, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Failed to save sessions to disk:", error);
+  }
+}
+
+function deleteSessionFromDisk(sessionId) {
+  sessions.delete(sessionId);
+  saveSessionsToDisk();
+}
 
 function resolveInitialDirectory() {
   const candidate = process.argv
@@ -434,11 +504,14 @@ async function ensureWorkingDirectory(requestedPath) {
 function startSession(options, cwd) {
   const command = options.command.trim();
   const label = options.label?.trim() || "";
-  const args = splitArgs(options.args || "");
+  const args = Array.isArray(options.argsArray)
+    ? options.argsArray
+    : splitArgs(options.args || "");
   const cols = Number.isFinite(options.cols) ? options.cols : 120;
   const rows = Number.isFinite(options.rows) ? options.rows : 36;
-  const id = createSessionId();
-  const createdAt = Date.now();
+  const id = options.sessionId || createSessionId();
+  const createdAt =
+    typeof options.createdAt === "number" ? options.createdAt : Date.now();
 
   const ptyProcess = pty.spawn(command, args, {
     name: "xterm-256color",
@@ -487,6 +560,7 @@ function startSession(options, cwd) {
 
       session.dispose();
       stopManualTerminalBySessionId(id);
+      saveSessionsToDisk();
       publishSessionsChanged();
     }),
   );
@@ -515,12 +589,14 @@ function startSession(options, cwd) {
   };
 
   sessions.set(id, session);
+  saveSessionsToDisk();
   publishSessionsChanged();
 
   return buildSessionSummary(session);
 }
 
 app.whenReady().then(() => {
+  loadSessionsFromDisk();
   createWindow();
 
   app.on("activate", () => {
@@ -583,6 +659,46 @@ ipcMain.handle("session:stop", async (_event, sessionId) => {
 
   const stopped = stopSessionById(sessionId);
   return { stopped };
+});
+
+ipcMain.handle("session:restart", async (_event, sessionId) => {
+  const session = sessions.get(sessionId);
+  if (!session || session.isRunning) {
+    throw new Error("Cannot restart a running session or nonexistent session.");
+  }
+
+  const restartedSession = startSession(
+    {
+      label: session.label,
+      command: session.command,
+      argsArray: session.args,
+      cwd: session.cwd,
+      sessionId: session.id,
+      createdAt: session.createdAt,
+    },
+    session.cwd,
+  );
+
+  return {
+    session: restartedSession,
+    shell: shellForPlatform(),
+    homeDirectory: os.homedir(),
+  };
+});
+
+ipcMain.handle("session:remove", async (_event, sessionId) => {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error("Session not found.");
+  }
+
+  if (session.isRunning) {
+    stopSessionById(sessionId);
+  }
+
+  deleteSessionFromDisk(sessionId);
+  publishSessionsChanged();
+  return { removed: true };
 });
 
 ipcMain.handle("session:write", async (_event, payload) => {
