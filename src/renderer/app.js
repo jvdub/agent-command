@@ -567,7 +567,9 @@ function deriveAttentionStatus(session) {
 
 function isClipboardShortcut(event, key) {
   const pressedKey = String(event.key || "").toLowerCase();
-  return (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key;
+  return (
+    (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key
+  );
 }
 
 async function copyTerminalSelection(terminal) {
@@ -918,8 +920,7 @@ function renderSessionTabs() {
   );
 
   if (allSessions.length === 0) {
-    sessionTabsList.innerHTML =
-      '<p class="status-meta">No sessions</p>';
+    sessionTabsList.innerHTML = '<p class="status-meta">No sessions</p>';
     return;
   }
 

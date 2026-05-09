@@ -6,7 +6,8 @@ contextBridge.exposeInMainWorld("agenticApp", {
   startSession: (options) => ipcRenderer.invoke("session:start", options),
   listSessions: () => ipcRenderer.invoke("sessions:list"),
   stopSession: (sessionId) => ipcRenderer.invoke("session:stop", sessionId),
-  restartSession: (sessionId) => ipcRenderer.invoke("session:restart", sessionId),
+  restartSession: (sessionId) =>
+    ipcRenderer.invoke("session:restart", sessionId),
   removeSession: (sessionId) => ipcRenderer.invoke("session:remove", sessionId),
   writeToSession: (sessionId, input) =>
     ipcRenderer.invoke("session:write", { sessionId, input }),

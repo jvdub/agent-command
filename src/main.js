@@ -67,7 +67,11 @@ function saveSessionsToDisk() {
       exitCode: session.exitCode,
       signal: session.signal,
     }));
-    fs.writeFileSync(getSessionStoreFile(), JSON.stringify(sessionArray, null, 2), "utf-8");
+    fs.writeFileSync(
+      getSessionStoreFile(),
+      JSON.stringify(sessionArray, null, 2),
+      "utf-8",
+    );
   } catch (error) {
     console.error("Failed to save sessions to disk:", error);
   }
