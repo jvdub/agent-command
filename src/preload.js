@@ -1,7 +1,13 @@
 const { clipboard, contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("agenticApp", {
-  getContext: () => ipcRenderer.invoke("app:getContext"),
+  getContext: async () => {
+    const context = await ipcRenderer.invoke("app:getContext");
+    return {
+      ...context,
+      processInspectionSupported: context?.processInspectionSupported !== false,
+    };
+  },
   pickDirectory: () => ipcRenderer.invoke("dialog:pickDirectory"),
   startSession: (options) => ipcRenderer.invoke("session:start", options),
   listSessions: () => ipcRenderer.invoke("sessions:list"),
@@ -17,8 +23,18 @@ contextBridge.exposeInMainWorld("agenticApp", {
       cols: size.cols,
       rows: size.rows,
     }),
-  getSessionProcesses: (sessionId) =>
-    ipcRenderer.invoke("session:processes", sessionId),
+  getSessionProcesses: async (sessionId) => {
+    const result = await ipcRenderer.invoke("session:processes", sessionId);
+
+    if (Array.isArray(result)) {
+      return { processes: result, supported: true };
+    }
+
+    return {
+      processes: Array.isArray(result?.processes) ? result.processes : [],
+      supported: result?.supported !== false,
+    };
+  },
   ensureManualTerminal: (sessionId) =>
     ipcRenderer.invoke("manual-terminal:ensure", sessionId),
   writeToManualTerminal: (sessionId, input) =>

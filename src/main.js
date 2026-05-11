@@ -1,8 +1,12 @@
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const pty = require("node-pty");
+
+const execFileAsync = promisify(execFile);
 
 let mainWindow;
 const sessions = new Map();
@@ -176,6 +180,43 @@ function splitArgs(value) {
   return result;
 }
 
+function quoteWindowsCmdArg(value) {
+  const text = String(value || "");
+  if (!text) {
+    return '""';
+  }
+
+  if (!/[\s"^&|<>()%!]/.test(text)) {
+    return text;
+  }
+
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildWindowsCommandLine(command, args) {
+  return [command, ...args].map(quoteWindowsCmdArg).join(" ");
+}
+
+function spawnSessionPty(command, args, options) {
+  try {
+    return pty.spawn(command, args, options);
+  } catch (error) {
+    const shouldFallback =
+      process.platform === "win32" &&
+      error &&
+      (error.code === "ENOENT" || /not found/i.test(String(error.message)));
+
+    if (!shouldFallback) {
+      throw error;
+    }
+
+    // On Windows, many CLI tools are installed as .cmd shims and require cmd.exe resolution.
+    const comspec = process.env.COMSPEC || "cmd.exe";
+    const commandLine = buildWindowsCommandLine(command, args);
+    return pty.spawn(comspec, ["/d", "/s", "/c", commandLine], options);
+  }
+}
+
 function sendToRenderer(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
@@ -185,6 +226,9 @@ function sendToRenderer(channel, payload) {
 }
 
 // --- Process tree (Linux /proc) ---
+
+const PROCESS_INSPECTION_CACHE_TTL_MS = 1500;
+const processInspectionCache = new Map();
 
 function readProcFile(pid, file) {
   try {
@@ -206,8 +250,14 @@ function getProcessInfo(pid) {
     .trim()
     .slice(0, 480);
   const stat = readProcFile(pid, "stat");
-  const state = stat ? stat.split(" ")[2] : "?";
-  return { pid, comm, cmdline: cmdline || comm, state };
+  const statData = parseLinuxStat(stat);
+  return {
+    pid,
+    ppid: statData.ppid,
+    comm,
+    cmdline: cmdline || comm,
+    state: statData.state,
+  };
 }
 
 function collectDescendants(pid, depth = 0) {
@@ -221,6 +271,175 @@ function collectDescendants(pid, depth = 0) {
     }
   }
   return results;
+}
+
+function parseLinuxStat(stat) {
+  if (!stat) {
+    return { state: "?", ppid: 0 };
+  }
+
+  const markerIndex = stat.lastIndexOf(") ");
+  if (markerIndex === -1) {
+    return { state: "?", ppid: 0 };
+  }
+
+  const tail = stat.slice(markerIndex + 2).trim();
+  const parts = tail.split(/\s+/);
+  const state = parts[0] || "?";
+  const ppid = Number(parts[1]) || 0;
+  return { state, ppid };
+}
+
+function normalizeProviderProcess(processInfo, depth) {
+  return {
+    pid: Number(processInfo.pid) || 0,
+    ppid: Number(processInfo.ppid) || 0,
+    comm: (processInfo.comm || "").trim(),
+    cmdline: (processInfo.cmdline || "").trim(),
+    state: ((processInfo.state || "?").trim()[0] || "?").toUpperCase(),
+    depth,
+  };
+}
+
+function buildDescendantsFromFlatList(flatProcesses, rootPid) {
+  const childrenByParent = new Map();
+
+  for (const processInfo of flatProcesses) {
+    const parentPid = Number(processInfo.ppid) || 0;
+    const childList = childrenByParent.get(parentPid) || [];
+    childList.push(processInfo);
+    childrenByParent.set(parentPid, childList);
+  }
+
+  const descendants = [];
+  const queue = (childrenByParent.get(rootPid) || []).map((processInfo) => ({
+    processInfo,
+    depth: 0,
+  }));
+  const seen = new Set();
+
+  while (queue.length) {
+    const { processInfo, depth } = queue.shift();
+    const pid = Number(processInfo.pid) || 0;
+
+    if (!pid || seen.has(pid)) {
+      continue;
+    }
+
+    seen.add(pid);
+    descendants.push(normalizeProviderProcess(processInfo, depth));
+
+    const children = childrenByParent.get(pid) || [];
+    for (const child of children) {
+      queue.push({ processInfo: child, depth: depth + 1 });
+    }
+  }
+
+  return descendants;
+}
+
+async function listMacProcesses() {
+  const { stdout } = await execFileAsync(
+    "ps",
+    ["-axo", "pid=,ppid=,state=,comm=,command="],
+    { maxBuffer: 8 * 1024 * 1024 },
+  );
+
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s*(.*)$/);
+      if (!match) {
+        return null;
+      }
+
+      const [, pid, ppid, state, comm, cmdline] = match;
+      return {
+        pid: Number(pid),
+        ppid: Number(ppid),
+        comm,
+        cmdline: cmdline || comm,
+        state,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function listWindowsProcesses() {
+  const command =
+    "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress";
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", command],
+    { maxBuffer: 16 * 1024 * 1024 },
+  );
+
+  const raw = stdout.trim();
+  if (!raw) {
+    return [];
+  }
+
+  const parsed = JSON.parse(raw);
+  const entries = Array.isArray(parsed) ? parsed : [parsed];
+
+  return entries.map((entry) => ({
+    pid: Number(entry.ProcessId) || 0,
+    ppid: Number(entry.ParentProcessId) || 0,
+    comm: (entry.Name || "").trim(),
+    cmdline: (entry.CommandLine || entry.Name || "").trim(),
+    state: "?",
+  }));
+}
+
+const PROCESS_PROVIDERS = {
+  linux: {
+    supported: true,
+    async listDescendants(rootPid) {
+      return collectDescendants(rootPid);
+    },
+  },
+  darwin: {
+    supported: true,
+    async listDescendants(rootPid) {
+      const flatProcesses = await listMacProcesses();
+      return buildDescendantsFromFlatList(flatProcesses, rootPid);
+    },
+  },
+  win32: {
+    supported: true,
+    async listDescendants(rootPid) {
+      const flatProcesses = await listWindowsProcesses();
+      return buildDescendantsFromFlatList(flatProcesses, rootPid);
+    },
+  },
+};
+
+function getCachedProcessInspection(cacheKey) {
+  const cached = processInspectionCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.timestamp > PROCESS_INSPECTION_CACHE_TTL_MS) {
+    processInspectionCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.value;
+}
+
+function setCachedProcessInspection(cacheKey, value) {
+  processInspectionCache.set(cacheKey, {
+    timestamp: Date.now(),
+    value,
+  });
+}
+
+function isProcessInspectionSupported() {
+  const provider = PROCESS_PROVIDERS[process.platform];
+  return Boolean(provider && provider.supported);
 }
 
 // Names that are just plumbing and not interesting to surface
@@ -259,16 +478,12 @@ function isCopilotInternalProcess(session, processInfo) {
   );
 }
 
-function getSessionChildProcesses(sessionId) {
-  const session = sessions.get(sessionId);
-  if (!session || !session.isRunning || !session.ptyProcess?.pid) {
-    return [];
-  }
+function filterSessionChildProcesses(session, ptyPid, all) {
+  const normalized = all.map((processInfo) =>
+    normalizeProviderProcess(processInfo, processInfo.depth || 0),
+  );
 
-  const ptyPid = session.ptyProcess.pid;
-  const all = collectDescendants(ptyPid);
-
-  const visible = all.filter((p) => {
+  const visible = normalized.filter((p) => {
     if (p.state === "Z") return false;
     if (p.pid === ptyPid) return false;
     if (BORING_PROCESSES.has(p.comm)) return false;
@@ -316,6 +531,41 @@ function getSessionChildProcesses(sessionId) {
     seen.add(key);
     return true;
   });
+}
+
+async function getSessionChildProcesses(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.isRunning || !session.ptyProcess?.pid) {
+    return { processes: [], supported: isProcessInspectionSupported() };
+  }
+
+  const provider = PROCESS_PROVIDERS[process.platform];
+  if (!provider || !provider.supported) {
+    return { processes: [], supported: false };
+  }
+
+  const ptyPid = session.ptyProcess.pid;
+  const cacheKey = `${process.platform}:${ptyPid}`;
+  const cached = getCachedProcessInspection(cacheKey);
+  if (cached) {
+    return {
+      processes: filterSessionChildProcesses(session, ptyPid, cached),
+      supported: true,
+    };
+  }
+
+  try {
+    const all = await provider.listDescendants(ptyPid);
+    setCachedProcessInspection(cacheKey, all);
+
+    return {
+      processes: filterSessionChildProcesses(session, ptyPid, all),
+      supported: true,
+    };
+  } catch (error) {
+    console.warn("Process inspection provider failed:", error);
+    return { processes: [], supported: false };
+  }
 }
 
 function createSessionId() {
@@ -517,7 +767,7 @@ function startSession(options, cwd) {
   const createdAt =
     typeof options.createdAt === "number" ? options.createdAt : Date.now();
 
-  const ptyProcess = pty.spawn(command, args, {
+  const ptyOptions = {
     name: "xterm-256color",
     cols,
     rows,
@@ -528,7 +778,9 @@ function startSession(options, cwd) {
       COLORTERM: "truecolor",
       ELECTRON_RUN_AS_NODE: undefined,
     },
-  });
+  };
+
+  const ptyProcess = spawnSessionPty(command, args, ptyOptions);
 
   const cleanup = [];
 
@@ -636,6 +888,7 @@ ipcMain.handle("app:getContext", async () => ({
   homeDirectory: os.homedir(),
   shell: shellForPlatform(),
   platform: process.platform,
+  processInspectionSupported: isProcessInspectionSupported(),
 }));
 
 ipcMain.handle("session:start", async (_event, options) => {
@@ -644,12 +897,23 @@ ipcMain.handle("session:start", async (_event, options) => {
   }
 
   const cwd = await ensureWorkingDirectory(options.cwd);
-  const session = startSession(options, cwd);
-  return {
-    session,
-    shell: shellForPlatform(),
-    homeDirectory: os.homedir(),
-  };
+  try {
+    const session = startSession(options, cwd);
+    return {
+      session,
+      shell: shellForPlatform(),
+      homeDirectory: os.homedir(),
+    };
+  } catch (error) {
+    const message = String(error?.message || "Unable to start session.");
+    if (process.platform === "win32" && /not found|enoent/i.test(message)) {
+      throw new Error(
+        `Command not found: ${options.command.trim()}. On Windows, confirm the CLI is installed and available in PATH for this app process.`,
+      );
+    }
+
+    throw error;
+  }
 });
 
 ipcMain.handle("sessions:list", async () => ({
@@ -742,10 +1006,13 @@ ipcMain.handle("session:resize", async (_event, payload) => {
 
 ipcMain.handle("session:processes", async (_event, sessionId) => {
   if (!sessionId) {
-    return { processes: [] };
+    return {
+      processes: [],
+      supported: isProcessInspectionSupported(),
+    };
   }
 
-  return { processes: getSessionChildProcesses(sessionId) };
+  return getSessionChildProcesses(sessionId);
 });
 
 ipcMain.handle("manual-terminal:ensure", async (_event, sessionId) => {

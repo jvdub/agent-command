@@ -210,6 +210,9 @@ const sessionTerminals = new Map();
 const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
+const capabilities = {
+  processInspectionSupported: true,
+};
 
 let activeSessionId = null;
 let refreshScheduled = false;
@@ -217,6 +220,23 @@ let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
 let activeWorkspaceTab = "agent";
 let terminalContextTarget = null;
+
+function setProcessInspectionSupport(supported) {
+  const isSupported = supported !== false;
+  capabilities.processInspectionSupported = isSupported;
+
+  toggleProcessPanelButton.classList.toggle("hidden", !isSupported);
+  toggleProcessPanelButton.disabled = !isSupported;
+
+  if (!isSupported) {
+    isProcessPanelOpen = false;
+    toggleProcessPanelButton.classList.remove("active");
+    processDetailsPanel.classList.add("hidden");
+    return;
+  }
+
+  renderProcessDetails(activeSessionId);
+}
 
 function setStatus(label, meta) {
   sessionStatus.textContent = label;
@@ -997,6 +1017,11 @@ function renderTerminalHeader(session) {
 }
 
 function renderProcessDetails(sessionId) {
+  if (!capabilities.processInspectionSupported) {
+    processDetailsPanel.classList.add("hidden");
+    return;
+  }
+
   if (!isProcessPanelOpen || !sessionId) {
     processDetailsPanel.classList.add("hidden");
     return;
@@ -1179,6 +1204,7 @@ async function resizeManualTerminal() {
 
 async function initializeContext() {
   const context = await window.agenticApp.getContext();
+  setProcessInspectionSupport(context.processInspectionSupported);
   cwdInput.value = context.cwd;
   setStatus("Idle", `Default directory ${context.cwd}`);
 
@@ -1286,6 +1312,10 @@ function toggleSessionPopover(forceOpen = null) {
 }
 
 function toggleProcessPanel() {
+  if (!capabilities.processInspectionSupported) {
+    return;
+  }
+
   isProcessPanelOpen = !isProcessPanelOpen;
   toggleProcessPanelButton.classList.toggle("active", isProcessPanelOpen);
   renderProcessDetails(activeSessionId);
@@ -1458,6 +1488,10 @@ async function pollSessionProcesses() {
     return;
   }
 
+  if (!capabilities.processInspectionSupported) {
+    return;
+  }
+
   for (const [id, session] of sessions.entries()) {
     if (!session.isRunning) {
       sessionProcesses.delete(id);
@@ -1478,7 +1512,16 @@ async function pollSessionProcesses() {
 
   try {
     const result = await window.agenticApp.getSessionProcesses(activeSessionId);
-    sessionProcesses.set(activeSessionId, result.processes || []);
+
+    if (result?.supported === false) {
+      setProcessInspectionSupport(false);
+      sessionProcesses.delete(activeSessionId);
+      scheduleUiRefresh();
+      return;
+    }
+
+    setProcessInspectionSupport(result?.supported);
+    sessionProcesses.set(activeSessionId, result?.processes || []);
   } catch {
     sessionProcesses.set(activeSessionId, []);
   }
