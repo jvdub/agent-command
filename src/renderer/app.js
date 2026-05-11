@@ -49,9 +49,48 @@ const terminalContextPasteButton = document.querySelector(
 const terminalContextClearButton = document.querySelector(
   "#terminal-context-clear",
 );
+const agentFileLinks = document.querySelector("#agent-file-links");
+const agentFileLinksList = document.querySelector("#agent-file-links-list");
+const fileEditorModal = document.querySelector("#file-editor-modal");
+const fileEditorBackdrop = document.querySelector("#file-editor-backdrop");
+const fileEditorPath = document.querySelector("#file-editor-path");
+const fileEditorStatus = document.querySelector("#file-editor-status");
+const fileEditorAutosave = document.querySelector("#file-editor-autosave");
+const fileEditorSaveButton = document.querySelector("#file-editor-save");
+const fileEditorCloseButton = document.querySelector("#file-editor-close");
+const fileEditorSurface = document.querySelector("#file-editor-surface");
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
+const FILE_REFERENCE_LIMIT = 24;
+const AUTOSAVE_DELAY_MS = 1000;
+const FILE_REFERENCE_PATTERN =
+  /(^|[\s("'`])((?:\.{1,2}\/|~\/|\/)?(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
+const LANGUAGE_BY_EXTENSION = {
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "typescript",
+  json: "json",
+  md: "markdown",
+  css: "css",
+  scss: "scss",
+  html: "html",
+  htm: "html",
+  yml: "yaml",
+  yaml: "yaml",
+  xml: "xml",
+  py: "python",
+  java: "java",
+  go: "go",
+  rs: "rust",
+  sh: "shell",
+  toml: "ini",
+};
 
 const PERMISSION_PATTERNS = [
   // Explicit confirmation prompts
@@ -210,6 +249,7 @@ const sessionTerminals = new Map();
 const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
+const sessionFileReferences = new Map();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -220,6 +260,20 @@ let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
 let activeWorkspaceTab = "agent";
 let terminalContextTarget = null;
+let monacoEditor = null;
+let monacoApi = null;
+let monacoLoaderPromise = null;
+let editorModel = null;
+let autosaveTimeoutId = null;
+let suppressEditorChange = false;
+let editorState = {
+  open: false,
+  sessionId: null,
+  filePath: "",
+  relativePath: "",
+  dirty: false,
+  autosave: false,
+};
 
 function setProcessInspectionSupport(supported) {
   const isSupported = supported !== false;
@@ -321,6 +375,294 @@ function stripAnsi(value) {
       // Remaining bare ESC
       .replace(/\u001b/g, "")
   );
+}
+
+function normalizeCandidateFilePath(candidate) {
+  if (!candidate) {
+    return "";
+  }
+
+  return candidate
+    .trim()
+    .replace(/^['"`[(]+/, "")
+    .replace(/[)'"`\],.;:!?]+$/, "");
+}
+
+function collectFileReferences(rawChunk) {
+  const plainText = stripAnsi(rawChunk);
+  const refs = [];
+  let match;
+
+  while ((match = FILE_REFERENCE_PATTERN.exec(plainText)) !== null) {
+    const normalized = normalizeCandidateFilePath(match[2]);
+    if (!normalized) {
+      continue;
+    }
+
+    refs.push({
+      filePath: normalized,
+      line: match[3] ? Number(match[3]) : null,
+    });
+  }
+
+  FILE_REFERENCE_PATTERN.lastIndex = 0;
+  return refs;
+}
+
+function ensureSessionFileReferences(sessionId) {
+  if (!sessionFileReferences.has(sessionId)) {
+    sessionFileReferences.set(sessionId, []);
+  }
+
+  return sessionFileReferences.get(sessionId);
+}
+
+function ingestFileReferences(sessionId, rawChunk) {
+  const found = collectFileReferences(rawChunk);
+  if (found.length === 0) {
+    return;
+  }
+
+  const existing = ensureSessionFileReferences(sessionId);
+  const byPath = new Map(existing.map((entry) => [entry.filePath, entry]));
+
+  for (const ref of found) {
+    byPath.set(ref.filePath, {
+      filePath: ref.filePath,
+      line: Number.isInteger(ref.line) ? ref.line : null,
+      updatedAt: Date.now(),
+    });
+  }
+
+  const sorted = Array.from(byPath.values())
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, FILE_REFERENCE_LIMIT);
+
+  sessionFileReferences.set(sessionId, sorted);
+}
+
+function renderSessionFileReferences(sessionId) {
+  if (!sessionId) {
+    agentFileLinks.classList.add("hidden");
+    agentFileLinksList.innerHTML = "";
+    return;
+  }
+
+  const refs = sessionFileReferences.get(sessionId) || [];
+  if (refs.length === 0) {
+    agentFileLinks.classList.add("hidden");
+    agentFileLinksList.innerHTML = "";
+    return;
+  }
+
+  const chips = refs
+    .map((ref) => {
+      const suffix = Number.isInteger(ref.line) ? `:${ref.line}` : "";
+      return `
+        <button
+          type="button"
+          class="agent-file-chip"
+          data-file-path="${escapeHtml(ref.filePath)}"
+          data-file-line="${Number.isInteger(ref.line) ? ref.line : ""}"
+          title="Open ${escapeHtml(ref.filePath)}"
+        >${escapeHtml(ref.filePath)}${suffix}</button>
+      `;
+    })
+    .join("");
+
+  agentFileLinksList.innerHTML = chips;
+  agentFileLinks.classList.remove("hidden");
+}
+
+function extensionForPath(filePath) {
+  const ext = String(filePath || "")
+    .split(".")
+    .pop()
+    .toLowerCase();
+  return ext;
+}
+
+function languageForPath(filePath) {
+  return LANGUAGE_BY_EXTENSION[extensionForPath(filePath)] || "plaintext";
+}
+
+function setEditorStatus(message) {
+  fileEditorStatus.textContent = message;
+}
+
+function setEditorDirtyState(isDirty) {
+  editorState.dirty = Boolean(isDirty);
+  if (editorState.dirty) {
+    setEditorStatus("Unsaved changes");
+  }
+}
+
+function closeFileEditorModal(force = false) {
+  if (!editorState.open) {
+    return true;
+  }
+
+  if (editorState.dirty && !force) {
+    const shouldDiscard = window.confirm(
+      "Discard unsaved changes in the file editor?",
+    );
+    if (!shouldDiscard) {
+      return false;
+    }
+  }
+
+  fileEditorModal.classList.add("hidden");
+  fileEditorModal.setAttribute("aria-hidden", "true");
+  editorState.open = false;
+
+  if (autosaveTimeoutId) {
+    window.clearTimeout(autosaveTimeoutId);
+    autosaveTimeoutId = null;
+  }
+
+  if (activeWorkspaceTab === "terminal") {
+    const manual = getActiveManualTerminalInstance();
+    manual?.terminal.focus();
+  } else {
+    const agent = getActiveTerminalInstance();
+    agent?.terminal.focus();
+  }
+
+  return true;
+}
+
+function ensureMonacoEditor() {
+  if (monacoEditor && monacoApi) {
+    return Promise.resolve(monacoApi);
+  }
+
+  if (monacoLoaderPromise) {
+    return monacoLoaderPromise;
+  }
+
+  monacoLoaderPromise = new Promise((resolve, reject) => {
+    if (!window.require) {
+      reject(new Error("Monaco loader is unavailable."));
+      return;
+    }
+
+    window.require.config({
+      paths: {
+        vs: "../../node_modules/monaco-editor/min/vs",
+      },
+    });
+
+    window.require(
+      ["vs/editor/editor.main"],
+      () => {
+        monacoApi = window.monaco;
+        monacoEditor = monacoApi.editor.create(fileEditorSurface, {
+          value: "",
+          language: "plaintext",
+          automaticLayout: true,
+          minimap: { enabled: true },
+          fontSize: 13,
+          theme: "vs-dark",
+        });
+
+        monacoEditor.onDidChangeModelContent(() => {
+          if (suppressEditorChange || !editorState.open) {
+            return;
+          }
+
+          setEditorDirtyState(true);
+
+          if (!editorState.autosave) {
+            return;
+          }
+
+          if (autosaveTimeoutId) {
+            window.clearTimeout(autosaveTimeoutId);
+          }
+
+          autosaveTimeoutId = window.setTimeout(() => {
+            autosaveTimeoutId = null;
+            saveOpenEditorFile("Auto-saved");
+          }, AUTOSAVE_DELAY_MS);
+        });
+
+        resolve(monacoApi);
+      },
+      reject,
+    );
+  });
+
+  return monacoLoaderPromise;
+}
+
+async function saveOpenEditorFile(successLabel = "Saved") {
+  if (!editorState.open || !editorState.sessionId || !editorState.filePath) {
+    return;
+  }
+
+  if (!monacoEditor) {
+    return;
+  }
+
+  try {
+    fileEditorSaveButton.disabled = true;
+    const content = monacoEditor.getValue();
+    await window.agenticApp.saveWorkspaceFile(
+      editorState.sessionId,
+      editorState.filePath,
+      content,
+    );
+    editorState.dirty = false;
+    setEditorStatus(`${successLabel} ${editorState.relativePath}`);
+    setStatus("Saved", editorState.relativePath);
+  } catch (error) {
+    setEditorStatus(error.message || "Unable to save file");
+    setStatus("Error", error.message || "Unable to save file");
+  } finally {
+    fileEditorSaveButton.disabled = false;
+  }
+}
+
+async function openReferencedFile(sessionId, filePath, lineNumber = null) {
+  try {
+    const file = await window.agenticApp.openWorkspaceFile(sessionId, filePath);
+    await ensureMonacoEditor();
+
+    suppressEditorChange = true;
+
+    if (editorModel) {
+      editorModel.dispose();
+      editorModel = null;
+    }
+
+    const language = languageForPath(file.relativePath);
+    const safeRelativePath = file.relativePath.replace(/\\/g, "/");
+    const uri = monacoApi.Uri.parse(`inmemory://workspace/${safeRelativePath}`);
+    editorModel = monacoApi.editor.createModel(file.content, language, uri);
+    monacoEditor.setModel(editorModel);
+    monacoEditor.setScrollTop(0);
+
+    if (Number.isInteger(lineNumber) && lineNumber > 0) {
+      monacoEditor.revealLineInCenter(lineNumber);
+      monacoEditor.setPosition({ lineNumber, column: 1 });
+    }
+
+    fileEditorPath.textContent = file.relativePath;
+    fileEditorModal.classList.remove("hidden");
+    fileEditorModal.setAttribute("aria-hidden", "false");
+    editorState.open = true;
+    editorState.sessionId = sessionId;
+    editorState.filePath = filePath;
+    editorState.relativePath = file.relativePath;
+    editorState.dirty = false;
+
+    setEditorStatus(`Opened ${file.relativePath}`);
+    monacoEditor.focus();
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to open referenced file");
+  } finally {
+    suppressEditorChange = false;
+  }
 }
 
 function ensureSessionBuffer(sessionId) {
@@ -901,6 +1243,7 @@ function refreshVisibleUi() {
   updateManualTerminalSubtitle(active);
   setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
+  renderSessionFileReferences(active.id);
 }
 
 function scheduleUiRefresh() {
@@ -1006,6 +1349,7 @@ function showEmptyView(shouldRefresh = true) {
   workspaceTabTerminalButton.setAttribute("aria-selected", "false");
   agentPane.classList.remove("hidden");
   manualPane.classList.add("hidden");
+  renderSessionFileReferences(null);
   if (shouldRefresh) {
     refreshVisibleUi();
   }
@@ -1055,6 +1399,13 @@ function renderProcessDetails(sessionId) {
 }
 
 async function openTerminalView(sessionId) {
+  if (editorState.open && activeSessionId && activeSessionId !== sessionId) {
+    const closed = closeFileEditorModal();
+    if (!closed) {
+      return;
+    }
+  }
+
   const session = sessions.get(sessionId);
   if (!session) {
     return;
@@ -1080,6 +1431,7 @@ function updateSessions(payload) {
       sessionProcesses.delete(existingId);
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
+      sessionFileReferences.delete(existingId);
       manualTerminalBuffers.delete(existingId);
       const manualInstance = manualTerminals.get(existingId);
       if (manualInstance) {
@@ -1103,6 +1455,7 @@ function updateSessions(payload) {
   }
 
   if (activeSessionId && !sessions.has(activeSessionId)) {
+    closeFileEditorModal(true);
     showEmptyView(false);
   }
 
@@ -1116,10 +1469,15 @@ function bindGlobalEvents() {
   window.agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
     appendSessionBuffer(sessionId, data);
+    ingestFileReferences(sessionId, data);
 
     const instance = sessionTerminals.get(sessionId);
     if (instance) {
       instance.terminal.write(data);
+    }
+
+    if (activeSessionId === sessionId) {
+      renderSessionFileReferences(sessionId);
     }
 
     scheduleUiRefresh();
@@ -1420,6 +1778,21 @@ sessionTabsList.addEventListener("keydown", (event) => {
   }
 });
 
+agentFileLinksList.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const chip = target.closest(".agent-file-chip");
+  if (!chip?.dataset.filePath || !activeSessionId) {
+    return;
+  }
+
+  const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
+  openReferencedFile(activeSessionId, chip.dataset.filePath, fileLine);
+});
+
 document.addEventListener("click", (event) => {
   if (
     !terminalContextMenu.classList.contains("hidden") &&
@@ -1445,8 +1818,48 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (
+    editorState.open &&
+    (event.key === "s" || event.key === "S") &&
+    (event.ctrlKey || event.metaKey)
+  ) {
+    event.preventDefault();
+    saveOpenEditorFile("Saved");
+    return;
+  }
+
   if (event.key === "Escape") {
+    if (editorState.open) {
+      closeFileEditorModal();
+      return;
+    }
+
     closeTerminalContextMenu();
+  }
+});
+
+fileEditorSaveButton.addEventListener("click", () => {
+  saveOpenEditorFile("Saved");
+});
+
+fileEditorCloseButton.addEventListener("click", () => {
+  closeFileEditorModal();
+});
+
+fileEditorBackdrop.addEventListener("click", () => {
+  closeFileEditorModal();
+});
+
+fileEditorAutosave.addEventListener("change", () => {
+  editorState.autosave = fileEditorAutosave.checked;
+  window.localStorage.setItem(
+    "agentic-command-editor-autosave",
+    editorState.autosave ? "1" : "0",
+  );
+
+  if (!editorState.autosave && autosaveTimeoutId) {
+    window.clearTimeout(autosaveTimeoutId);
+    autosaveTimeoutId = null;
   }
 });
 
@@ -1473,6 +1886,9 @@ terminalContextClearButton.addEventListener("click", async () => {
 
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
+editorState.autosave =
+  window.localStorage.getItem("agentic-command-editor-autosave") === "1";
+fileEditorAutosave.checked = editorState.autosave;
 bindGlobalEvents();
 showEmptyView();
 initializeContext().catch((error) => {

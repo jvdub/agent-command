@@ -704,6 +704,42 @@ button:disabled {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.agent-file-links {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.agent-file-links-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.agent-file-links-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 84px;
+  overflow-y: auto;
+}
+
+.agent-file-chip {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(238, 108, 77, 0.14);
+  border: 1px solid rgba(238, 108, 77, 0.24);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.agent-file-chip:hover {
+  background: rgba(238, 108, 77, 0.22);
+}
+
 .process-panel-header {
   display: flex;
   align-items: center;
@@ -813,6 +849,85 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
+.file-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+}
+
+.file-editor-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 8, 12, 0.68);
+  backdrop-filter: blur(3px);
+}
+
+.file-editor-dialog {
+  position: absolute;
+  inset: 6vh 7vw;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.file-editor-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-editor-title {
+  min-width: 0;
+}
+
+.file-editor-path {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 56vw;
+}
+
+.file-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.file-editor-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.file-editor-autosave input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.file-editor-meta-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-editor-surface {
+  flex: 1;
+  min-height: 0;
+}
+
 .terminal-context-action {
   border-radius: 10px;
   padding: 10px 12px;
@@ -871,5 +986,22 @@ button:disabled {
   .workspace-tab {
     width: 100%;
     text-align: center;
+  }
+
+  .file-editor-dialog {
+    inset: 3vh 3vw;
+  }
+
+  .file-editor-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .file-editor-actions {
+    justify-content: flex-start;
+  }
+
+  .file-editor-path {
+    max-width: 100%;
   }
 }

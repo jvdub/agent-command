@@ -170,6 +170,19 @@
               <div id="process-details-list" class="process-details-list"></div>
             </section>
 
+            <section id="agent-file-links" class="agent-file-links hidden">
+              <div class="agent-file-links-header">
+                <p class="status-label">Referenced Files</p>
+                <p class="status-meta">
+                  Click a file from agent output to open editor
+                </p>
+              </div>
+              <div
+                id="agent-file-links-list"
+                class="agent-file-links-list"
+              ></div>
+            </section>
+
             <div id="terminal" class="terminal"></div>
           </section>
 
@@ -198,17 +211,71 @@
     </div>
 
     <div id="terminal-context-menu" class="terminal-context-menu hidden">
-      <button type="button" id="terminal-context-copy" class="terminal-context-action">
+      <button
+        type="button"
+        id="terminal-context-copy"
+        class="terminal-context-action"
+      >
         Copy
       </button>
-      <button type="button" id="terminal-context-paste" class="terminal-context-action">
+      <button
+        type="button"
+        id="terminal-context-paste"
+        class="terminal-context-action"
+      >
         Paste
       </button>
-      <button type="button" id="terminal-context-clear" class="terminal-context-action">
+      <button
+        type="button"
+        id="terminal-context-clear"
+        class="terminal-context-action"
+      >
         Clear
       </button>
     </div>
 
+    <div
+      id="file-editor-modal"
+      class="file-editor-modal hidden"
+      aria-hidden="true"
+    >
+      <div id="file-editor-backdrop" class="file-editor-backdrop"></div>
+      <section
+        class="file-editor-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Workspace file editor"
+      >
+        <header class="file-editor-header">
+          <div class="file-editor-title">
+            <p class="status-label">Workspace Editor</p>
+            <p id="file-editor-path" class="file-editor-path">
+              No file selected
+            </p>
+          </div>
+          <div class="file-editor-actions">
+            <label class="file-editor-autosave">
+              <input id="file-editor-autosave" type="checkbox" />
+              Auto-save
+            </label>
+            <button type="button" id="file-editor-save" class="secondary">
+              Save
+            </button>
+            <button type="button" id="file-editor-close" class="secondary">
+              Close
+            </button>
+          </div>
+        </header>
+        <div class="file-editor-meta-row">
+          <p id="file-editor-status" class="status-meta">
+            Open a referenced file to edit.
+          </p>
+        </div>
+        <div id="file-editor-surface" class="file-editor-surface"></div>
+      </section>
+    </div>
+
+    <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
     <script src="./app.js" type="module"></script>
   </body>
 </html>

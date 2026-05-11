@@ -7,6 +7,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const pty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
+const MAX_EDITOR_FILE_BYTES = 1024 * 1024 * 2;
 
 let mainWindow;
 const sessions = new Map();
@@ -167,8 +168,7 @@ function buildPtyEnv(overrides = {}) {
   // Resolve a sensible EDITOR for PTY sessions. Prefer the values already
   // set in the environment, then fall back to vim (available on all three
   // platforms for most dev setups) and finally to a platform safe fallback.
-  const editorFallback =
-    process.platform === "win32" ? "notepad" : "vi";
+  const editorFallback = process.platform === "win32" ? "notepad" : "vi";
   const editor =
     process.env.GIT_EDITOR ||
     process.env.VISUAL ||
@@ -776,6 +776,264 @@ function stopManualTerminalBySessionId(sessionId) {
   manualTerminals.delete(sessionId);
 }
 
+function getSessionByIdOrThrow(sessionId) {
+  if (!sessionId) {
+    throw new Error("A session ID is required.");
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error("Session not found.");
+  }
+
+  return session;
+}
+
+function sanitizeEditorRequestedPath(value) {
+  let sanitized = String(value || "").trim();
+
+  // Handle common markdown/file-reference suffixes like file.ts:12,
+  // file.ts:12:3, file.ts#L12, file.ts#L12-L18.
+  sanitized = sanitized
+    .replace(/#L\d+(?:-L?\d+)?(?:C\d+)?$/i, "")
+    .replace(/:\d+(?::\d+)?$/i, "")
+    .replace(/#\d+(?:-\d+)?$/i, "")
+    .replace(/^['"`[(]+/, "")
+    .replace(/[)'"`\],.;:!?]+$/, "");
+
+  // Support git-style diff prefixes.
+  if (sanitized.startsWith("a/") || sanitized.startsWith("b/")) {
+    sanitized = sanitized.slice(2);
+  }
+
+  // Normalize windows separators from tool output.
+  sanitized = sanitized.replace(/\\+/g, "/");
+
+  return sanitized;
+}
+
+function pathWithinRoot(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return !(relative.startsWith("..") || path.isAbsolute(relative));
+}
+
+function listWorkspaceFiles(rootPath, maxEntries = 20000) {
+  const files = [];
+  const stack = [rootPath];
+
+  while (stack.length && files.length < maxEntries) {
+    const current = stack.pop();
+    let entries = [];
+
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (files.length >= maxEntries) {
+        break;
+      }
+
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          entry.name === ".git" ||
+          entry.name === "node_modules" ||
+          entry.name === ".next" ||
+          entry.name === "dist" ||
+          entry.name === "build"
+        ) {
+          continue;
+        }
+
+        stack.push(fullPath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        files.push(fullPath);
+      }
+    }
+  }
+
+  return files;
+}
+
+function findWorkspaceFileByFallback(workspaceRoots, variants) {
+  for (const root of workspaceRoots) {
+    const files = listWorkspaceFiles(root);
+
+    for (const variant of variants) {
+      const normalized = String(variant || "").replace(/\\+/g, "/");
+      if (!normalized) {
+        continue;
+      }
+
+      const suffix = normalized.startsWith("/")
+        ? normalized
+        : `/${normalized}`;
+
+      const suffixMatches = files.filter((filePath) =>
+        filePath.replace(/\\+/g, "/").endsWith(suffix),
+      );
+
+      if (suffixMatches.length === 1) {
+        return {
+          absolutePath: suffixMatches[0],
+          workspaceRoot: root,
+        };
+      }
+
+      if (normalized.includes("/")) {
+        continue;
+      }
+
+      const basenameMatches = files.filter(
+        (filePath) => path.basename(filePath) === normalized,
+      );
+
+      if (basenameMatches.length === 1) {
+        return {
+          absolutePath: basenameMatches[0],
+          workspaceRoot: root,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function ensureSessionWorkspacePath(sessionId, requestedPath) {
+  if (!requestedPath || !String(requestedPath).trim()) {
+    throw new Error("A file path is required.");
+  }
+
+  const session = getSessionByIdOrThrow(sessionId);
+  const sessionRoot = path.resolve(session.cwd);
+  const initialRoot = path.resolve(resolveInitialDirectory());
+  const workspaceRoots = Array.from(new Set([sessionRoot, initialRoot]));
+  const cleaned = sanitizeEditorRequestedPath(requestedPath);
+
+  if (!cleaned) {
+    throw new Error("A file path is required.");
+  }
+
+  const expandedPath = cleaned.startsWith("~/")
+    ? path.join(os.homedir(), cleaned.slice(2))
+    : cleaned;
+
+  const variants = new Set([
+    expandedPath,
+    expandedPath.replace(/^\.\//, ""),
+  ]);
+
+  for (const root of workspaceRoots) {
+    const workspaceName = path.basename(root);
+    for (const variant of Array.from(variants)) {
+      if (variant.startsWith(`${workspaceName}/`)) {
+        variants.add(variant.slice(workspaceName.length + 1));
+      }
+
+      const marker = `/${workspaceName}/`;
+      const markerIndex = variant.lastIndexOf(marker);
+      if (markerIndex >= 0) {
+        variants.add(variant.slice(markerIndex + marker.length));
+      }
+    }
+  }
+
+  const candidates = [];
+  for (const variant of variants) {
+    if (!variant) {
+      continue;
+    }
+
+    if (path.isAbsolute(variant)) {
+      candidates.push(path.resolve(variant));
+      continue;
+    }
+
+    for (const root of workspaceRoots) {
+      candidates.push(path.resolve(root, variant));
+    }
+  }
+
+  for (const candidate of candidates) {
+    const matchingRoot = workspaceRoots.find((root) =>
+      pathWithinRoot(root, candidate),
+    );
+
+    if (!matchingRoot) {
+      continue;
+    }
+
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    return {
+      absolutePath: candidate,
+      relativePath:
+        path.relative(matchingRoot, candidate) || path.basename(candidate),
+      workspaceRoot: matchingRoot,
+    };
+  }
+
+  const fallback = findWorkspaceFileByFallback(workspaceRoots, variants);
+  if (fallback && fs.existsSync(fallback.absolutePath)) {
+    return {
+      absolutePath: fallback.absolutePath,
+      relativePath:
+        path.relative(fallback.workspaceRoot, fallback.absolutePath) ||
+        path.basename(fallback.absolutePath),
+      workspaceRoot: fallback.workspaceRoot,
+    };
+  }
+
+  const firstCandidate = candidates[0];
+  if (!firstCandidate) {
+    throw new Error("File not found in workspace.");
+  }
+
+  const allowed = workspaceRoots.some((root) =>
+    pathWithinRoot(root, firstCandidate),
+  );
+  if (!allowed) {
+    throw new Error("Access denied: file path is outside the session workspace.");
+  }
+
+  return {
+    absolutePath: firstCandidate,
+    relativePath:
+      path.relative(workspaceRoots[0], firstCandidate) ||
+      path.basename(firstCandidate),
+    workspaceRoot: workspaceRoots[0],
+  };
+}
+
+function assertEditableTextFile(absolutePath) {
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error("File not found in workspace.");
+  }
+
+  const stat = fs.statSync(absolutePath);
+  if (!stat.isFile()) {
+    throw new Error("Only regular files can be opened in the editor.");
+  }
+
+  if (stat.size > MAX_EDITOR_FILE_BYTES) {
+    throw new Error("File is too large to open in the embedded editor.");
+  }
+
+  const sample = fs.readFileSync(absolutePath);
+  if (sample.includes(0)) {
+    throw new Error("Binary files are not supported in the embedded editor.");
+  }
+}
+
 async function ensureWorkingDirectory(requestedPath) {
   const cwd =
     requestedPath && requestedPath.trim()
@@ -1018,6 +1276,51 @@ ipcMain.handle("session:remove", async (_event, sessionId) => {
   deleteSessionFromDisk(sessionId);
   publishSessionsChanged();
   return { removed: true };
+});
+
+ipcMain.handle("editor:openFile", async (_event, payload) => {
+  const sessionId = payload?.sessionId;
+  const filePath = payload?.filePath;
+
+  try {
+    const resolved = ensureSessionWorkspacePath(sessionId, filePath);
+
+    assertEditableTextFile(resolved.absolutePath);
+
+    const content = fs.readFileSync(resolved.absolutePath, "utf-8");
+
+    return {
+      absolutePath: resolved.absolutePath,
+      relativePath: resolved.relativePath,
+      content,
+    };
+  } catch (error) {
+    const detail = String(filePath || "").slice(0, 220);
+    throw new Error(
+      `${error?.message || "Unable to open file."} (reference: ${detail || "<empty>"})`,
+    );
+  }
+});
+
+ipcMain.handle("editor:saveFile", async (_event, payload) => {
+  const sessionId = payload?.sessionId;
+  const filePath = payload?.filePath;
+  const content = payload?.content;
+
+  if (typeof content !== "string") {
+    throw new Error("Editor content must be a string.");
+  }
+
+  const resolved = ensureSessionWorkspacePath(sessionId, filePath);
+  assertEditableTextFile(resolved.absolutePath);
+
+  fs.writeFileSync(resolved.absolutePath, content, "utf-8");
+
+  return {
+    ok: true,
+    savedAt: Date.now(),
+    relativePath: resolved.relativePath,
+  };
 });
 
 ipcMain.handle("session:write", async (_event, payload) => {
