@@ -124,10 +124,70 @@ function createWindow() {
 
 function shellForPlatform() {
   if (process.platform === "win32") {
-    return process.env.COMSPEC || "powershell.exe";
+    return process.env.COMSPEC || "cmd.exe";
   }
 
   return process.env.SHELL || "/bin/bash";
+}
+
+function shellArgsForPlatform() {
+  // Launch the manual terminal as an interactive login-like shell so that
+  // shell profiles are sourced and the PATH/EDITOR/etc. match what the user
+  // gets from a normal terminal window.
+  if (process.platform === "win32") {
+    // Prefer PowerShell for interactive use (it can source $PROFILE and
+    // resolve PATH entries that cmd.exe cannot). Fall back to the user's
+    // COMSPEC only when PowerShell is absent.
+    return ["-NoLogo", "-NoExit"];
+  }
+
+  if (process.platform === "darwin") {
+    // macOS requires -l (login) so that /etc/profile and ~/.bash_profile /
+    // ~/.zprofile are sourced, populating PATH and EDITOR.
+    return ["-l"];
+  }
+
+  // Linux: most DEs launch shells as interactive non-login, matching what
+  // terminals like GNOME Terminal do. Use -i to ensure interactive mode.
+  return ["-i"];
+}
+
+function interactiveShellForPlatform() {
+  // For the manual terminal pane we want PowerShell on Windows, not cmd.exe,
+  // because PowerShell can source $PROFILE, resolve .cmd/.ps1 tool shims,
+  // and handle git editor prompts correctly.
+  if (process.platform === "win32") {
+    return "powershell.exe";
+  }
+
+  return process.env.SHELL || "/bin/bash";
+}
+
+function buildPtyEnv(overrides = {}) {
+  // Resolve a sensible EDITOR for PTY sessions. Prefer the values already
+  // set in the environment, then fall back to vim (available on all three
+  // platforms for most dev setups) and finally to a platform safe fallback.
+  const editorFallback =
+    process.platform === "win32" ? "notepad" : "vi";
+  const editor =
+    process.env.GIT_EDITOR ||
+    process.env.VISUAL ||
+    process.env.EDITOR ||
+    editorFallback;
+
+  return {
+    ...process.env,
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    ELECTRON_RUN_AS_NODE: undefined,
+    // Ensure EDITOR and VISUAL are set so git, svn, etc. can open an
+    // editor inside the PTY without falling back to a GUI application.
+    EDITOR: editor,
+    VISUAL: editor,
+    // Prevent Git from trying to launch a GUI merge/diff tool.
+    GIT_TERMINAL_PROMPT: "1",
+    ...overrides,
+  };
 }
 
 function splitArgs(value) {
@@ -626,18 +686,14 @@ function stopAllSessions() {
 function startManualTerminal(session) {
   const cols = 120;
   const rows = 36;
-  const shell = shellForPlatform();
-  const ptyProcess = pty.spawn(shell, [], {
+  const shell = interactiveShellForPlatform();
+  const shellArgs = shellArgsForPlatform();
+  const ptyProcess = pty.spawn(shell, shellArgs, {
     name: "xterm-256color",
     cols,
     rows,
     cwd: session.cwd,
-    env: {
-      ...process.env,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      ELECTRON_RUN_AS_NODE: undefined,
-    },
+    env: buildPtyEnv(),
   });
 
   const cleanup = [];
@@ -772,12 +828,7 @@ function startSession(options, cwd) {
     cols,
     rows,
     cwd,
-    env: {
-      ...process.env,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      ELECTRON_RUN_AS_NODE: undefined,
-    },
+    env: buildPtyEnv(),
   };
 
   const ptyProcess = spawnSessionPty(command, args, ptyOptions);
