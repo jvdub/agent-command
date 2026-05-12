@@ -786,15 +786,24 @@ function updateInsightFromOutput(sessionId, data) {
     insight.hasError = false;
     insight.errorMessage = "";
     insight.lastErrorAt = null;
+    // Clear question/permission flags when agent is actively working
+    insight.awaitingQuestion = false;
+    insight.awaitingPermission = false;
   } else if (matchedReady) {
     insight.lastReadyAt = Date.now();
     insight.hasError = false;
     insight.errorMessage = "";
     insight.lastErrorAt = null;
+    // Clear question/permission flags when agent becomes ready
+    insight.awaitingQuestion = false;
+    insight.awaitingPermission = false;
   } else if (matchedErrorClear) {
     insight.hasError = false;
     insight.errorMessage = "";
     insight.lastErrorAt = null;
+    // Clear question/permission flags on error clear
+    insight.awaitingQuestion = false;
+    insight.awaitingPermission = false;
   }
 }
 
