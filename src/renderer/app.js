@@ -270,6 +270,15 @@ let monacoEditor = null;
 let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
+
+const MONACO_LOADER_URL = new URL(
+  "../../node_modules/monaco-editor/min/vs/loader.js",
+  import.meta.url,
+).toString();
+const MONACO_VS_BASE_URL = new URL(
+  "../../node_modules/monaco-editor/min/vs",
+  import.meta.url,
+).toString();
 let autosaveTimeoutId = null;
 let suppressEditorChange = false;
 let editorState = {
@@ -554,55 +563,83 @@ function ensureMonacoEditor() {
   }
 
   monacoLoaderPromise = new Promise((resolve, reject) => {
-    if (!window.require) {
-      reject(new Error("Monaco loader is unavailable."));
+    const initializeMonaco = () => {
+      const amdRequire = window.require || window.requirejs;
+      if (!amdRequire) {
+        reject(new Error("Monaco loader is unavailable."));
+        return;
+      }
+
+      amdRequire.config({
+        paths: {
+          vs: MONACO_VS_BASE_URL,
+        },
+      });
+
+      amdRequire(
+        ["vs/editor/editor.main"],
+        () => {
+          monacoApi = window.monaco;
+          monacoEditor = monacoApi.editor.create(fileEditorSurface, {
+            value: "",
+            language: "plaintext",
+            automaticLayout: true,
+            minimap: { enabled: true },
+            fontSize: 13,
+            theme: "vs-dark",
+          });
+
+          monacoEditor.onDidChangeModelContent(() => {
+            if (suppressEditorChange || !editorState.open) {
+              return;
+            }
+
+            setEditorDirtyState(true);
+
+            if (!editorState.autosave) {
+              return;
+            }
+
+            if (autosaveTimeoutId) {
+              window.clearTimeout(autosaveTimeoutId);
+            }
+
+            autosaveTimeoutId = window.setTimeout(() => {
+              autosaveTimeoutId = null;
+              saveOpenEditorFile("Auto-saved");
+            }, AUTOSAVE_DELAY_MS);
+          });
+
+          resolve(monacoApi);
+        },
+        reject,
+      );
+    };
+
+    if (window.require || window.requirejs) {
+      initializeMonaco();
       return;
     }
 
-    window.require.config({
-      paths: {
-        vs: "../../node_modules/monaco-editor/min/vs",
-      },
-    });
+    const existingLoader = document.querySelector('script[data-monaco-loader="1"]');
+    if (existingLoader) {
+      existingLoader.addEventListener("load", initializeMonaco, { once: true });
+      existingLoader.addEventListener(
+        "error",
+        () => reject(new Error("Monaco loader is unavailable.")),
+        { once: true },
+      );
+      return;
+    }
 
-    window.require(
-      ["vs/editor/editor.main"],
-      () => {
-        monacoApi = window.monaco;
-        monacoEditor = monacoApi.editor.create(fileEditorSurface, {
-          value: "",
-          language: "plaintext",
-          automaticLayout: true,
-          minimap: { enabled: true },
-          fontSize: 13,
-          theme: "vs-dark",
-        });
-
-        monacoEditor.onDidChangeModelContent(() => {
-          if (suppressEditorChange || !editorState.open) {
-            return;
-          }
-
-          setEditorDirtyState(true);
-
-          if (!editorState.autosave) {
-            return;
-          }
-
-          if (autosaveTimeoutId) {
-            window.clearTimeout(autosaveTimeoutId);
-          }
-
-          autosaveTimeoutId = window.setTimeout(() => {
-            autosaveTimeoutId = null;
-            saveOpenEditorFile("Auto-saved");
-          }, AUTOSAVE_DELAY_MS);
-        });
-
-        resolve(monacoApi);
-      },
-      reject,
-    );
+    const script = document.createElement("script");
+    script.setAttribute("data-monaco-loader", "1");
+    script.src = MONACO_LOADER_URL;
+    script.onload = initializeMonaco;
+    script.onerror = () => {
+      reject(new Error("Monaco loader is unavailable."));
+    };
+    document.head.appendChild(script);
   });
 
   return monacoLoaderPromise;
