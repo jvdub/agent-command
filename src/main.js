@@ -683,11 +683,16 @@ function stopAllSessions() {
   }
 }
 
-function startManualTerminal(session) {
+function getManualTerminalKey(sessionId, terminalId = "1") {
+  return `${sessionId}:${terminalId}`;
+}
+
+function startManualTerminal(session, terminalId = "1") {
   const cols = 120;
   const rows = 36;
   const shell = interactiveShellForPlatform();
   const shellArgs = shellArgsForPlatform();
+  const key = getManualTerminalKey(session.id, terminalId);
   const ptyProcess = pty.spawn(shell, shellArgs, {
     name: "xterm-256color",
     cols,
@@ -699,7 +704,9 @@ function startManualTerminal(session) {
   const cleanup = [];
 
   const terminalState = {
+    key,
     sessionId: session.id,
+    terminalId,
     cwd: session.cwd,
     shell,
     ptyProcess,
@@ -717,19 +724,23 @@ function startManualTerminal(session) {
 
   cleanup.push(
     ptyProcess.onData((data) => {
-      const existing = manualTerminals.get(session.id);
+      const existing = manualTerminals.get(key);
       if (!existing) {
         return;
       }
 
       existing.outputBuffer += data;
-      sendToRenderer("manual-terminal:data", { sessionId: session.id, data });
+      sendToRenderer("manual-terminal:data", {
+        sessionId: session.id,
+        terminalId,
+        data,
+      });
     }),
   );
 
   cleanup.push(
     ptyProcess.onExit((event) => {
-      const existing = manualTerminals.get(session.id);
+      const existing = manualTerminals.get(key);
       if (!existing) {
         return;
       }
@@ -737,6 +748,7 @@ function startManualTerminal(session) {
       existing.isRunning = false;
       sendToRenderer("manual-terminal:exit", {
         sessionId: session.id,
+        terminalId,
         exitCode: event.exitCode,
         signal: event.signal || null,
       });
@@ -744,36 +756,38 @@ function startManualTerminal(session) {
     }),
   );
 
-  manualTerminals.set(session.id, terminalState);
+  manualTerminals.set(key, terminalState);
   return terminalState;
 }
 
-function ensureManualTerminal(sessionId) {
+function ensureManualTerminal(sessionId, terminalId = "1") {
   const session = sessions.get(sessionId);
   if (!session) {
     throw new Error("No session found for manual terminal.");
   }
 
-  const existing = manualTerminals.get(sessionId);
+  const key = getManualTerminalKey(sessionId, terminalId);
+  const existing = manualTerminals.get(key);
   if (existing) {
     return existing;
   }
 
-  return startManualTerminal(session);
+  return startManualTerminal(session, terminalId);
 }
 
 function stopManualTerminalBySessionId(sessionId) {
-  const terminal = manualTerminals.get(sessionId);
-  if (!terminal) {
-    return;
-  }
+  for (const [key, terminal] of manualTerminals.entries()) {
+    if (terminal.sessionId !== sessionId) {
+      continue;
+    }
 
-  if (terminal.isRunning) {
-    terminal.ptyProcess.kill();
-  }
+    if (terminal.isRunning) {
+      terminal.ptyProcess.kill();
+    }
 
-  terminal.dispose();
-  manualTerminals.delete(sessionId);
+    terminal.dispose();
+    manualTerminals.delete(key);
+  }
 }
 
 function getSessionByIdOrThrow(sessionId) {
@@ -871,9 +885,7 @@ function findWorkspaceFileByFallback(workspaceRoots, variants) {
         continue;
       }
 
-      const suffix = normalized.startsWith("/")
-        ? normalized
-        : `/${normalized}`;
+      const suffix = normalized.startsWith("/") ? normalized : `/${normalized}`;
 
       const suffixMatches = files.filter((filePath) =>
         filePath.replace(/\\+/g, "/").endsWith(suffix),
@@ -925,10 +937,7 @@ function ensureSessionWorkspacePath(sessionId, requestedPath) {
     ? path.join(os.homedir(), cleaned.slice(2))
     : cleaned;
 
-  const variants = new Set([
-    expandedPath,
-    expandedPath.replace(/^\.\//, ""),
-  ]);
+  const variants = new Set([expandedPath, expandedPath.replace(/^\.\//, "")]);
 
   for (const root of workspaceRoots) {
     const workspaceName = path.basename(root);
@@ -1002,7 +1011,9 @@ function ensureSessionWorkspacePath(sessionId, requestedPath) {
     pathWithinRoot(root, firstCandidate),
   );
   if (!allowed) {
-    throw new Error("Access denied: file path is outside the session workspace.");
+    throw new Error(
+      "Access denied: file path is outside the session workspace.",
+    );
   }
 
   return {
@@ -1369,15 +1380,20 @@ ipcMain.handle("session:processes", async (_event, sessionId) => {
   return getSessionChildProcesses(sessionId);
 });
 
-ipcMain.handle("manual-terminal:ensure", async (_event, sessionId) => {
+ipcMain.handle("manual-terminal:ensure", async (_event, payload) => {
+  const sessionId = typeof payload === "string" ? payload : payload?.sessionId;
+  const terminalId =
+    typeof payload === "string" ? "1" : String(payload?.terminalId || "1");
+
   if (!sessionId) {
     throw new Error("A session ID is required.");
   }
 
-  const terminal = ensureManualTerminal(sessionId);
+  const terminal = ensureManualTerminal(sessionId, terminalId);
   return {
     cwd: terminal.cwd,
     shell: terminal.shell,
+    terminalId: terminal.terminalId,
     isRunning: terminal.isRunning,
     outputBuffer: terminal.outputBuffer,
   };
@@ -1385,13 +1401,14 @@ ipcMain.handle("manual-terminal:ensure", async (_event, sessionId) => {
 
 ipcMain.handle("manual-terminal:write", async (_event, payload) => {
   const sessionId = payload?.sessionId;
+  const terminalId = String(payload?.terminalId || "1");
   const input = payload?.input;
 
   if (!sessionId) {
     throw new Error("A session ID is required.");
   }
 
-  const terminal = ensureManualTerminal(sessionId);
+  const terminal = ensureManualTerminal(sessionId, terminalId);
   if (!terminal.isRunning) {
     throw new Error("Manual terminal is not running.");
   }
@@ -1402,6 +1419,7 @@ ipcMain.handle("manual-terminal:write", async (_event, payload) => {
 
 ipcMain.handle("manual-terminal:resize", async (_event, payload) => {
   const sessionId = payload?.sessionId;
+  const terminalId = String(payload?.terminalId || "1");
   const cols = payload?.cols;
   const rows = payload?.rows;
 
@@ -1409,7 +1427,7 @@ ipcMain.handle("manual-terminal:resize", async (_event, payload) => {
     return { ok: false };
   }
 
-  const terminal = ensureManualTerminal(sessionId);
+  const terminal = ensureManualTerminal(sessionId, terminalId);
   if (!terminal.isRunning) {
     return { ok: false };
   }

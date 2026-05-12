@@ -14,28 +14,34 @@ const cwdInput = document.querySelector("#cwd");
 const pickDirectoryButton = document.querySelector("#pick-directory");
 const stopSessionButton = document.querySelector("#stop-session");
 const sendInterruptButton = document.querySelector("#send-interrupt");
-const manualSendInterruptButton = document.querySelector(
-  "#manual-send-interrupt",
+const openFileDrawerButton = document.querySelector("#open-file-drawer");
+const manualSendInterruptButton1 = document.querySelector(
+  "#manual-send-interrupt-1",
+);
+const manualSendInterruptButton2 = document.querySelector(
+  "#manual-send-interrupt-2",
 );
 const toggleProcessPanelButton = document.querySelector(
   "#toggle-process-panel",
 );
-const workspaceTabAgentButton = document.querySelector("#workspace-tab-agent");
-const workspaceTabTerminalButton = document.querySelector(
-  "#workspace-tab-terminal",
-);
 const agentPane = document.querySelector("#agent-pane");
-const manualPane = document.querySelector("#manual-pane");
+const manualPane1 = document.querySelector("#manual-pane-1");
+const manualPane2 = document.querySelector("#manual-pane-2");
+const rightPane = document.querySelector("#right-pane");
 const sessionStatus = document.querySelector("#session-status");
 const sessionMeta = document.querySelector("#session-meta");
 const sessionTabsList = document.querySelector("#session-tabs-list");
 const terminalTitle = document.querySelector("#terminal-title");
 const terminalSubtitle = document.querySelector("#terminal-subtitle");
 const terminalContainer = document.querySelector("#terminal");
-const manualTerminalSubtitle = document.querySelector(
-  "#manual-terminal-subtitle",
+const manualTerminalSubtitle1 = document.querySelector(
+  "#manual-terminal-subtitle-1",
 );
-const manualTerminalContainer = document.querySelector("#manual-terminal");
+const manualTerminalSubtitle2 = document.querySelector(
+  "#manual-terminal-subtitle-2",
+);
+const manualTerminalContainer1 = document.querySelector("#manual-terminal-1");
+const manualTerminalContainer2 = document.querySelector("#manual-terminal-2");
 const processDetailsPanel = document.querySelector("#process-details-panel");
 const processPanelMeta = document.querySelector("#process-panel-meta");
 const processDetailsList = document.querySelector("#process-details-list");
@@ -49,10 +55,11 @@ const terminalContextPasteButton = document.querySelector(
 const terminalContextClearButton = document.querySelector(
   "#terminal-context-clear",
 );
+const fileDrawer = document.querySelector("#file-drawer");
 const agentFileLinks = document.querySelector("#agent-file-links");
 const agentFileLinksList = document.querySelector("#agent-file-links-list");
-const fileEditorModal = document.querySelector("#file-editor-modal");
-const fileEditorBackdrop = document.querySelector("#file-editor-backdrop");
+const fileEditorPanel = document.querySelector("#file-editor-panel");
+const fileEditorEmpty = document.querySelector("#file-editor-empty");
 const fileEditorPath = document.querySelector("#file-editor-path");
 const fileEditorStatus = document.querySelector("#file-editor-status");
 const fileEditorAutosave = document.querySelector("#file-editor-autosave");
@@ -258,7 +265,6 @@ let activeSessionId = null;
 let refreshScheduled = false;
 let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
-let activeWorkspaceTab = "agent";
 let terminalContextTarget = null;
 let monacoEditor = null;
 let monacoApi = null;
@@ -274,6 +280,10 @@ let editorState = {
   dirty: false,
   autosave: false,
 };
+
+function manualTerminalKey(sessionId, terminalId) {
+  return `${sessionId}:${terminalId}`;
+}
 
 function setProcessInspectionSupport(supported) {
   const isSupported = supported !== false;
@@ -497,8 +507,15 @@ function setEditorDirtyState(isDirty) {
   }
 }
 
+function openFileDrawer() {
+  fileDrawer.classList.remove("hidden");
+}
+
 function closeFileEditorModal(force = false) {
   if (!editorState.open) {
+    fileEditorPanel.classList.add("hidden");
+    fileEditorEmpty.classList.remove("hidden");
+    fileDrawer.classList.add("hidden");
     return true;
   }
 
@@ -511,8 +528,9 @@ function closeFileEditorModal(force = false) {
     }
   }
 
-  fileEditorModal.classList.add("hidden");
-  fileEditorModal.setAttribute("aria-hidden", "true");
+  fileEditorPanel.classList.add("hidden");
+  fileEditorEmpty.classList.remove("hidden");
+  fileDrawer.classList.add("hidden");
   editorState.open = false;
 
   if (autosaveTimeoutId) {
@@ -520,13 +538,8 @@ function closeFileEditorModal(force = false) {
     autosaveTimeoutId = null;
   }
 
-  if (activeWorkspaceTab === "terminal") {
-    const manual = getActiveManualTerminalInstance();
-    manual?.terminal.focus();
-  } else {
-    const agent = getActiveTerminalInstance();
-    agent?.terminal.focus();
-  }
+  const agent = getActiveTerminalInstance();
+  agent?.terminal.focus();
 
   return true;
 }
@@ -648,8 +661,9 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
     }
 
     fileEditorPath.textContent = file.relativePath;
-    fileEditorModal.classList.remove("hidden");
-    fileEditorModal.setAttribute("aria-hidden", "false");
+    fileDrawer.classList.remove("hidden");
+    fileEditorPanel.classList.remove("hidden");
+    fileEditorEmpty.classList.add("hidden");
     editorState.open = true;
     editorState.sessionId = sessionId;
     editorState.filePath = filePath;
@@ -1106,24 +1120,35 @@ function getActiveTerminalInstance() {
   return sessionTerminals.get(activeSessionId) || null;
 }
 
-function updateManualTerminalSubtitle(session) {
+function updateManualTerminalSubtitle(session, terminalId) {
+  const target =
+    terminalId === "2" ? manualTerminalSubtitle2 : manualTerminalSubtitle1;
   if (!session) {
-    manualTerminalSubtitle.textContent = "";
+    target.textContent = "";
     return;
   }
 
-  manualTerminalSubtitle.textContent = `${session.cwd} - Interactive shell`;
+  target.textContent = `${session.cwd} - Interactive shell`;
 }
 
-function createManualTerminal(sessionId) {
-  if (manualTerminals.has(sessionId)) {
-    return manualTerminals.get(sessionId);
+function getManualTerminalContainer(terminalId) {
+  return terminalId === "2"
+    ? manualTerminalContainer2
+    : manualTerminalContainer1;
+}
+
+function createManualTerminal(sessionId, terminalId) {
+  const key = manualTerminalKey(sessionId, terminalId);
+  if (manualTerminals.has(key)) {
+    return manualTerminals.get(key);
   }
 
+  const container = getManualTerminalContainer(terminalId);
   const mount = document.createElement("div");
   mount.className = "terminal-instance hidden";
   mount.dataset.sessionId = sessionId;
-  manualTerminalContainer.append(mount);
+  mount.dataset.terminalId = terminalId;
+  container.append(mount);
 
   const terminal = new Terminal(TERMINAL_OPTIONS);
   const fitAddon = new FitAddon();
@@ -1134,96 +1159,64 @@ function createManualTerminal(sessionId) {
     fitAddon,
     mount,
     sessionId,
+    terminalId,
     kind: "manual",
     initialized: false,
   };
   attachTerminalClipboardHandlers(instance);
 
   terminal.onData((data) => {
-    if (activeSessionId !== sessionId || activeWorkspaceTab !== "terminal") {
+    if (activeSessionId !== sessionId) {
       return;
     }
 
-    window.agenticApp.writeToManualTerminal(sessionId, data);
+    window.agenticApp.writeToManualTerminal(sessionId, data, terminalId);
   });
 
-  manualTerminals.set(sessionId, instance);
+  manualTerminals.set(key, instance);
   return instance;
 }
 
-async function ensureManualTerminal(sessionId) {
-  const instance = createManualTerminal(sessionId);
+async function ensureManualTerminal(sessionId, terminalId) {
+  const key = manualTerminalKey(sessionId, terminalId);
+  const instance = createManualTerminal(sessionId, terminalId);
   if (instance.initialized) {
     return instance;
   }
 
-  const result = await window.agenticApp.ensureManualTerminal(sessionId);
-  const buffered =
-    manualTerminalBuffers.get(sessionId) || result.outputBuffer || "";
+  const result = await window.agenticApp.ensureManualTerminal(
+    sessionId,
+    terminalId,
+  );
+  const buffered = manualTerminalBuffers.get(key) || result.outputBuffer || "";
 
   if (buffered) {
     instance.terminal.write(buffered);
   }
 
-  manualTerminalBuffers.set(sessionId, buffered);
+  manualTerminalBuffers.set(key, buffered);
   instance.initialized = true;
   return instance;
 }
 
-async function showManualTerminal(sessionId) {
-  for (const [id, instance] of manualTerminals.entries()) {
-    instance.mount.classList.toggle("hidden", id !== sessionId);
+async function showManualTerminal(sessionId, terminalId) {
+  for (const instance of manualTerminals.values()) {
+    const isVisible = instance.sessionId === sessionId;
+    instance.mount.classList.toggle("hidden", !isVisible);
   }
 
-  const instance = await ensureManualTerminal(sessionId);
+  const instance = await ensureManualTerminal(sessionId, terminalId);
   instance.mount.classList.remove("hidden");
   instance.fitAddon.fit();
-  instance.terminal.focus();
   return instance;
 }
 
-function getActiveManualTerminalInstance() {
-  if (!activeSessionId) {
+function getManualTerminalInstance(sessionId, terminalId) {
+  if (!sessionId) {
     return null;
   }
 
-  return manualTerminals.get(activeSessionId) || null;
-}
-
-async function setWorkspaceTab(tab) {
-  activeWorkspaceTab = tab === "terminal" ? "terminal" : "agent";
-
-  const isAgent = activeWorkspaceTab === "agent";
-  workspaceTabAgentButton.classList.toggle("active", isAgent);
-  workspaceTabAgentButton.setAttribute("aria-selected", String(isAgent));
-  workspaceTabTerminalButton.classList.toggle("active", !isAgent);
-  workspaceTabTerminalButton.setAttribute("aria-selected", String(!isAgent));
-  agentPane.classList.toggle("hidden", !isAgent);
-  manualPane.classList.toggle("hidden", isAgent);
-
-  if (!activeSessionId) {
-    return;
-  }
-
-  const session = sessions.get(activeSessionId);
-  if (session) {
-    updateManualTerminalSubtitle(session);
-  }
-
-  if (isAgent) {
-    showSessionTerminal(activeSessionId);
-    await resizeSession();
-    return;
-  }
-
-  try {
-    await showManualTerminal(activeSessionId);
-    await resizeManualTerminal();
-  } catch (error) {
-    setStatus("Error", error.message || "Unable to open integrated terminal");
-    activeWorkspaceTab = "agent";
-    await setWorkspaceTab("agent");
-  }
+  return manualTerminals.get(manualTerminalKey(sessionId, terminalId)) || null;
 }
 
 function refreshVisibleUi() {
@@ -1240,7 +1233,8 @@ function refreshVisibleUi() {
   }
 
   renderTerminalHeader(active);
-  updateManualTerminalSubtitle(active);
+  updateManualTerminalSubtitle(active, "1");
+  updateManualTerminalSubtitle(active, "2");
   setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
   renderSessionFileReferences(active.id);
@@ -1341,15 +1335,13 @@ function showEmptyView(shouldRefresh = true) {
     instance.mount.classList.add("hidden");
   }
 
+  for (const instance of manualTerminals.values()) {
+    instance.mount.classList.add("hidden");
+  }
+
   activeSessionId = null;
-  activeWorkspaceTab = "agent";
-  workspaceTabAgentButton.classList.add("active");
-  workspaceTabAgentButton.setAttribute("aria-selected", "true");
-  workspaceTabTerminalButton.classList.remove("active");
-  workspaceTabTerminalButton.setAttribute("aria-selected", "false");
-  agentPane.classList.remove("hidden");
-  manualPane.classList.add("hidden");
   renderSessionFileReferences(null);
+  closeFileEditorModal(true);
   if (shouldRefresh) {
     refreshVisibleUi();
   }
@@ -1416,11 +1408,15 @@ async function openTerminalView(sessionId) {
   terminalView.classList.remove("hidden");
   renderSessionTabs();
   renderTerminalHeader(session);
-  updateManualTerminalSubtitle(session);
+  updateManualTerminalSubtitle(session, "1");
+  updateManualTerminalSubtitle(session, "2");
   setTerminalActionsEnabled(session);
   renderProcessDetails(sessionId);
-
-  await setWorkspaceTab(activeWorkspaceTab);
+  showSessionTerminal(sessionId);
+  await resizeSession();
+  await showManualTerminal(sessionId, "1");
+  await showManualTerminal(sessionId, "2");
+  await resizeManualTerminals();
 }
 
 function updateSessions(payload) {
@@ -1432,11 +1428,18 @@ function updateSessions(payload) {
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
       sessionFileReferences.delete(existingId);
-      manualTerminalBuffers.delete(existingId);
-      const manualInstance = manualTerminals.get(existingId);
-      if (manualInstance) {
-        manualInstance.mount.remove();
-        manualTerminals.delete(existingId);
+      for (const key of Array.from(manualTerminalBuffers.keys())) {
+        if (key.startsWith(`${existingId}:`)) {
+          manualTerminalBuffers.delete(key);
+        }
+      }
+      for (const [key, instance] of manualTerminals.entries()) {
+        if (!key.startsWith(`${existingId}:`)) {
+          continue;
+        }
+
+        instance.mount.remove();
+        manualTerminals.delete(key);
       }
     }
   }
@@ -1504,30 +1507,34 @@ function bindGlobalEvents() {
     scheduleUiRefresh();
   });
 
-  window.agenticApp.onManualTerminalData(({ sessionId, data }) => {
+  window.agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
+    const key = manualTerminalKey(sessionId, String(terminalId || "1"));
     manualTerminalBuffers.set(
-      sessionId,
-      `${manualTerminalBuffers.get(sessionId) || ""}${data}`,
+      key,
+      `${manualTerminalBuffers.get(key) || ""}${data}`,
     );
 
-    const instance = manualTerminals.get(sessionId);
+    const instance = manualTerminals.get(key);
     if (instance) {
       instance.terminal.write(data);
     }
   });
 
-  window.agenticApp.onManualTerminalExit(({ sessionId, exitCode, signal }) => {
-    const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
-    manualTerminalBuffers.set(
-      sessionId,
-      `${manualTerminalBuffers.get(sessionId) || ""}${exitLine}`,
-    );
+  window.agenticApp.onManualTerminalExit(
+    ({ sessionId, terminalId, exitCode, signal }) => {
+      const key = manualTerminalKey(sessionId, String(terminalId || "1"));
+      const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
+      manualTerminalBuffers.set(
+        key,
+        `${manualTerminalBuffers.get(key) || ""}${exitLine}`,
+      );
 
-    const instance = manualTerminals.get(sessionId);
-    if (instance) {
-      instance.terminal.write(exitLine);
-    }
-  });
+      const instance = manualTerminals.get(key);
+      if (instance) {
+        instance.terminal.write(exitLine);
+      }
+    },
+  );
 
   window.agenticApp.onSessionsChanged((payload) => {
     updateSessions(payload);
@@ -1547,17 +1554,25 @@ async function resizeSession() {
   });
 }
 
-async function resizeManualTerminal() {
-  const instance = getActiveManualTerminalInstance();
+async function resizeManualTerminal(terminalId) {
+  const instance = getManualTerminalInstance(activeSessionId, terminalId);
   if (!activeSessionId || !instance) {
     return;
   }
 
   instance.fitAddon.fit();
-  await window.agenticApp.resizeManualTerminal(activeSessionId, {
-    cols: instance.terminal.cols,
-    rows: instance.terminal.rows,
-  });
+  await window.agenticApp.resizeManualTerminal(
+    activeSessionId,
+    {
+      cols: instance.terminal.cols,
+      rows: instance.terminal.rows,
+    },
+    terminalId,
+  );
+}
+
+async function resizeManualTerminals() {
+  await Promise.all([resizeManualTerminal("1"), resizeManualTerminal("2")]);
 }
 
 async function initializeContext() {
@@ -1641,12 +1656,16 @@ async function sendInterrupt() {
   scheduleUiRefresh();
 }
 
-async function sendManualInterrupt() {
+async function sendManualInterrupt(terminalId) {
   if (!activeSessionId) {
     return;
   }
 
-  await window.agenticApp.writeToManualTerminal(activeSessionId, "\u0003");
+  await window.agenticApp.writeToManualTerminal(
+    activeSessionId,
+    "\u0003",
+    terminalId,
+  );
 }
 
 async function pickDirectory() {
@@ -1684,25 +1703,27 @@ function toggleProcessPanel() {
 }
 
 window.addEventListener("resize", () => {
-  if (activeWorkspaceTab === "terminal") {
-    resizeManualTerminal();
-  } else {
-    resizeSession();
-  }
+  resizeSession();
+  resizeManualTerminals();
 });
 
 sessionForm.addEventListener("submit", startSession);
 pickDirectoryButton.addEventListener("click", pickDirectory);
 stopSessionButton.addEventListener("click", stopSession);
 sendInterruptButton.addEventListener("click", sendInterrupt);
-manualSendInterruptButton.addEventListener("click", sendManualInterrupt);
+openFileDrawerButton.addEventListener("click", () => {
+  openFileDrawer();
+  if (activeSessionId) {
+    renderSessionFileReferences(activeSessionId);
+  }
+});
+manualSendInterruptButton1.addEventListener("click", () =>
+  sendManualInterrupt("1"),
+);
+manualSendInterruptButton2.addEventListener("click", () =>
+  sendManualInterrupt("2"),
+);
 toggleProcessPanelButton.addEventListener("click", toggleProcessPanel);
-workspaceTabAgentButton.addEventListener("click", () =>
-  setWorkspaceTab("agent"),
-);
-workspaceTabTerminalButton.addEventListener("click", () =>
-  setWorkspaceTab("terminal"),
-);
 newSessionButton.addEventListener("click", () => toggleSessionPopover());
 openLauncherEmptyButton.addEventListener("click", () =>
   toggleSessionPopover(true),
@@ -1843,10 +1864,6 @@ fileEditorSaveButton.addEventListener("click", () => {
 });
 
 fileEditorCloseButton.addEventListener("click", () => {
-  closeFileEditorModal();
-});
-
-fileEditorBackdrop.addEventListener("click", () => {
   closeFileEditorModal();
 });
 

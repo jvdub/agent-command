@@ -110,42 +110,20 @@
           </div>
         </section>
 
-        <section id="terminal-view" class="terminal-panel hidden">
-          <div
-            class="workspace-tabs"
-            role="tablist"
-            aria-label="Workspace Views"
-          >
-            <button
-              type="button"
-              id="workspace-tab-agent"
-              class="workspace-tab active"
-              role="tab"
-              aria-selected="true"
-            >
-              Agent
-            </button>
-            <button
-              type="button"
-              id="workspace-tab-terminal"
-              class="workspace-tab"
-              role="tab"
-              aria-selected="false"
-            >
-              Terminal
-            </button>
-          </div>
-
-          <section id="agent-pane" class="workspace-pane">
+        <section id="terminal-view" class="terminal-panel hidden split-view">
+          <section id="agent-pane" class="workspace-pane agent-pane">
             <div class="panel-header terminal-header">
               <div class="terminal-heading">
                 <div>
-                  <p class="eyebrow">PTY</p>
-                  <h2 id="terminal-title">Raw Terminal</h2>
+                  <p class="eyebrow">Agent</p>
+                  <h2 id="terminal-title">Main Agent Terminal</h2>
                   <p id="terminal-subtitle" class="status-meta"></p>
                 </div>
               </div>
               <div class="button-row">
+                <button type="button" id="open-file-drawer" class="secondary">
+                  Files
+                </button>
                 <button
                   type="button"
                   id="toggle-process-panel"
@@ -170,41 +148,107 @@
               <div id="process-details-list" class="process-details-list"></div>
             </section>
 
-            <section id="agent-file-links" class="agent-file-links hidden">
-              <div class="agent-file-links-header">
-                <p class="status-label">Referenced Files</p>
-                <p class="status-meta">
-                  Click a file from agent output to open editor
-                </p>
-              </div>
-              <div
-                id="agent-file-links-list"
-                class="agent-file-links-list"
-              ></div>
-            </section>
-
             <div id="terminal" class="terminal"></div>
           </section>
 
-          <section id="manual-pane" class="workspace-pane hidden">
-            <div class="panel-header terminal-header">
-              <div>
-                <p class="eyebrow">Workspace Shell</p>
-                <h2 id="manual-terminal-title">Integrated Terminal</h2>
-                <p id="manual-terminal-subtitle" class="status-meta"></p>
+          <section id="right-pane" class="right-pane">
+            <section id="manual-pane-1" class="workspace-pane manual-pane">
+              <div class="panel-header terminal-header">
+                <div>
+                  <p class="eyebrow">Workspace Shell</p>
+                  <h2 id="manual-terminal-title-1">Terminal 1</h2>
+                  <p id="manual-terminal-subtitle-1" class="status-meta"></p>
+                </div>
               </div>
-              <div class="button-row">
+              <div id="manual-terminal-1" class="terminal"></div>
+              <div class="manual-pane-actions">
                 <button
                   type="button"
-                  id="manual-send-interrupt"
+                  id="manual-send-interrupt-1"
                   class="secondary"
                 >
                   Ctrl+C
                 </button>
               </div>
-            </div>
+            </section>
 
-            <div id="manual-terminal" class="terminal"></div>
+            <section id="manual-pane-2" class="workspace-pane manual-pane">
+              <div class="panel-header terminal-header">
+                <div>
+                  <p class="eyebrow">Workspace Shell</p>
+                  <h2 id="manual-terminal-title-2">Terminal 2</h2>
+                  <p id="manual-terminal-subtitle-2" class="status-meta"></p>
+                </div>
+              </div>
+              <div id="manual-terminal-2" class="terminal"></div>
+              <div class="manual-pane-actions">
+                <button
+                  type="button"
+                  id="manual-send-interrupt-2"
+                  class="secondary"
+                >
+                  Ctrl+C
+                </button>
+              </div>
+            </section>
+
+            <section id="file-drawer" class="file-drawer hidden">
+              <header class="file-drawer-header">
+                <div>
+                  <p class="eyebrow">Workspace Editor</p>
+                  <h2>File Viewer</h2>
+                </div>
+                <button type="button" id="file-editor-close" class="secondary">
+                  Close
+                </button>
+              </header>
+
+              <section id="agent-file-links" class="agent-file-links hidden">
+                <div class="agent-file-links-header">
+                  <p class="status-label">Referenced Files</p>
+                </div>
+                <div
+                  id="agent-file-links-list"
+                  class="agent-file-links-list"
+                ></div>
+              </section>
+
+              <section id="file-editor-empty" class="file-editor-empty">
+                <p class="status-meta">
+                  Click a referenced file to open it here.
+                </p>
+              </section>
+
+              <section id="file-editor-panel" class="file-editor-panel hidden">
+                <header class="file-editor-header">
+                  <div class="file-editor-title">
+                    <p class="status-label">Editing</p>
+                    <p id="file-editor-path" class="file-editor-path">
+                      No file selected
+                    </p>
+                  </div>
+                  <div class="file-editor-actions">
+                    <label class="file-editor-autosave">
+                      <input id="file-editor-autosave" type="checkbox" />
+                      Auto-save
+                    </label>
+                    <button
+                      type="button"
+                      id="file-editor-save"
+                      class="secondary"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </header>
+                <div class="file-editor-meta-row">
+                  <p id="file-editor-status" class="status-meta">
+                    Open a referenced file to edit.
+                  </p>
+                </div>
+                <div id="file-editor-surface" class="file-editor-surface"></div>
+              </section>
+            </section>
           </section>
         </section>
       </main>
@@ -232,47 +276,6 @@
       >
         Clear
       </button>
-    </div>
-
-    <div
-      id="file-editor-modal"
-      class="file-editor-modal hidden"
-      aria-hidden="true"
-    >
-      <div id="file-editor-backdrop" class="file-editor-backdrop"></div>
-      <section
-        class="file-editor-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Workspace file editor"
-      >
-        <header class="file-editor-header">
-          <div class="file-editor-title">
-            <p class="status-label">Workspace Editor</p>
-            <p id="file-editor-path" class="file-editor-path">
-              No file selected
-            </p>
-          </div>
-          <div class="file-editor-actions">
-            <label class="file-editor-autosave">
-              <input id="file-editor-autosave" type="checkbox" />
-              Auto-save
-            </label>
-            <button type="button" id="file-editor-save" class="secondary">
-              Save
-            </button>
-            <button type="button" id="file-editor-close" class="secondary">
-              Close
-            </button>
-          </div>
-        </header>
-        <div class="file-editor-meta-row">
-          <p id="file-editor-status" class="status-meta">
-            Open a referenced file to edit.
-          </p>
-        </div>
-        <div id="file-editor-surface" class="file-editor-surface"></div>
-      </section>
     </div>
 
     <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>

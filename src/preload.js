@@ -39,13 +39,18 @@ contextBridge.exposeInMainWorld("agenticApp", {
       supported: result?.supported !== false,
     };
   },
-  ensureManualTerminal: (sessionId) =>
-    ipcRenderer.invoke("manual-terminal:ensure", sessionId),
-  writeToManualTerminal: (sessionId, input) =>
-    ipcRenderer.invoke("manual-terminal:write", { sessionId, input }),
-  resizeManualTerminal: (sessionId, size) =>
+  ensureManualTerminal: (sessionId, terminalId = "1") =>
+    ipcRenderer.invoke("manual-terminal:ensure", { sessionId, terminalId }),
+  writeToManualTerminal: (sessionId, input, terminalId = "1") =>
+    ipcRenderer.invoke("manual-terminal:write", {
+      sessionId,
+      input,
+      terminalId,
+    }),
+  resizeManualTerminal: (sessionId, size, terminalId = "1") =>
     ipcRenderer.invoke("manual-terminal:resize", {
       sessionId,
+      terminalId,
       cols: size.cols,
       rows: size.rows,
     }),
