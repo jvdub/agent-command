@@ -806,6 +806,27 @@ function getSessionByIdOrThrow(sessionId) {
 function sanitizeEditorRequestedPath(value) {
   let sanitized = String(value || "").trim();
 
+  // Handle file URIs produced by some tools/editors.
+  if (/^(file|vscode):\/\//i.test(sanitized)) {
+    try {
+      if (/^vscode:\/\/file\//i.test(sanitized)) {
+        sanitized = sanitized.replace(/^vscode:\/\/file\//i, "file:///");
+      }
+
+      const fileUrl = new URL(sanitized);
+      if (fileUrl.protocol === "file:") {
+        sanitized = decodeURIComponent(fileUrl.pathname || "");
+
+        // file:///C:/path -> C:/path on Windows
+        if (/^\/[A-Za-z]:\//.test(sanitized)) {
+          sanitized = sanitized.slice(1);
+        }
+      }
+    } catch {
+      // Fall through to best-effort text sanitization below.
+    }
+  }
+
   // Handle common markdown/file-reference suffixes like file.ts:12,
   // file.ts:12:3, file.ts#L12, file.ts#L12-L18.
   sanitized = sanitized
@@ -827,7 +848,22 @@ function sanitizeEditorRequestedPath(value) {
 }
 
 function pathWithinRoot(rootPath, candidatePath) {
-  const relative = path.relative(rootPath, candidatePath);
+  const normalizedRoot = path.resolve(rootPath);
+  const normalizedCandidate = path.resolve(candidatePath);
+
+  // Windows filesystems are typically case-insensitive; compare on lowercase.
+  if (process.platform === "win32") {
+    const rootLower = normalizedRoot.toLowerCase();
+    const candidateLower = normalizedCandidate.toLowerCase();
+
+    if (candidateLower === rootLower) {
+      return true;
+    }
+
+    return candidateLower.startsWith(`${rootLower}${path.sep}`);
+  }
+
+  const relative = path.relative(normalizedRoot, normalizedCandidate);
   return !(relative.startsWith("..") || path.isAbsolute(relative));
 }
 
