@@ -140,6 +140,43 @@
               </div>
             </div>
 
+            <div id="agent-search-bar" class="agent-search-bar hidden">
+              <input
+                id="agent-search-input"
+                type="search"
+                placeholder="Find in main session"
+                aria-label="Find in main agent session"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p id="agent-search-count" class="agent-search-count status-meta">
+                Type to search
+              </p>
+              <div class="agent-search-actions">
+                <button
+                  type="button"
+                  id="agent-search-prev"
+                  class="secondary"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  id="agent-search-next"
+                  class="secondary"
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  id="agent-search-close"
+                  class="secondary"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
             <section id="process-details-panel" class="process-panel hidden">
               <div class="process-panel-header">
                 <p class="status-label">Spawned Processes</p>

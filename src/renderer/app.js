@@ -1,5 +1,6 @@
 import { Terminal } from "../../node_modules/@xterm/xterm/lib/xterm.mjs";
 import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs";
+import { SearchAddon } from "../../node_modules/@xterm/addon-search/lib/addon-search.mjs";
 import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
 
 const emptyView = document.querySelector("#empty-view");
@@ -34,6 +35,12 @@ const sessionMeta = document.querySelector("#session-meta");
 const sessionTabsList = document.querySelector("#session-tabs-list");
 const terminalTitle = document.querySelector("#terminal-title");
 const terminalSubtitle = document.querySelector("#terminal-subtitle");
+const agentSearchBar = document.querySelector("#agent-search-bar");
+const agentSearchInput = document.querySelector("#agent-search-input");
+const agentSearchCount = document.querySelector("#agent-search-count");
+const agentSearchPrevButton = document.querySelector("#agent-search-prev");
+const agentSearchNextButton = document.querySelector("#agent-search-next");
+const agentSearchCloseButton = document.querySelector("#agent-search-close");
 const terminalContainer = document.querySelector("#terminal");
 const manualTerminalSubtitle1 = document.querySelector(
   "#manual-terminal-subtitle-1",
@@ -250,6 +257,18 @@ const TERMINAL_OPTIONS = {
   },
 };
 
+const TERMINAL_SEARCH_OPTIONS = {
+  incremental: true,
+  decorations: {
+    matchBackground: "#35526a",
+    matchBorder: "#78b8e6",
+    matchOverviewRuler: "#78b8e6",
+    activeMatchBackground: "#ee6c4d",
+    activeMatchBorder: "#f3be7c",
+    activeMatchColorOverviewRuler: "#ee6c4d",
+  },
+};
+
 const sessions = new Map();
 const sessionBuffers = new Map();
 const sessionInsights = new Map();
@@ -284,6 +303,8 @@ let editorState = {
   dirty: false,
   autosave: false,
 };
+
+let isAgentSearchOpen = false;
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -1085,6 +1106,107 @@ function closeTerminalContextMenu() {
   terminalContextTarget = null;
 }
 
+function setAgentSearchMessage(message, isError = false) {
+  agentSearchCount.textContent = message;
+  agentSearchCount.classList.toggle("error", isError);
+}
+
+function getActiveAgentSearchAddon() {
+  return getActiveTerminalInstance()?.searchAddon || null;
+}
+
+function updateAgentSearchControls() {
+  const hasActiveTerminal = Boolean(getActiveTerminalInstance());
+  const hasTerm = Boolean(agentSearchInput.value.trim());
+
+  agentSearchInput.disabled = !hasActiveTerminal;
+  agentSearchPrevButton.disabled = !hasActiveTerminal || !hasTerm;
+  agentSearchNextButton.disabled = !hasActiveTerminal || !hasTerm;
+
+  if (!hasActiveTerminal) {
+    setAgentSearchMessage("No active session", true);
+    return;
+  }
+
+  if (!hasTerm) {
+    setAgentSearchMessage("Type to search");
+  }
+}
+
+function clearAgentSearch() {
+  const searchAddon = getActiveAgentSearchAddon();
+  if (searchAddon) {
+    searchAddon.clearDecorations();
+  }
+
+  agentSearchInput.value = "";
+  updateAgentSearchControls();
+}
+
+function closeAgentSearch({ restoreFocus = true, clear = true } = {}) {
+  isAgentSearchOpen = false;
+  agentSearchBar.classList.add("hidden");
+
+  if (clear) {
+    clearAgentSearch();
+  }
+
+  if (restoreFocus) {
+    getActiveTerminalInstance()?.terminal.focus();
+  }
+}
+
+function openAgentSearch({ selectText = true } = {}) {
+  if (!getActiveTerminalInstance()) {
+    setStatus("Find", "Open a session before searching");
+    return;
+  }
+
+  isAgentSearchOpen = true;
+  agentSearchBar.classList.remove("hidden");
+  updateAgentSearchControls();
+
+  if (selectText && agentSearchInput.value) {
+    agentSearchInput.select();
+    return;
+  }
+
+  agentSearchInput.focus();
+}
+
+function runAgentSearch(direction = "next", options = {}) {
+  const searchAddon = getActiveAgentSearchAddon();
+  const term = agentSearchInput.value.trim();
+
+  if (!searchAddon) {
+    updateAgentSearchControls();
+    return false;
+  }
+
+  if (!term) {
+    searchAddon.clearDecorations();
+    updateAgentSearchControls();
+    return false;
+  }
+
+  const searchOptions = {
+    ...TERMINAL_SEARCH_OPTIONS,
+    incremental: options.incremental === true,
+  };
+
+  const matched =
+    direction === "previous"
+      ? searchAddon.findPrevious(term, searchOptions)
+      : searchAddon.findNext(term, searchOptions);
+
+  if (!matched) {
+    setAgentSearchMessage("No matches", true);
+  }
+
+  updateAgentSearchControls();
+  return matched;
+}
+
 function openTerminalContextMenu(event, target) {
   event.preventDefault();
   terminalContextTarget = target;
@@ -1197,21 +1319,47 @@ function createSessionTerminal(sessionId) {
 
   const terminal = new Terminal(TERMINAL_OPTIONS);
   const fitAddon = new FitAddon();
+  const searchAddon = new SearchAddon({ highlightLimit: 2000 });
   const webLinksAddon = createWebLinksAddon({
     sessionId,
     kind: "agent",
   });
   terminal.loadAddon(fitAddon);
+  terminal.loadAddon(searchAddon);
   terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
   const instance = {
     terminal,
     fitAddon,
+    searchAddon,
     mount,
     sessionId,
     kind: "agent",
   };
   attachTerminalClipboardHandlers(instance);
+
+  searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+    if (activeSessionId !== sessionId || !isAgentSearchOpen) {
+      return;
+    }
+
+    if (!agentSearchInput.value.trim()) {
+      setAgentSearchMessage("Type to search");
+      return;
+    }
+
+    if (resultCount === 0) {
+      setAgentSearchMessage("No matches", true);
+      return;
+    }
+
+    if (resultIndex >= 0) {
+      setAgentSearchMessage(`${resultIndex + 1} of ${resultCount}`);
+      return;
+    }
+
+    setAgentSearchMessage(`${resultCount} matches`);
+  });
 
   terminal.onData((data) => {
     if (activeSessionId !== sessionId) {
@@ -1468,6 +1616,7 @@ function showEmptyView(shouldRefresh = true) {
   emptyView.classList.remove("hidden");
   terminalView.classList.add("hidden");
   processDetailsPanel.classList.add("hidden");
+  closeAgentSearch({ restoreFocus: false });
 
   for (const instance of sessionTerminals.values()) {
     instance.mount.classList.add("hidden");
@@ -1539,6 +1688,10 @@ async function openTerminalView(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) {
     return;
+  }
+
+  if (activeSessionId && activeSessionId !== sessionId && isAgentSearchOpen) {
+    closeAgentSearch({ restoreFocus: false });
   }
 
   activeSessionId = sessionId;
@@ -1978,6 +2131,19 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (
+    !editorState.open &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "f"
+  ) {
+    if (activeSessionId) {
+      event.preventDefault();
+      openAgentSearch();
+    }
+    return;
+  }
+
+  if (
     editorState.open &&
     (event.key === "s" || event.key === "S") &&
     (event.ctrlKey || event.metaKey)
@@ -1988,6 +2154,11 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (event.key === "Escape") {
+    if (isAgentSearchOpen) {
+      closeAgentSearch();
+      return;
+    }
+
     if (editorState.open) {
       closeFileEditorModal();
       return;
@@ -1995,6 +2166,46 @@ document.addEventListener("keydown", (event) => {
 
     closeTerminalContextMenu();
   }
+});
+
+agentSearchInput.addEventListener("input", () => {
+  const term = agentSearchInput.value.trim();
+
+  if (!term) {
+    const searchAddon = getActiveAgentSearchAddon();
+    if (searchAddon) {
+      searchAddon.clearDecorations();
+    }
+    updateAgentSearchControls();
+    return;
+  }
+
+  runAgentSearch("next", { incremental: true });
+});
+
+agentSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    runAgentSearch(event.shiftKey ? "previous" : "next");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAgentSearch();
+  }
+});
+
+agentSearchPrevButton.addEventListener("click", () => {
+  runAgentSearch("previous");
+});
+
+agentSearchNextButton.addEventListener("click", () => {
+  runAgentSearch("next");
+});
+
+agentSearchCloseButton.addEventListener("click", () => {
+  closeAgentSearch();
 });
 
 fileEditorSaveButton.addEventListener("click", () => {
