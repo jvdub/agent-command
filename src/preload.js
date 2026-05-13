@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("agenticApp", {
       cols: size.cols,
       rows: size.rows,
     }),
+  openExternalUrl: (url) => ipcRenderer.invoke("external-link:open", { url }),
   readClipboardText: () => clipboard.readText(),
   writeClipboardText: (value) => clipboard.writeText(value || ""),
   onSessionsChanged: (listener) => {

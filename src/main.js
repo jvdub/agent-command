@@ -3,7 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const pty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -1469,5 +1469,26 @@ ipcMain.handle("manual-terminal:resize", async (_event, payload) => {
   }
 
   terminal.ptyProcess.resize(cols, rows);
+  return { ok: true };
+});
+
+ipcMain.handle("external-link:open", async (_event, payload) => {
+  const rawUrl = String(payload?.url || "").trim();
+  if (!rawUrl) {
+    throw new Error("A URL is required.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Invalid URL.");
+  }
+
+  if (!/^https?:$/i.test(parsed.protocol)) {
+    throw new Error("Only http and https links are allowed.");
+  }
+
+  await shell.openExternal(parsed.toString());
   return { ok: true };
 });

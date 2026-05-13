@@ -1,5 +1,6 @@
 import { Terminal } from "../../node_modules/@xterm/xterm/lib/xterm.mjs";
 import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs";
+import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -547,6 +548,47 @@ function closeFileEditorModal(force = false) {
   return true;
 }
 
+function uniqueStrings(values) {
+  return Array.from(new Set(values.filter(Boolean).map((value) => String(value))));
+}
+
+function monacoLoaderCandidates() {
+  const absolute = new URL(MONACO_LOADER_PATH, window.location.href).toString();
+  return uniqueStrings([MONACO_LOADER_PATH, absolute]);
+}
+
+function monacoVsBaseCandidates() {
+  const absolute = new URL(`${MONACO_VS_BASE_PATH}/`, window.location.href)
+    .toString()
+    .replace(/\/$/, "");
+  return uniqueStrings([MONACO_VS_BASE_PATH, absolute]);
+}
+
+function loadMonacoWithVsPath(amdRequire, vsPath) {
+  return new Promise((resolve, reject) => {
+    amdRequire.config({
+      paths: {
+        vs: vsPath,
+      },
+    });
+
+    amdRequire(
+      ["vs/editor/editor.main"],
+      () => {
+        if (!window.monaco?.editor) {
+          reject(new Error("Monaco editor API did not initialize."));
+          return;
+        }
+
+        resolve(window.monaco);
+      },
+      (error) => {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 function ensureMonacoEditor() {
   if (monacoEditor && monacoApi) {
     return Promise.resolve(monacoApi);
@@ -557,58 +599,66 @@ function ensureMonacoEditor() {
   }
 
   monacoLoaderPromise = new Promise((resolve, reject) => {
-    const initializeMonaco = () => {
+    const initializeMonaco = async () => {
       const amdRequire = window.require || window.requirejs;
       if (!amdRequire) {
         reject(new Error("Monaco loader is unavailable."));
         return;
       }
 
-      amdRequire.config({
-        paths: {
-          // RequireJS resolves this relative path correctly across platforms.
-          vs: MONACO_VS_BASE_PATH,
-        },
+      let resolvedApi = null;
+      let lastError = null;
+
+      for (const vsPath of monacoVsBaseCandidates()) {
+        try {
+          resolvedApi = await loadMonacoWithVsPath(amdRequire, vsPath);
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!resolvedApi) {
+        const detail =
+          lastError && String(lastError.message || lastError).trim()
+            ? ` ${String(lastError.message || lastError).trim()}`
+            : "";
+        reject(new Error(`Monaco loader is unavailable.${detail}`));
+        return;
+      }
+
+      monacoApi = resolvedApi;
+      monacoEditor = monacoApi.editor.create(fileEditorSurface, {
+        value: "",
+        language: "plaintext",
+        automaticLayout: true,
+        minimap: { enabled: true },
+        fontSize: 13,
+        theme: "vs-dark",
       });
 
-      amdRequire(
-        ["vs/editor/editor.main"],
-        () => {
-          monacoApi = window.monaco;
-          monacoEditor = monacoApi.editor.create(fileEditorSurface, {
-            value: "",
-            language: "plaintext",
-            automaticLayout: true,
-            minimap: { enabled: true },
-            fontSize: 13,
-            theme: "vs-dark",
-          });
+      monacoEditor.onDidChangeModelContent(() => {
+        if (suppressEditorChange || !editorState.open) {
+          return;
+        }
 
-          monacoEditor.onDidChangeModelContent(() => {
-            if (suppressEditorChange || !editorState.open) {
-              return;
-            }
+        setEditorDirtyState(true);
 
-            setEditorDirtyState(true);
+        if (!editorState.autosave) {
+          return;
+        }
 
-            if (!editorState.autosave) {
-              return;
-            }
+        if (autosaveTimeoutId) {
+          window.clearTimeout(autosaveTimeoutId);
+        }
 
-            if (autosaveTimeoutId) {
-              window.clearTimeout(autosaveTimeoutId);
-            }
+        autosaveTimeoutId = window.setTimeout(() => {
+          autosaveTimeoutId = null;
+          saveOpenEditorFile("Auto-saved");
+        }, AUTOSAVE_DELAY_MS);
+      });
 
-            autosaveTimeoutId = window.setTimeout(() => {
-              autosaveTimeoutId = null;
-              saveOpenEditorFile("Auto-saved");
-            }, AUTOSAVE_DELAY_MS);
-          });
-
-          resolve(monacoApi);
-        },
-        reject,
-      );
+      resolve(monacoApi);
     };
 
     if (window.require || window.requirejs) {
@@ -618,6 +668,12 @@ function ensureMonacoEditor() {
 
     const existingLoader = document.querySelector('script[data-monaco-loader="1"]');
     if (existingLoader) {
+      // If a script was found but already finished loading, try init immediately.
+      if (existingLoader.readyState === "complete") {
+        initializeMonaco();
+        return;
+      }
+
       existingLoader.addEventListener("load", initializeMonaco, { once: true });
       existingLoader.addEventListener(
         "error",
@@ -629,9 +685,16 @@ function ensureMonacoEditor() {
 
     const script = document.createElement("script");
     script.setAttribute("data-monaco-loader", "1");
-    script.src = MONACO_LOADER_PATH;
+    const [firstLoaderPath, ...fallbackLoaderPaths] = monacoLoaderCandidates();
+    script.src = firstLoaderPath;
     script.onload = initializeMonaco;
     script.onerror = () => {
+      // Retry with an absolute file URL fallback for Windows file:// edge cases.
+      if (fallbackLoaderPaths.length > 0) {
+        script.src = fallbackLoaderPaths[0];
+        return;
+      }
+
       reject(new Error("Monaco loader is unavailable."));
     };
     document.head.appendChild(script);
@@ -1102,6 +1165,26 @@ async function sendTerminalClearCommand(target) {
   await window.agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
 
+function createWebLinksAddon(instance) {
+  return new WebLinksAddon((event, uri) => {
+    event?.preventDefault?.();
+
+    Promise.resolve(window.agenticApp.openExternalUrl(uri))
+      .then(() => {
+        setStatus("Opened", uri);
+      })
+      .catch((error) => {
+        const detail = error?.message || "Unable to open link";
+        setStatus("Error", detail);
+      });
+
+    if (instance.kind === "agent") {
+      markSessionInput(instance.sessionId);
+      scheduleUiRefresh();
+    }
+  });
+}
+
 function createSessionTerminal(sessionId) {
   if (sessionTerminals.has(sessionId)) {
     return sessionTerminals.get(sessionId);
@@ -1114,7 +1197,12 @@ function createSessionTerminal(sessionId) {
 
   const terminal = new Terminal(TERMINAL_OPTIONS);
   const fitAddon = new FitAddon();
+  const webLinksAddon = createWebLinksAddon({
+    sessionId,
+    kind: "agent",
+  });
   terminal.loadAddon(fitAddon);
+  terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
   const instance = {
     terminal,
@@ -1197,7 +1285,12 @@ function createManualTerminal(sessionId, terminalId) {
 
   const terminal = new Terminal(TERMINAL_OPTIONS);
   const fitAddon = new FitAddon();
+  const webLinksAddon = createWebLinksAddon({
+    sessionId,
+    kind: "manual",
+  });
   terminal.loadAddon(fitAddon);
+  terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
   const instance = {
     terminal,
