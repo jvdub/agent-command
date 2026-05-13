@@ -113,8 +113,12 @@ const PERMISSION_PATTERNS = [
   /\bconfirm\b.{0,30}\?/i,
   /\ballow\b.{0,40}\?/i,
   /\bapprove\b.{0,30}\?/i,
+  /\bpermission\b.{0,40}\b(required|needed|request(?:ed)?)\b/i,
+  /\bawaiting\b.{0,30}\bapproval\b/i,
+  /\bapprove\s+or\s+deny\b/i,
   // y/n choice indicators
   /\(y\/n\)|\[y\/n\]|\by\/n\b/i,
+  /\((?:yes|y)\/(?:no|n)\)|\[(?:yes|y)\/(?:no|n)\]/i,
   /press\s+y\s+to|type\s+y\s+to/i,
   // Copilot CLI tool-use approval
   /allow\s+this\s+tool/i,
@@ -137,12 +141,14 @@ const PERMISSION_PATTERNS = [
 const QUESTION_PATTERNS = [
   // Lines that end in a question mark (but not y/n prompts which are permission)
   /^(?!.*\by\/n\b).*\?\s*$/m,
+  /\btype\s*:\s*question\b/i,
+  /\bquestion\s*:\s*/i,
   /\bwhat\s+should\b/i,
   /\bhow\s+should\b/i,
   /\bwhich\s+(?:option|approach|file|version|branch)\b/i,
   /\bselect\b.+\boption\b/i,
   /\benter\b.+\bchoice\b/i,
-  /\bplease\s+(?:choose|select|pick|specify)\b/i,
+  /\bplease\s+(?:choose|select|pick|specify|provide)\b/i,
 ];
 
 const ERROR_PATTERNS = [
@@ -570,7 +576,9 @@ function closeFileEditorModal(force = false) {
 }
 
 function uniqueStrings(values) {
-  return Array.from(new Set(values.filter(Boolean).map((value) => String(value))));
+  return Array.from(
+    new Set(values.filter(Boolean).map((value) => String(value))),
+  );
 }
 
 function monacoLoaderCandidates() {
@@ -687,7 +695,9 @@ function ensureMonacoEditor() {
       return;
     }
 
-    const existingLoader = document.querySelector('script[data-monaco-loader="1"]');
+    const existingLoader = document.querySelector(
+      'script[data-monaco-loader="1"]',
+    );
     if (existingLoader) {
       // If a script was found but already finished loading, try init immediately.
       if (existingLoader.readyState === "complete") {
@@ -914,16 +924,10 @@ function updateInsightFromOutput(sessionId, data) {
     insight.hasError = false;
     insight.errorMessage = "";
     insight.lastErrorAt = null;
-    // Clear question/permission flags when agent becomes ready
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
   } else if (matchedErrorClear) {
     insight.hasError = false;
     insight.errorMessage = "";
     insight.lastErrorAt = null;
-    // Clear question/permission flags on error clear
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
   }
 }
 
@@ -1074,6 +1078,16 @@ function isClipboardShortcut(event, key) {
   const pressedKey = String(event.key || "").toLowerCase();
   return (
     (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key
+  );
+}
+
+function isFindShortcut(event) {
+  const pressedKey = String(event.key || "").toLowerCase();
+  const pressedCode = String(event.code || "").toLowerCase();
+  return (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    (pressedKey === "f" || pressedCode === "keyf")
   );
 }
 
@@ -1241,6 +1255,12 @@ function attachTerminalClipboardHandlers(target) {
     if (isClipboardShortcut(event, "v")) {
       event.preventDefault();
       pasteIntoTerminal(terminal);
+      return false;
+    }
+
+    if (target.kind === "agent" && isFindShortcut(event)) {
+      event.preventDefault();
+      openAgentSearch();
       return false;
     }
 
@@ -2129,12 +2149,12 @@ document.addEventListener("click", (event) => {
   newSessionPopover.classList.add("hidden");
 });
 
-document.addEventListener("keydown", (event) => {
+window.addEventListener(
+  "keydown",
+  (event) => {
   if (
     !editorState.open &&
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "f"
+    isFindShortcut(event)
   ) {
     if (activeSessionId) {
       event.preventDefault();
@@ -2166,7 +2186,9 @@ document.addEventListener("keydown", (event) => {
 
     closeTerminalContextMenu();
   }
-});
+  },
+  true,
+);
 
 agentSearchInput.addEventListener("input", () => {
   const term = agentSearchInput.value.trim();
