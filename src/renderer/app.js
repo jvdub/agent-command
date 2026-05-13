@@ -271,14 +271,8 @@ let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
 
-const MONACO_LOADER_URL = new URL(
-  "../../node_modules/monaco-editor/min/vs/loader.js",
-  import.meta.url,
-).toString();
-const MONACO_VS_BASE_URL = new URL(
-  "../../node_modules/monaco-editor/min/vs",
-  import.meta.url,
-).toString();
+const MONACO_LOADER_PATH = "../../node_modules/monaco-editor/min/vs/loader.js";
+const MONACO_VS_BASE_PATH = "../../node_modules/monaco-editor/min/vs";
 let autosaveTimeoutId = null;
 let suppressEditorChange = false;
 let editorState = {
@@ -572,7 +566,8 @@ function ensureMonacoEditor() {
 
       amdRequire.config({
         paths: {
-          vs: MONACO_VS_BASE_URL,
+          // RequireJS resolves this relative path correctly across platforms.
+          vs: MONACO_VS_BASE_PATH,
         },
       });
 
@@ -634,7 +629,7 @@ function ensureMonacoEditor() {
 
     const script = document.createElement("script");
     script.setAttribute("data-monaco-loader", "1");
-    script.src = MONACO_LOADER_URL;
+    script.src = MONACO_LOADER_PATH;
     script.onload = initializeMonaco;
     script.onerror = () => {
       reject(new Error("Monaco loader is unavailable."));
@@ -642,7 +637,11 @@ function ensureMonacoEditor() {
     document.head.appendChild(script);
   });
 
-  return monacoLoaderPromise;
+  return monacoLoaderPromise.catch((error) => {
+    // Allow a future open attempt to retry loading if initialization failed.
+    monacoLoaderPromise = null;
+    throw error;
+  });
 }
 
 async function saveOpenEditorFile(successLabel = "Saved") {
