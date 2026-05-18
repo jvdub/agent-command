@@ -312,6 +312,7 @@ let editorState = {
 };
 
 let isAgentSearchOpen = false;
+let platformName = "linux";
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -430,6 +431,126 @@ function normalizeCandidateFilePath(candidate) {
     .replace(/[)'"`\],.;:!?]+$/, "");
 }
 
+function normalizedPathForMatch(pathValue) {
+  if (!pathValue) {
+    return "";
+  }
+
+  let normalized = normalizeCandidateFilePath(pathValue).replace(/\\+/g, "/");
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.startsWith("a/") || normalized.startsWith("b/")) {
+    normalized = normalized.slice(2);
+  }
+
+  const hasDrive = /^[A-Za-z]:\//.test(normalized);
+  const isAbsolutePosix = normalized.startsWith("/");
+  const isUnc = normalized.startsWith("//");
+  const isAbsolute = hasDrive || isAbsolutePosix || isUnc;
+  const uncPrefix = isUnc ? "//" : "";
+
+  if (isUnc) {
+    normalized = normalized.replace(/^\/\/+/, "");
+  }
+
+  const root = hasDrive
+    ? normalized.slice(0, 2)
+    : isAbsolutePosix
+      ? "/"
+      : "";
+
+  let body = hasDrive ? normalized.slice(2) : normalized;
+  const parts = body.split("/");
+  const stack = [];
+
+  for (const part of parts) {
+    if (!part || part === ".") {
+      continue;
+    }
+
+    if (part === "..") {
+      const last = stack[stack.length - 1];
+      if (last && last !== "..") {
+        stack.pop();
+      } else if (!isAbsolute) {
+        stack.push("..");
+      }
+      continue;
+    }
+
+    stack.push(part);
+  }
+
+  const normalizedBody = stack.join("/");
+
+  if (hasDrive) {
+    return `${root}${normalizedBody ? `/${normalizedBody}` : ""}`;
+  }
+
+  if (isAbsolutePosix) {
+    return `/${normalizedBody}`;
+  }
+
+  if (isUnc) {
+    return `${uncPrefix}${normalizedBody}`;
+  }
+
+  return normalizedBody || ".";
+}
+
+function pathBasename(pathValue) {
+  const normalized = String(pathValue || "").replace(/\\+/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : normalized;
+}
+
+function toRelativeIfUnder(rootPath, candidatePath) {
+  const root = normalizedPathForMatch(rootPath);
+  const candidate = normalizedPathForMatch(candidatePath);
+
+  if (!root || !candidate) {
+    return candidate;
+  }
+
+  const rootTrimmed = root.endsWith("/") ? root.slice(0, -1) : root;
+  const caseInsensitive = platformName === "win32";
+
+  const rootCmp = caseInsensitive ? rootTrimmed.toLowerCase() : rootTrimmed;
+  const candidateCmp = caseInsensitive ? candidate.toLowerCase() : candidate;
+
+  if (candidateCmp === rootCmp) {
+    return pathBasename(candidate);
+  }
+
+  const prefix = `${rootCmp}/`;
+  if (candidateCmp.startsWith(prefix)) {
+    return candidate.slice(prefix.length);
+  }
+
+  return candidate;
+}
+
+function normalizeReferencePathForSession(sessionId, rawPath) {
+  const cleaned = normalizedPathForMatch(rawPath);
+  if (!cleaned) {
+    return "";
+  }
+
+  let normalized = cleaned;
+  if (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+
+  const session = sessions.get(sessionId);
+  if (session?.cwd) {
+    normalized = toRelativeIfUnder(session.cwd, normalized);
+  }
+
+  return normalized;
+}
+
 function collectFileReferences(rawChunk) {
   const plainText = stripAnsi(rawChunk);
   const refs = [];
@@ -466,17 +587,80 @@ function ingestFileReferences(sessionId, rawChunk) {
   }
 
   const existing = ensureSessionFileReferences(sessionId);
-  const byPath = new Map(existing.map((entry) => [entry.filePath, entry]));
+  const byKey = new Map();
+
+  for (const entry of existing) {
+    const normalizedPath = normalizeReferencePathForSession(
+      sessionId,
+      entry.filePath,
+    );
+    if (!normalizedPath) {
+      continue;
+    }
+
+    byKey.set(normalizedPath, {
+      ...entry,
+      filePath: normalizedPath,
+      updatedAt: Number(entry.updatedAt) || Date.now(),
+    });
+  }
 
   for (const ref of found) {
-    byPath.set(ref.filePath, {
-      filePath: ref.filePath,
-      line: Number.isInteger(ref.line) ? ref.line : null,
+    const normalizedPath = normalizeReferencePathForSession(sessionId, ref.filePath);
+    if (!normalizedPath) {
+      continue;
+    }
+
+    const existingEntry = byKey.get(normalizedPath);
+    byKey.set(normalizedPath, {
+      filePath: normalizedPath,
+      line: Number.isInteger(ref.line)
+        ? ref.line
+        : Number.isInteger(existingEntry?.line)
+          ? existingEntry.line
+          : null,
       updatedAt: Date.now(),
     });
   }
 
-  const sorted = Array.from(byPath.values())
+  const byBasename = new Map();
+  for (const [key, entry] of byKey.entries()) {
+    const basename = pathBasename(entry.filePath);
+    const group = byBasename.get(basename) || [];
+    group.push({ key, entry });
+    byBasename.set(basename, group);
+  }
+
+  for (const [basename, group] of byBasename.entries()) {
+    if (group.length < 2) {
+      continue;
+    }
+
+    const bareEntries = group.filter(({ entry }) => !entry.filePath.includes("/"));
+    const pathEntries = group.filter(({ entry }) => entry.filePath.includes("/"));
+    if (bareEntries.length !== 1 || pathEntries.length !== 1) {
+      continue;
+    }
+
+    const bareKey = bareEntries[0].key;
+    const target = pathEntries[0].entry;
+    byKey.delete(bareKey);
+    byKey.set(pathEntries[0].key, {
+      ...target,
+      line: Number.isInteger(target.line)
+        ? target.line
+        : Number.isInteger(bareEntries[0].entry.line)
+          ? bareEntries[0].entry.line
+          : null,
+      updatedAt: Math.max(
+        Number(target.updatedAt) || 0,
+        Number(bareEntries[0].entry.updatedAt) || 0,
+      ),
+    });
+    byBasename.set(basename, [pathEntries[0]]);
+  }
+
+  const sorted = Array.from(byKey.values())
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, FILE_REFERENCE_LIMIT);
 
@@ -497,9 +681,18 @@ function renderSessionFileReferences(sessionId) {
     return;
   }
 
+  const basenameCounts = refs.reduce((counts, ref) => {
+    const basename = pathBasename(ref.filePath);
+    counts.set(basename, (counts.get(basename) || 0) + 1);
+    return counts;
+  }, new Map());
+
   const chips = refs
     .map((ref) => {
       const suffix = Number.isInteger(ref.line) ? `:${ref.line}` : "";
+      const basename = pathBasename(ref.filePath);
+      const showFullPath = (basenameCounts.get(basename) || 0) > 1;
+      const label = showFullPath ? ref.filePath : basename;
       return `
         <button
           type="button"
@@ -507,7 +700,7 @@ function renderSessionFileReferences(sessionId) {
           data-file-path="${escapeHtml(ref.filePath)}"
           data-file-line="${Number.isInteger(ref.line) ? ref.line : ""}"
           title="Open ${escapeHtml(ref.filePath)}"
-        >${escapeHtml(ref.filePath)}${suffix}</button>
+        >${escapeHtml(label)}${suffix}</button>
       `;
     })
     .join("");
@@ -1875,6 +2068,7 @@ async function resizeManualTerminals() {
 
 async function initializeContext() {
   const context = await window.agenticApp.getContext();
+  platformName = context.platform || "linux";
   setProcessInspectionSupport(context.processInspectionSupported);
   cwdInput.value = context.cwd;
   setStatus("Idle", `Default directory ${context.cwd}`);
