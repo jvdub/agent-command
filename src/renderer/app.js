@@ -80,14 +80,13 @@ const UI_REFRESH_INTERVAL_MS = 150;
 const FILE_REFERENCE_LIMIT = 24;
 const AUTOSAVE_DELAY_MS = 1000;
 // Matches file paths in terminal output, supporting both POSIX and Windows formats:
-// - Windows absolute: C:\path\to\file.js, D:\project\src\main.ts
-// - Windows UNC: \\server\share\file.js
-// - Windows relative: .\file.js, ..\dir\file.js, dir\file.js
-// - POSIX absolute: /path/to/file.js
-// - POSIX relative: ./file.js, ../file.js, dir/file.js
-// - Home: ~/file.js
+// - Any file extension (for example: settings.gradle, config.local.json)
+// - Dotfiles (for example: .env, .gitignore)
+// - Extensionless files when path-qualified (for example: ./gradlew, scripts/deploy)
+// - Windows absolute, UNC, and relative paths
+// - POSIX absolute and relative paths, plus ~/home paths
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s("'`])((?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/?]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/?])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
+  /(^|[\s("'`])((?:(?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])+[A-Za-z0-9._\-]+|[A-Za-z0-9._\-]+\.[A-Za-z0-9._\-]+|\.[A-Za-z0-9._\-]+))(?:[:#](\d+))?/g;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
