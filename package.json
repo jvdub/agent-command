@@ -6,7 +6,10 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js"
+    "prepare:renderer-assets": "node scripts/sync-renderer-assets.mjs",
+    "check:renderer-assets": "node scripts/sync-renderer-assets.mjs --check",
+    "postinstall": "npm run prepare:renderer-assets",
+    "check": "npm run prepare:renderer-assets && npm run check:renderer-assets && node --check scripts/sync-renderer-assets.mjs && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/renderer/terminalRuntime.js && node --check src/renderer/workspaceTools.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -18,5 +21,10 @@
   },
   "devDependencies": {
     "electron": "^41.5.0"
+  },
+  "build": {
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ]
   }
 }

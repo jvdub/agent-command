@@ -1,7 +1,857 @@
-import { Terminal } from "../../node_modules/@xterm/xterm/lib/xterm.mjs";
-import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs";
-import { SearchAddon } from "../../node_modules/@xterm/addon-search/lib/addon-search.mjs";
-import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
+import { UI_REFRESH_INTERVAL_MS } from "./constants.js";
+import { elements } from "./dom.js";
+import {
+  deriveAttentionStatus,
+  ensureSessionInsight,
+  markSessionInput,
+  rehydrateInsightFromBuffer,
+  updateInsightFromOutput,
+} from "./insights.js";
+import {
+  clearSessionFileReferences,
+  ingestFileReferences,
+  renderSessionFileReferences,
+} from "./fileReferences.js";
+import {
+  capabilities,
+  editorState,
+  manualTerminalBuffers,
+  manualTerminals,
+  sessionBuffers,
+  sessionFileReferences,
+  sessionInsights,
+  sessionProcesses,
+  sessionTerminals,
+  sessions,
+  uiState,
+} from "./state.js";
+import { createTerminalManager } from "./terminalRuntime.js";
+import {
+  escapeHtml,
+  getProcessDisplayLabel,
+  getSessionDisplayName,
+  shortId,
+} from "./utils.js";
+import { agenticApp } from "./agenticApp.js";
+import { createWorkspaceTools } from "./workspaceTools.js";
+
+const {
+  emptyView,
+  terminalView,
+  sessionForm,
+  newSessionButton,
+  newSessionPopover,
+  openLauncherEmptyButton,
+  labelInput,
+  commandInput,
+  argsInput,
+  cwdInput,
+  pickDirectoryButton,
+  stopSessionButton,
+  sendInterruptButton,
+  openFileDrawerButton,
+  manualSendInterruptButton1,
+  manualSendInterruptButton2,
+  toggleProcessPanelButton,
+  sessionStatus,
+  sessionMeta,
+  sessionTabsList,
+  terminalTitle,
+  terminalSubtitle,
+  processDetailsPanel,
+  processPanelMeta,
+  processDetailsList,
+  terminalContextMenu,
+  agentFileLinksList,
+  workspaceSearchInput,
+} = elements;
+
+function ensureSessionBuffer(sessionId) {
+  if (!sessionBuffers.has(sessionId)) {
+    sessionBuffers.set(sessionId, "");
+  }
+}
+
+function appendSessionBuffer(sessionId, chunk) {
+  ensureSessionBuffer(sessionId);
+  sessionBuffers.set(sessionId, `${sessionBuffers.get(sessionId)}${chunk}`);
+}
+
+function setProcessInspectionSupport(supported) {
+  const isSupported = supported !== false;
+  capabilities.processInspectionSupported = isSupported;
+
+  toggleProcessPanelButton.classList.toggle("hidden", !isSupported);
+  toggleProcessPanelButton.disabled = !isSupported;
+
+  if (!isSupported) {
+    uiState.isProcessPanelOpen = false;
+    toggleProcessPanelButton.classList.remove("active");
+    processDetailsPanel.classList.add("hidden");
+    return;
+  }
+
+  renderProcessDetails(uiState.activeSessionId);
+}
+
+function setStatus(label, meta) {
+  sessionStatus.textContent = label;
+  sessionMeta.textContent = meta;
+}
+
+function scheduleUiRefresh() {
+  if (uiState.refreshScheduled) {
+    return;
+  }
+
+  uiState.refreshScheduled = true;
+  uiState.refreshTimeoutId = window.setTimeout(() => {
+    uiState.refreshScheduled = false;
+    uiState.refreshTimeoutId = null;
+    refreshVisibleUi();
+  }, UI_REFRESH_INTERVAL_MS);
+}
+
+const terminalManager = createTerminalManager({
+  clearSessionFileReferences,
+  markSessionInput,
+  renderSessionFileReferences,
+  scheduleUiRefresh,
+  setStatus,
+});
+
+const workspaceTools = createWorkspaceTools({
+  getActiveTerminalInstance: () => terminalManager.getActiveTerminalInstance(),
+  setStatus,
+});
+
+function refreshVisibleUi() {
+  renderSessionTabs();
+
+  if (!uiState.activeSessionId) {
+    showEmptyView(false);
+    return;
+  }
+
+  const active = sessions.get(uiState.activeSessionId);
+  if (!active) {
+    return;
+  }
+
+  renderTerminalHeader(active);
+  terminalManager.updateManualTerminalSubtitle(active, "1");
+  terminalManager.updateManualTerminalSubtitle(active, "2");
+  setTerminalActionsEnabled(active);
+  renderProcessDetails(active.id);
+  renderSessionFileReferences(active.id);
+}
+
+function setTerminalActionsEnabled(session) {
+  const enabled = Boolean(session?.isRunning);
+  stopSessionButton.disabled = !enabled;
+  sendInterruptButton.disabled = !enabled;
+}
+
+function getSessionStatusLabel(session) {
+  if (session.isRunning) {
+    return "Running";
+  }
+
+  if (typeof session.exitCode === "number") {
+    return `Exited (${session.exitCode})`;
+  }
+
+  return "Stopped";
+}
+
+function renderSessionTabs() {
+  const allSessions = Array.from(sessions.values()).sort(
+    (left, right) => right.createdAt - left.createdAt,
+  );
+
+  if (allSessions.length === 0) {
+    sessionTabsList.innerHTML = '<p class="status-meta">No sessions</p>';
+    return;
+  }
+
+  const tabs = allSessions
+    .map((session) => {
+      const attention = deriveAttentionStatus(session);
+      const procs = sessionProcesses.get(session.id) || [];
+      const isActive = uiState.activeSessionId === session.id;
+      const primaryProc = procs[0] ? getProcessDisplayLabel(procs[0]) : "";
+      const procSummary =
+        procs.length > 0
+          ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
+          : "";
+
+      if (!session.isRunning) {
+        return `
+          <div class="session-tab-group ${isActive ? "active" : ""}">
+            <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
+              <div class="session-tab-top">
+                <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
+                <p class="session-tab-id">#${shortId(session.id)}</p>
+              </div>
+              <p class="session-tab-attention">${attention.label}</p>
+            </button>
+            <div class="session-tab-actions">
+              <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
+              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <button type="button" class="session-tab ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">
+          <div class="session-tab-top">
+            <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
+            <p class="session-tab-id">#${shortId(session.id)}</p>
+          </div>
+          <p class="session-tab-attention">${attention.label}</p>
+          ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
+        </button>
+      `;
+    })
+    .join("");
+
+  sessionTabsList.innerHTML = tabs;
+}
+
+function showEmptyView(shouldRefresh = true) {
+  emptyView.classList.remove("hidden");
+  terminalView.classList.add("hidden");
+  processDetailsPanel.classList.add("hidden");
+  terminalManager.closeAgentSearch({ restoreFocus: false });
+  workspaceTools.closeWorkspaceSearch({ restoreFocus: false });
+
+  for (const instance of sessionTerminals.values()) {
+    instance.mount.classList.add("hidden");
+  }
+
+  for (const instance of manualTerminals.values()) {
+    instance.mount.classList.add("hidden");
+  }
+
+  uiState.activeSessionId = null;
+  renderSessionFileReferences(null);
+  workspaceTools.closeFileEditorModal(true);
+  if (shouldRefresh) {
+    refreshVisibleUi();
+  }
+}
+
+function renderTerminalHeader(session) {
+  terminalTitle.textContent = getSessionDisplayName(session);
+  terminalSubtitle.textContent = `${session.cwd} - ${getSessionStatusLabel(session)}`;
+}
+
+function renderProcessDetails(sessionId) {
+  if (!capabilities.processInspectionSupported) {
+    processDetailsPanel.classList.add("hidden");
+    return;
+  }
+
+  if (!uiState.isProcessPanelOpen || !sessionId) {
+    processDetailsPanel.classList.add("hidden");
+    return;
+  }
+
+  processDetailsPanel.classList.remove("hidden");
+  const processes = sessionProcesses.get(sessionId) || [];
+  processPanelMeta.textContent = `${processes.length} running`;
+
+  if (processes.length === 0) {
+    processDetailsList.innerHTML =
+      '<p class="status-meta">No non-default spawned processes detected.</p>';
+    return;
+  }
+
+  processDetailsList.innerHTML = processes
+    .map((proc) => {
+      const label = getProcessDisplayLabel(proc);
+      const command = proc.cmdline || proc.comm || "";
+      return `
+        <article class="process-row">
+          <div class="process-row-top">
+            <p class="process-name">${escapeHtml(label)}</p>
+            <p class="process-meta">PID ${proc.pid} · ${escapeHtml(proc.state)} · depth ${proc.depth ?? 0}</p>
+          </div>
+          <p class="process-command">${escapeHtml(command)}</p>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function openTerminalView(sessionId) {
+  if (
+    editorState.open &&
+    uiState.activeSessionId &&
+    uiState.activeSessionId !== sessionId
+  ) {
+    const closed = workspaceTools.closeFileEditorModal();
+    if (!closed) {
+      return;
+    }
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  if (
+    uiState.activeSessionId &&
+    uiState.activeSessionId !== sessionId &&
+    uiState.isAgentSearchOpen
+  ) {
+    terminalManager.closeAgentSearch({ restoreFocus: false });
+  }
+
+  if (
+    uiState.activeSessionId &&
+    uiState.activeSessionId !== sessionId &&
+    uiState.isWorkspaceSearchOpen
+  ) {
+    workspaceTools.closeWorkspaceSearch({ restoreFocus: false });
+  }
+
+  uiState.activeSessionId = sessionId;
+  emptyView.classList.add("hidden");
+  terminalView.classList.remove("hidden");
+  renderSessionTabs();
+  renderTerminalHeader(session);
+  terminalManager.updateManualTerminalSubtitle(session, "1");
+  terminalManager.updateManualTerminalSubtitle(session, "2");
+  setTerminalActionsEnabled(session);
+  renderProcessDetails(sessionId);
+  terminalManager.showSessionTerminal(sessionId);
+  await terminalManager.resizeSession();
+  await terminalManager.showManualTerminal(sessionId, "1");
+  await terminalManager.showManualTerminal(sessionId, "2");
+  await terminalManager.resizeManualTerminals();
+}
+
+function updateSessions(payload) {
+  const incomingIds = new Set(payload.map((session) => session.id));
+
+  for (const existingId of sessions.keys()) {
+    if (!incomingIds.has(existingId)) {
+      sessionProcesses.delete(existingId);
+      sessionInsights.delete(existingId);
+      sessionBuffers.delete(existingId);
+      sessionFileReferences.delete(existingId);
+      for (const key of Array.from(manualTerminalBuffers.keys())) {
+        if (key.startsWith(`${existingId}:`)) {
+          manualTerminalBuffers.delete(key);
+        }
+      }
+      for (const [key, instance] of manualTerminals.entries()) {
+        if (!key.startsWith(`${existingId}:`)) {
+          continue;
+        }
+
+        instance.mount.remove();
+        manualTerminals.delete(key);
+      }
+    }
+  }
+
+  sessions.clear();
+  for (const session of payload) {
+    sessions.set(session.id, session);
+    const priorBuffer = sessionBuffers.get(session.id) || "";
+    const incomingBuffer =
+      typeof session.outputBuffer === "string" ? session.outputBuffer : null;
+    sessionBuffers.set(
+      session.id,
+      incomingBuffer !== null ? incomingBuffer : priorBuffer,
+    );
+    rehydrateInsightFromBuffer(session);
+  }
+
+  if (uiState.activeSessionId && !sessions.has(uiState.activeSessionId)) {
+    workspaceTools.closeFileEditorModal(true);
+    showEmptyView(false);
+  }
+
+  refreshVisibleUi();
+  pollSessionProcesses();
+}
+
+function bindGlobalEvents() {
+  agenticApp.onSessionData(({ sessionId, data }) => {
+    updateInsightFromOutput(sessionId, data);
+    appendSessionBuffer(sessionId, data);
+    ingestFileReferences(sessionId, data);
+
+    const instance = sessionTerminals.get(sessionId);
+    if (instance) {
+      instance.terminal.write(data);
+    }
+
+    if (uiState.activeSessionId === sessionId) {
+      renderSessionFileReferences(sessionId);
+    }
+
+    scheduleUiRefresh();
+  });
+
+  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
+    const insight = ensureSessionInsight(sessionId);
+    insight.awaitingPermission = false;
+    insight.awaitingQuestion = false;
+    if (exitCode !== 0) {
+      insight.hasError = true;
+      insight.errorMessage = `Exited with code ${exitCode}`;
+      insight.lastErrorAt = Date.now();
+    }
+
+    const exitLine = `\r\n[session exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
+    appendSessionBuffer(sessionId, exitLine);
+
+    const instance = sessionTerminals.get(sessionId);
+    if (instance) {
+      instance.terminal.write(exitLine);
+    }
+
+    scheduleUiRefresh();
+  });
+
+  agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
+    const key = `${sessionId}:${String(terminalId || "1")}`;
+    manualTerminalBuffers.set(
+      key,
+      `${manualTerminalBuffers.get(key) || ""}${data}`,
+    );
+
+    const instance = manualTerminals.get(key);
+    if (instance) {
+      instance.terminal.write(data);
+    }
+  });
+
+  agenticApp.onManualTerminalExit(
+    ({ sessionId, terminalId, exitCode, signal }) => {
+      const key = `${sessionId}:${String(terminalId || "1")}`;
+      const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
+      manualTerminalBuffers.set(
+        key,
+        `${manualTerminalBuffers.get(key) || ""}${exitLine}`,
+      );
+
+      const instance = manualTerminals.get(key);
+      if (instance) {
+        instance.terminal.write(exitLine);
+      }
+    },
+  );
+
+  agenticApp.onSessionsChanged((payload) => {
+    updateSessions(payload);
+  });
+}
+
+async function initializeContext() {
+  const context = await agenticApp.getContext();
+  uiState.defaultWorkspaceRoot = context.cwd;
+  uiState.platformName = context.platform || "linux";
+  setProcessInspectionSupport(context.processInspectionSupported);
+  cwdInput.value = context.cwd;
+  setStatus("Idle", `Default directory ${context.cwd}`);
+
+  const existing = await agenticApp.listSessions();
+  updateSessions(existing.sessions || []);
+
+  const runningCount = (existing.sessions || []).filter(
+    (session) => session.isRunning,
+  ).length;
+  if (runningCount > 0) {
+    setStatus(
+      "Restored",
+      `${runningCount} running session${runningCount === 1 ? "" : "s"} recovered`,
+    );
+  }
+}
+
+async function startSession(event) {
+  event.preventDefault();
+
+  const command = commandInput.value.trim();
+  const label = labelInput?.value?.trim() || "";
+  const args = argsInput.value;
+  const cwd = cwdInput.value.trim();
+
+  if (!command) {
+    setStatus("Error", "Command is required");
+    return;
+  }
+
+  try {
+    const result = await agenticApp.startSession({
+      label,
+      command,
+      args,
+      cwd,
+      cols: 120,
+      rows: 36,
+    });
+    const session = result.session;
+
+    ensureSessionBuffer(session.id);
+    ensureSessionInsight(session.id);
+    terminalManager.createSessionTerminal(session.id);
+
+    setStatus("Running", `${getSessionDisplayName(session)} (${session.cwd})`);
+    newSessionPopover.classList.add("hidden");
+    openTerminalView(session.id);
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to start session");
+  }
+}
+
+async function stopSession() {
+  if (!uiState.activeSessionId) {
+    return;
+  }
+
+  try {
+    await agenticApp.stopSession(uiState.activeSessionId);
+    setStatus("Stopped", "Session terminated by user");
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to stop session");
+  }
+}
+
+async function sendInterrupt() {
+  if (!uiState.activeSessionId) {
+    return;
+  }
+
+  await agenticApp.writeToSession(uiState.activeSessionId, "\u0003");
+  markSessionInput(uiState.activeSessionId);
+  scheduleUiRefresh();
+}
+
+async function sendManualInterrupt(terminalId) {
+  if (!uiState.activeSessionId) {
+    return;
+  }
+
+  await agenticApp.writeToManualTerminal(
+    uiState.activeSessionId,
+    "\u0003",
+    terminalId,
+  );
+}
+
+async function pickDirectory() {
+  const selected = await agenticApp.pickDirectory();
+  if (selected) {
+    cwdInput.value = selected;
+  }
+}
+
+function toggleSessionPopover(forceOpen = null) {
+  const shouldOpen =
+    typeof forceOpen === "boolean"
+      ? forceOpen
+      : newSessionPopover.classList.contains("hidden");
+
+  newSessionPopover.classList.toggle("hidden", !shouldOpen);
+
+  if (shouldOpen) {
+    commandInput.focus();
+  }
+}
+
+function toggleProcessPanel() {
+  if (!capabilities.processInspectionSupported) {
+    return;
+  }
+
+  uiState.isProcessPanelOpen = !uiState.isProcessPanelOpen;
+  toggleProcessPanelButton.classList.toggle(
+    "active",
+    uiState.isProcessPanelOpen,
+  );
+  renderProcessDetails(uiState.activeSessionId);
+
+  if (uiState.isProcessPanelOpen) {
+    pollSessionProcesses();
+  }
+}
+
+function selectSessionFromSidebar(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const tab = target.closest(".session-tab");
+  if (tab?.dataset.sessionId) {
+    event.preventDefault();
+    openTerminalView(tab.dataset.sessionId);
+  }
+}
+
+async function restartSessionFromSidebar(sessionId) {
+  try {
+    const result = await agenticApp.restartSession(sessionId);
+    const session = result.session;
+
+    ensureSessionBuffer(session.id);
+    ensureSessionInsight(session.id);
+    terminalManager.createSessionTerminal(session.id);
+
+    setStatus("Running", `${getSessionDisplayName(session)} (${session.cwd})`);
+    openTerminalView(session.id);
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to restart session");
+  }
+}
+
+async function removeSessionFromSidebar(sessionId) {
+  try {
+    await agenticApp.removeSession(sessionId);
+    setStatus("Removed", "Session deleted");
+    if (uiState.activeSessionId === sessionId) {
+      showEmptyView(false);
+    }
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to remove session");
+  }
+}
+
+async function pollSessionProcesses() {
+  if (typeof agenticApp.getSessionProcesses !== "function") {
+    return;
+  }
+
+  if (!capabilities.processInspectionSupported) {
+    return;
+  }
+
+  for (const [id, session] of sessions.entries()) {
+    if (!session.isRunning) {
+      sessionProcesses.delete(id);
+    }
+  }
+
+  if (!uiState.activeSessionId || !uiState.isProcessPanelOpen) {
+    scheduleUiRefresh();
+    return;
+  }
+
+  const activeSession = sessions.get(uiState.activeSessionId);
+  if (!activeSession?.isRunning) {
+    sessionProcesses.delete(uiState.activeSessionId);
+    scheduleUiRefresh();
+    return;
+  }
+
+  try {
+    const result = await agenticApp.getSessionProcesses(
+      uiState.activeSessionId,
+    );
+
+    if (result?.supported === false) {
+      setProcessInspectionSupport(false);
+      sessionProcesses.delete(uiState.activeSessionId);
+      scheduleUiRefresh();
+      return;
+    }
+
+    setProcessInspectionSupport(result?.supported);
+    sessionProcesses.set(uiState.activeSessionId, result?.processes || []);
+  } catch {
+    sessionProcesses.set(uiState.activeSessionId, []);
+  }
+
+  scheduleUiRefresh();
+}
+
+window.addEventListener("resize", () => {
+  terminalManager.resizeSession();
+  terminalManager.resizeManualTerminals();
+});
+
+sessionForm.addEventListener("submit", startSession);
+pickDirectoryButton.addEventListener("click", pickDirectory);
+stopSessionButton.addEventListener("click", stopSession);
+sendInterruptButton.addEventListener("click", sendInterrupt);
+openFileDrawerButton.addEventListener("click", () => {
+  workspaceTools.openFileDrawer();
+  if (uiState.activeSessionId) {
+    renderSessionFileReferences(uiState.activeSessionId);
+  }
+});
+manualSendInterruptButton1.addEventListener("click", () =>
+  sendManualInterrupt("1"),
+);
+manualSendInterruptButton2.addEventListener("click", () =>
+  sendManualInterrupt("2"),
+);
+toggleProcessPanelButton.addEventListener("click", toggleProcessPanel);
+newSessionButton.addEventListener("click", (event) => {
+  event.stopImmediatePropagation();
+  toggleSessionPopover(true);
+});
+openLauncherEmptyButton.addEventListener("click", (event) => {
+  event.stopImmediatePropagation();
+  toggleSessionPopover(true);
+});
+
+sessionTabsList.addEventListener("pointerdown", selectSessionFromSidebar);
+sessionTabsList.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const restartBtn = target.closest(".session-action-restart");
+  if (restartBtn?.dataset.sessionId) {
+    event.preventDefault();
+    event.stopPropagation();
+    restartSessionFromSidebar(restartBtn.dataset.sessionId);
+    return;
+  }
+
+  const removeBtn = target.closest(".session-action-remove");
+  if (removeBtn?.dataset.sessionId) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeSessionFromSidebar(removeBtn.dataset.sessionId);
+  }
+});
+sessionTabsList.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    selectSessionFromSidebar(event);
+  }
+});
+
+agentFileLinksList.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const chip = target.closest(".agent-file-chip");
+  if (!chip?.dataset.filePath || !uiState.activeSessionId) {
+    return;
+  }
+
+  const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
+  workspaceTools.openReferencedFile(
+    uiState.activeSessionId,
+    chip.dataset.filePath,
+    fileLine,
+  );
+});
+
+document.addEventListener("click", (event) => {
+  if (
+    !terminalContextMenu.classList.contains("hidden") &&
+    !terminalContextMenu.contains(event.target)
+  ) {
+    terminalManager.closeTerminalContextMenu();
+  }
+
+  if (newSessionPopover.classList.contains("hidden")) {
+    return;
+  }
+
+  const target = event.target;
+  if (
+    newSessionPopover.contains(target) ||
+    newSessionButton.contains(target) ||
+    openLauncherEmptyButton.contains(target)
+  ) {
+    return;
+  }
+
+  newSessionPopover.classList.add("hidden");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "p"
+  ) {
+    event.preventDefault();
+    if (uiState.isWorkspaceSearchOpen) {
+      workspaceSearchInput.focus();
+      workspaceSearchInput.select();
+    } else {
+      workspaceTools.openWorkspaceSearch();
+    }
+    return;
+  }
+
+  if (
+    !editorState.open &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "f"
+  ) {
+    if (uiState.activeSessionId) {
+      event.preventDefault();
+      terminalManager.openAgentSearch();
+    }
+    return;
+  }
+
+  if (
+    editorState.open &&
+    (event.key === "s" || event.key === "S") &&
+    (event.ctrlKey || event.metaKey)
+  ) {
+    event.preventDefault();
+    workspaceTools.saveOpenEditorFile("Saved");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    if (uiState.isWorkspaceSearchOpen) {
+      workspaceTools.closeWorkspaceSearch();
+      return;
+    }
+
+    if (uiState.isAgentSearchOpen) {
+      terminalManager.closeAgentSearch();
+      return;
+    }
+
+    if (editorState.open) {
+      workspaceTools.closeFileEditorModal();
+      return;
+    }
+
+    terminalManager.closeTerminalContextMenu();
+  }
+});
+
+setTerminalActionsEnabled(null);
+setStatus("Idle", "No active process");
+bindGlobalEvents();
+showEmptyView();
+initializeContext().catch((error) => {
+  setStatus("Error", error.message || "Unable to load app context");
+});
+
+setInterval(() => {
+  refreshVisibleUi();
+}, 3000);
+
+setInterval(pollSessionProcesses, 3000);
+/*
+import { Terminal } from "./vendor/@xterm/xterm/lib/xterm.mjs";
+import { FitAddon } from "./vendor/@xterm/addon-fit/lib/addon-fit.mjs";
+import { SearchAddon } from "./vendor/@xterm/addon-search/lib/addon-search.mjs";
+import { WebLinksAddon } from "./vendor/@xterm/addon-web-links/lib/addon-web-links.mjs";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -309,8 +1159,8 @@ let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
 
-const MONACO_LOADER_PATH = "../../node_modules/monaco-editor/min/vs/loader.js";
-const MONACO_VS_BASE_PATH = "../../node_modules/monaco-editor/min/vs";
+const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
+const MONACO_VS_BASE_PATH = "./vendor/monaco-editor/min/vs";
 let autosaveTimeoutId = null;
 let suppressEditorChange = false;
 let editorState = {
@@ -758,7 +1608,7 @@ async function loadWorkspaceFiles(root) {
     return workspaceFilesCache.get(root);
   }
 
-  const result = await window.agenticApp.listWorkspaceFiles({
+  const result = await agenticApp.listWorkspaceFiles({
     sessionId: activeSessionId,
     root,
   });
@@ -1231,7 +2081,7 @@ async function saveOpenEditorFile(successLabel = "Saved") {
   try {
     fileEditorSaveButton.disabled = true;
     const content = monacoEditor.getValue();
-    await window.agenticApp.saveWorkspaceFile(
+    await agenticApp.saveWorkspaceFile(
       editorState.sessionId,
       editorState.filePath,
       content,
@@ -1249,7 +2099,7 @@ async function saveOpenEditorFile(successLabel = "Saved") {
 
 async function openReferencedFile(sessionId, filePath, lineNumber = null) {
   try {
-    const file = await window.agenticApp.openWorkspaceFile(sessionId, filePath);
+    const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
     await ensureMonacoEditor();
 
     suppressEditorChange = true;
@@ -1574,12 +2424,12 @@ async function copyTerminalSelection(terminal) {
     return false;
   }
 
-  await window.agenticApp.writeClipboardText(selection);
+  await agenticApp.writeClipboardText(selection);
   return true;
 }
 
 async function pasteIntoTerminal(terminal) {
-  const text = await window.agenticApp.readClipboardText();
+  const text = await agenticApp.readClipboardText();
   if (!text) {
     return false;
   }
@@ -1745,7 +2595,7 @@ function attachTerminalClipboardHandlers(target) {
     }
 
     event.preventDefault();
-    window.agenticApp.writeClipboardText(selection);
+    agenticApp.writeClipboardText(selection);
   });
 
   mount.addEventListener("paste", (event) => {
@@ -1769,7 +2619,7 @@ async function sendTerminalClearCommand(target) {
   }
 
   if (target.kind === "manual") {
-    await window.agenticApp.writeToManualTerminal(target.sessionId, "clear\r");
+    await agenticApp.writeToManualTerminal(target.sessionId, "clear\r");
     return;
   }
 
@@ -1779,14 +2629,14 @@ async function sendTerminalClearCommand(target) {
     renderSessionFileReferences(target.sessionId);
   }
   scheduleUiRefresh();
-  await window.agenticApp.writeToSession(target.sessionId, "/clear\r");
+  await agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
 
 function createWebLinksAddon(instance) {
   return new WebLinksAddon((event, uri) => {
     event?.preventDefault?.();
 
-    Promise.resolve(window.agenticApp.openExternalUrl(uri))
+    Promise.resolve(agenticApp.openExternalUrl(uri))
       .then(() => {
         setStatus("Opened", uri);
       })
@@ -1863,7 +2713,7 @@ function createSessionTerminal(sessionId) {
 
     markSessionInput(sessionId);
     scheduleUiRefresh();
-    window.agenticApp.writeToSession(sessionId, data);
+    agenticApp.writeToSession(sessionId, data);
   });
 
   sessionTerminals.set(sessionId, instance);
@@ -1951,7 +2801,7 @@ function createManualTerminal(sessionId, terminalId) {
       return;
     }
 
-    window.agenticApp.writeToManualTerminal(sessionId, data, terminalId);
+    agenticApp.writeToManualTerminal(sessionId, data, terminalId);
   });
 
   manualTerminals.set(key, instance);
@@ -1965,10 +2815,7 @@ async function ensureManualTerminal(sessionId, terminalId) {
     return instance;
   }
 
-  const result = await window.agenticApp.ensureManualTerminal(
-    sessionId,
-    terminalId,
-  );
+  const result = await agenticApp.ensureManualTerminal(sessionId, terminalId);
   const buffered = manualTerminalBuffers.get(key) || result.outputBuffer || "";
 
   if (buffered) {
@@ -2264,7 +3111,7 @@ function updateSessions(payload) {
 }
 
 function bindGlobalEvents() {
-  window.agenticApp.onSessionData(({ sessionId, data }) => {
+  agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
     appendSessionBuffer(sessionId, data);
     ingestFileReferences(sessionId, data);
@@ -2281,7 +3128,7 @@ function bindGlobalEvents() {
     scheduleUiRefresh();
   });
 
-  window.agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
+  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
     const insight = ensureSessionInsight(sessionId);
     insight.awaitingPermission = false;
     insight.awaitingQuestion = false;
@@ -2302,7 +3149,7 @@ function bindGlobalEvents() {
     scheduleUiRefresh();
   });
 
-  window.agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
+  agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
     const key = manualTerminalKey(sessionId, String(terminalId || "1"));
     manualTerminalBuffers.set(
       key,
@@ -2315,7 +3162,7 @@ function bindGlobalEvents() {
     }
   });
 
-  window.agenticApp.onManualTerminalExit(
+  agenticApp.onManualTerminalExit(
     ({ sessionId, terminalId, exitCode, signal }) => {
       const key = manualTerminalKey(sessionId, String(terminalId || "1"));
       const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
@@ -2331,7 +3178,7 @@ function bindGlobalEvents() {
     },
   );
 
-  window.agenticApp.onSessionsChanged((payload) => {
+  agenticApp.onSessionsChanged((payload) => {
     updateSessions(payload);
   });
 }
@@ -2343,7 +3190,7 @@ async function resizeSession() {
   }
 
   instance.fitAddon.fit();
-  await window.agenticApp.resizeSession(activeSessionId, {
+  await agenticApp.resizeSession(activeSessionId, {
     cols: instance.terminal.cols,
     rows: instance.terminal.rows,
   });
@@ -2356,7 +3203,7 @@ async function resizeManualTerminal(terminalId) {
   }
 
   instance.fitAddon.fit();
-  await window.agenticApp.resizeManualTerminal(
+  await agenticApp.resizeManualTerminal(
     activeSessionId,
     {
       cols: instance.terminal.cols,
@@ -2371,14 +3218,14 @@ async function resizeManualTerminals() {
 }
 
 async function initializeContext() {
-  const context = await window.agenticApp.getContext();
+  const context = await agenticApp.getContext();
   defaultWorkspaceRoot = context.cwd;
   platformName = context.platform || "linux";
   setProcessInspectionSupport(context.processInspectionSupported);
   cwdInput.value = context.cwd;
   setStatus("Idle", `Default directory ${context.cwd}`);
 
-  const existing = await window.agenticApp.listSessions();
+  const existing = await agenticApp.listSessions();
   updateSessions(existing.sessions || []);
 
   const runningCount = (existing.sessions || []).filter(
@@ -2408,7 +3255,7 @@ async function startSession(event) {
   try {
     const cols = 120;
     const rows = 36;
-    const result = await window.agenticApp.startSession({
+    const result = await agenticApp.startSession({
       label,
       command,
       args,
@@ -2436,7 +3283,7 @@ async function stopSession() {
   }
 
   try {
-    await window.agenticApp.stopSession(activeSessionId);
+    await agenticApp.stopSession(activeSessionId);
     setStatus("Stopped", "Session terminated by user");
   } catch (error) {
     setStatus("Error", error.message || "Unable to stop session");
@@ -2448,7 +3295,7 @@ async function sendInterrupt() {
     return;
   }
 
-  await window.agenticApp.writeToSession(activeSessionId, "\u0003");
+  await agenticApp.writeToSession(activeSessionId, "\u0003");
   markSessionInput(activeSessionId);
   scheduleUiRefresh();
 }
@@ -2458,21 +3305,21 @@ async function sendManualInterrupt(terminalId) {
     return;
   }
 
-  await window.agenticApp.writeToManualTerminal(
-    activeSessionId,
-    "\u0003",
-    terminalId,
-  );
+  await agenticApp.writeToManualTerminal(activeSessionId, "\u0003", terminalId);
 }
 
 async function pickDirectory() {
-  const selected = await window.agenticApp.pickDirectory();
+  const selected = await agenticApp.pickDirectory();
   if (selected) {
     cwdInput.value = selected;
   }
 }
 
 function toggleSessionPopover(forceOpen = null) {
+  console.log("toggleSessionPopover called", {
+    forceOpen,
+    currentlyHidden: newSessionPopover.classList.contains("hidden"),
+  });
   const shouldOpen =
     typeof forceOpen === "boolean"
       ? forceOpen
@@ -2541,7 +3388,7 @@ function selectSessionFromSidebar(event) {
 
 async function restartSessionFromSidebar(sessionId) {
   try {
-    const result = await window.agenticApp.restartSession(sessionId);
+    const result = await agenticApp.restartSession(sessionId);
     const session = result.session;
 
     ensureSessionBuffer(session.id);
@@ -2557,7 +3404,7 @@ async function restartSessionFromSidebar(sessionId) {
 
 async function removeSessionFromSidebar(sessionId) {
   try {
-    await window.agenticApp.removeSession(sessionId);
+    await agenticApp.removeSession(sessionId);
     setStatus("Removed", "Session deleted");
     if (activeSessionId === sessionId) {
       showEmptyView(false);
@@ -2844,7 +3691,7 @@ setInterval(() => {
 }, 3000);
 
 async function pollSessionProcesses() {
-  if (typeof window.agenticApp.getSessionProcesses !== "function") {
+  if (typeof agenticApp.getSessionProcesses !== "function") {
     return;
   }
 
@@ -2871,7 +3718,7 @@ async function pollSessionProcesses() {
   }
 
   try {
-    const result = await window.agenticApp.getSessionProcesses(activeSessionId);
+    const result = await agenticApp.getSessionProcesses(activeSessionId);
 
     if (result?.supported === false) {
       setProcessInspectionSupport(false);
@@ -2890,3 +3737,4 @@ async function pollSessionProcesses() {
 }
 
 setInterval(pollSessionProcesses, 3000);
+*/
