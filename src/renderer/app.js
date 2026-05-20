@@ -97,7 +97,7 @@ const AUTOSAVE_DELAY_MS = 1000;
 // - Windows absolute, UNC, and relative paths
 // - POSIX absolute and relative paths, plus ~/home paths
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s("'`])((?:(?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])+[A-Za-z0-9._\-]+|[A-Za-z0-9._\-]+\.[A-Za-z0-9._\-]+|\.[A-Za-z0-9._\-]+))(?:[:#](\d+))?/g;
+  /(?<![A-Za-z0-9._\\/\-])((?:(?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+|[A-Za-z0-9._\-]+\.[A-Za-z0-9._\-]+|\.[A-Za-z0-9._\-]+))(?:[:#](\d+))?(?![A-Za-z0-9._\\/\-])/g;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
@@ -574,7 +574,7 @@ function collectFileReferences(rawChunk) {
   let match;
 
   while ((match = FILE_REFERENCE_PATTERN.exec(plainText)) !== null) {
-    const normalized = normalizeCandidateFilePath(match[2]);
+    const normalized = normalizeCandidateFilePath(match[1]);
     if (!normalized) {
       continue;
     }
