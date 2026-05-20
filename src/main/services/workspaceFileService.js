@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { access, mkdir, readdir, readFile, stat, writeFile } = fs.promises;
 
 const MAX_EDITOR_FILE_BYTES = 1024 * 1024 * 2;
 
@@ -80,7 +81,16 @@ function createWorkspaceFileService({
     return !(relative.startsWith("..") || path.isAbsolute(relative));
   }
 
-  function listWorkspaceFiles(rootPath, maxEntries = 20000) {
+  async function pathExists(targetPath) {
+    try {
+      await access(targetPath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function listWorkspaceFiles(rootPath, maxEntries = 20000) {
     const files = [];
     const stack = [rootPath];
 
@@ -89,7 +99,7 @@ function createWorkspaceFileService({
       let entries = [];
 
       try {
-        entries = fs.readdirSync(current, { withFileTypes: true });
+        entries = await readdir(current, { withFileTypes: true });
       } catch {
         continue;
       }
@@ -124,8 +134,9 @@ function createWorkspaceFileService({
     return files;
   }
 
-  function listWorkspaceFileEntries(rootPath) {
-    return listWorkspaceFiles(rootPath).map((filePath) => ({
+  async function listWorkspaceFileEntries(rootPath) {
+    const files = await listWorkspaceFiles(rootPath);
+    return files.map((filePath) => ({
       absolutePath: filePath,
       relativePath:
         path.relative(rootPath, filePath) || path.basename(filePath),
@@ -133,22 +144,24 @@ function createWorkspaceFileService({
     }));
   }
 
-  function getWorkspaceRootForListing(sessionId) {
+  async function getWorkspaceRootForListing(sessionId) {
     const session = sessionId ? sessions.get(sessionId) : null;
-    if (
-      session?.cwd &&
-      fs.existsSync(session.cwd) &&
-      fs.statSync(session.cwd).isDirectory()
-    ) {
-      return path.resolve(session.cwd);
+    if (session?.cwd && (await pathExists(session.cwd))) {
+      try {
+        if ((await stat(session.cwd)).isDirectory()) {
+          return path.resolve(session.cwd);
+        }
+      } catch {
+        // Fall through to initial directory.
+      }
     }
 
     return path.resolve(resolveInitialDirectory());
   }
 
-  function findWorkspaceFileByFallback(workspaceRoots, variants) {
+  async function findWorkspaceFileByFallback(workspaceRoots, variants) {
     for (const root of workspaceRoots) {
-      const files = listWorkspaceFiles(root);
+      const files = await listWorkspaceFiles(root);
 
       for (const variant of variants) {
         const normalized = String(variant || "").replace(/\\+/g, "/");
@@ -191,7 +204,7 @@ function createWorkspaceFileService({
     return null;
   }
 
-  function ensureSessionWorkspacePath(sessionId, requestedPath) {
+  async function ensureSessionWorkspacePath(sessionId, requestedPath) {
     if (!requestedPath || !String(requestedPath).trim()) {
       throw new Error("A file path is required.");
     }
@@ -248,7 +261,7 @@ function createWorkspaceFileService({
         pathWithinRoot(root, candidate),
       );
 
-      if (!matchingRoot || !fs.existsSync(candidate)) {
+      if (!matchingRoot || !(await pathExists(candidate))) {
         continue;
       }
 
@@ -260,8 +273,8 @@ function createWorkspaceFileService({
       };
     }
 
-    const fallback = findWorkspaceFileByFallback(workspaceRoots, variants);
-    if (fallback && fs.existsSync(fallback.absolutePath)) {
+    const fallback = await findWorkspaceFileByFallback(workspaceRoots, variants);
+    if (fallback && (await pathExists(fallback.absolutePath))) {
       return {
         absolutePath: fallback.absolutePath,
         relativePath:
@@ -294,21 +307,21 @@ function createWorkspaceFileService({
     };
   }
 
-  function assertEditableTextFile(absolutePath) {
-    if (!fs.existsSync(absolutePath)) {
+  async function assertEditableTextFile(absolutePath) {
+    if (!(await pathExists(absolutePath))) {
       throw new Error("File not found in workspace.");
     }
 
-    const stat = fs.statSync(absolutePath);
-    if (!stat.isFile()) {
+    const fileStat = await stat(absolutePath);
+    if (!fileStat.isFile()) {
       throw new Error("Only regular files can be opened in the editor.");
     }
 
-    if (stat.size > MAX_EDITOR_FILE_BYTES) {
+    if (fileStat.size > MAX_EDITOR_FILE_BYTES) {
       throw new Error("File is too large to open in the embedded editor.");
     }
 
-    const sample = fs.readFileSync(absolutePath);
+    const sample = await readFile(absolutePath);
     if (sample.includes(0)) {
       throw new Error("Binary files are not supported in the embedded editor.");
     }
@@ -320,8 +333,8 @@ function createWorkspaceFileService({
         ? path.resolve(requestedPath.trim())
         : process.cwd();
 
-    if (fs.existsSync(cwd)) {
-      if (!fs.statSync(cwd).isDirectory()) {
+    if (await pathExists(cwd)) {
+      if (!(await stat(cwd)).isDirectory()) {
         throw new Error(`Working directory is not a folder: ${cwd}`);
       }
 
@@ -345,41 +358,41 @@ function createWorkspaceFileService({
       );
     }
 
-    fs.mkdirSync(cwd, { recursive: true });
+    await mkdir(cwd, { recursive: true });
     return cwd;
   }
 
-  function openEditorFile(sessionId, filePath) {
-    const resolved = ensureSessionWorkspacePath(sessionId, filePath);
-    assertEditableTextFile(resolved.absolutePath);
+  async function openEditorFile(sessionId, filePath) {
+    const resolved = await ensureSessionWorkspacePath(sessionId, filePath);
+    await assertEditableTextFile(resolved.absolutePath);
 
     return {
       absolutePath: resolved.absolutePath,
       relativePath: resolved.relativePath,
-      content: fs.readFileSync(resolved.absolutePath, "utf-8"),
+      content: await readFile(resolved.absolutePath, "utf-8"),
     };
   }
 
-  function listWorkspaceFilesForRoot(sessionId, requestedRoot) {
+  async function listWorkspaceFilesForRoot(sessionId, requestedRoot) {
     const root = requestedRoot
       ? path.resolve(requestedRoot)
-      : getWorkspaceRootForListing(sessionId);
+      : await getWorkspaceRootForListing(sessionId);
 
-    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    if (!(await pathExists(root)) || !(await stat(root)).isDirectory()) {
       throw new Error("Workspace root not found.");
     }
 
     return {
       root,
-      files: listWorkspaceFileEntries(root),
+      files: await listWorkspaceFileEntries(root),
     };
   }
 
-  function saveEditorFile(sessionId, filePath, content) {
-    const resolved = ensureSessionWorkspacePath(sessionId, filePath);
-    assertEditableTextFile(resolved.absolutePath);
+  async function saveEditorFile(sessionId, filePath, content) {
+    const resolved = await ensureSessionWorkspacePath(sessionId, filePath);
+    await assertEditableTextFile(resolved.absolutePath);
 
-    fs.writeFileSync(resolved.absolutePath, content, "utf-8");
+    await writeFile(resolved.absolutePath, content, "utf-8");
 
     return {
       ok: true,

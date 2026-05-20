@@ -74,3 +74,7 @@ copilot -i "Audit this repo and suggest the smallest fix"
 - The wrapped command runs as if you started it in that directory in a terminal.
 - On Linux, Electron needs a display server. In headless environments you will need something like Xvfb to launch the desktop window.
 - Session cards remain visible after exit so you can inspect terminal output and exit status.
+
+## Architecture Docs
+
+- See `docs/architecture.md` for runtime boundaries, IPC registrar ownership, preload contract sync flow, and extension guidance.

@@ -7,9 +7,11 @@
     "start": "electron .",
     "dev": "electron .",
     "prepare:renderer-assets": "node scripts/sync-renderer-assets.mjs",
+    "prepare:preload-ipc-contract": "node scripts/sync-preload-ipc-contract.mjs",
     "check:renderer-assets": "node scripts/sync-renderer-assets.mjs --check",
-    "postinstall": "npm run prepare:renderer-assets",
-    "check": "npm run prepare:renderer-assets && npm run check:renderer-assets && node --check scripts/sync-renderer-assets.mjs && node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/renderer/terminalRuntime.js && node --check src/renderer/workspaceTools.js"
+    "check:preload-ipc-contract": "node scripts/sync-preload-ipc-contract.mjs --check",
+    "postinstall": "npm run prepare:renderer-assets && npm run prepare:preload-ipc-contract",
+    "check": "npm run prepare:renderer-assets && npm run prepare:preload-ipc-contract && npm run check:renderer-assets && npm run check:preload-ipc-contract && node --check scripts/sync-renderer-assets.mjs && node --check scripts/sync-preload-ipc-contract.mjs && node --check src/main.js && node --check src/main/ipc/registerIpcHandlers.js && node --check src/main/ipc/registerAppIpcHandlers.js && node --check src/main/ipc/registerSessionIpcHandlers.js && node --check src/main/ipc/registerWorkspaceIpcHandlers.js && node --check src/main/ipc/registerManualTerminalIpcHandlers.js && node --check src/preload.js && node --check src/renderer/app.js && node --check src/renderer/terminalRuntime.js && node --check src/renderer/workspaceTools.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

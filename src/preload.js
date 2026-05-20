@@ -1,7 +1,8 @@
 const { clipboard, contextBridge, ipcRenderer } = require("electron");
 
 // In sandboxed preload contexts, local file requires are not available.
-// Keep the bridge contract local to this file so preload can initialize.
+// Keep the bridge contract local to this file and sync it at build-time.
+// BEGIN AUTO-GENERATED IPC CHANNELS
 const IPC_CHANNELS = Object.freeze({
   invoke: Object.freeze({
     getContext: "app:getContext",
@@ -30,6 +31,7 @@ const IPC_CHANNELS = Object.freeze({
     manualTerminalExit: "manual-terminal:exit",
   }),
 });
+// END AUTO-GENERATED IPC CHANNELS
 
 function buildExternalLinkRequest(url) {
   return { url };
