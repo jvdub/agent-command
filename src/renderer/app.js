@@ -74,6 +74,17 @@ const fileEditorAutosave = document.querySelector("#file-editor-autosave");
 const fileEditorSaveButton = document.querySelector("#file-editor-save");
 const fileEditorCloseButton = document.querySelector("#file-editor-close");
 const fileEditorSurface = document.querySelector("#file-editor-surface");
+const workspaceSearchOverlay = document.querySelector(
+  "#workspace-search-overlay",
+);
+const workspaceSearchCloseButton = document.querySelector(
+  "#workspace-search-close",
+);
+const workspaceSearchInput = document.querySelector("#workspace-search-input");
+const workspaceSearchCount = document.querySelector("#workspace-search-count");
+const workspaceSearchResults = document.querySelector(
+  "#workspace-search-results",
+);
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
@@ -283,6 +294,7 @@ const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
 const sessionFileReferences = new Map();
+const workspaceFilesCache = new Map();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -311,6 +323,16 @@ let editorState = {
 };
 
 let isAgentSearchOpen = false;
+let defaultWorkspaceRoot = "";
+let isWorkspaceSearchOpen = false;
+let workspaceSearchState = {
+  root: "",
+  files: [],
+  filtered: [],
+  activeIndex: 0,
+  loading: false,
+  query: "",
+};
 let platformName = "linux";
 
 function manualTerminalKey(sessionId, terminalId) {
@@ -454,11 +476,7 @@ function normalizedPathForMatch(pathValue) {
     normalized = normalized.replace(/^\/\/+/, "");
   }
 
-  const root = hasDrive
-    ? normalized.slice(0, 2)
-    : isAbsolutePosix
-      ? "/"
-      : "";
+  const root = hasDrive ? normalized.slice(0, 2) : isAbsolutePosix ? "/" : "";
 
   let body = hasDrive ? normalized.slice(2) : normalized;
   const parts = body.split("/");
@@ -605,7 +623,10 @@ function ingestFileReferences(sessionId, rawChunk) {
   }
 
   for (const ref of found) {
-    const normalizedPath = normalizeReferencePathForSession(sessionId, ref.filePath);
+    const normalizedPath = normalizeReferencePathForSession(
+      sessionId,
+      ref.filePath,
+    );
     if (!normalizedPath) {
       continue;
     }
@@ -635,8 +656,12 @@ function ingestFileReferences(sessionId, rawChunk) {
       continue;
     }
 
-    const bareEntries = group.filter(({ entry }) => !entry.filePath.includes("/"));
-    const pathEntries = group.filter(({ entry }) => entry.filePath.includes("/"));
+    const bareEntries = group.filter(
+      ({ entry }) => !entry.filePath.includes("/"),
+    );
+    const pathEntries = group.filter(({ entry }) =>
+      entry.filePath.includes("/"),
+    );
     if (bareEntries.length !== 1 || pathEntries.length !== 1) {
       continue;
     }
@@ -708,6 +733,269 @@ function renderSessionFileReferences(sessionId) {
   agentFileLinks.classList.remove("hidden");
 }
 
+function clearSessionFileReferences(sessionId) {
+  sessionFileReferences.delete(sessionId);
+}
+
+function getWorkspaceRootForSearch() {
+  const active = activeSessionId ? sessions.get(activeSessionId) : null;
+  return active?.cwd || defaultWorkspaceRoot || cwdInput.value.trim() || "";
+}
+
+function normalizeWorkspaceSearchText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\\+/g, "/")
+    .toLowerCase();
+}
+
+async function loadWorkspaceFiles(root) {
+  if (!root) {
+    return [];
+  }
+
+  if (workspaceFilesCache.has(root)) {
+    return workspaceFilesCache.get(root);
+  }
+
+  const result = await window.agenticApp.listWorkspaceFiles({
+    sessionId: activeSessionId,
+    root,
+  });
+
+  const files = Array.isArray(result?.files) ? result.files : [];
+  const sorted = files
+    .map((entry) => ({
+      absolutePath: String(entry.absolutePath || ""),
+      relativePath: String(entry.relativePath || ""),
+      basename: String(
+        entry.basename ||
+          pathBasename(entry.relativePath || entry.absolutePath || ""),
+      ),
+    }))
+    .filter((entry) => entry.absolutePath && entry.relativePath)
+    .sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath, undefined, {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    );
+
+  workspaceFilesCache.set(root, sorted);
+  return sorted;
+}
+
+function scoreWorkspaceFile(entry, query) {
+  if (!query) {
+    return 0;
+  }
+
+  const normalizedQuery = normalizeWorkspaceSearchText(query);
+  const relativePath = normalizeWorkspaceSearchText(entry.relativePath);
+  const basename = normalizeWorkspaceSearchText(entry.basename);
+  const absolutePath = normalizeWorkspaceSearchText(entry.absolutePath);
+
+  if (
+    basename === normalizedQuery ||
+    relativePath === normalizedQuery ||
+    absolutePath === normalizedQuery
+  ) {
+    return 0;
+  }
+
+  if (
+    basename.startsWith(normalizedQuery) ||
+    relativePath.startsWith(normalizedQuery) ||
+    absolutePath.startsWith(normalizedQuery)
+  ) {
+    return 1;
+  }
+
+  if (basename.includes(normalizedQuery)) {
+    return 2;
+  }
+
+  if (
+    relativePath.includes(normalizedQuery) ||
+    absolutePath.includes(normalizedQuery)
+  ) {
+    return 3;
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function filterWorkspaceFiles(query, files) {
+  const normalizedQuery = normalizeWorkspaceSearchText(query);
+  if (!normalizedQuery) {
+    return files.slice(0, 100);
+  }
+
+  return files
+    .map((entry) => ({
+      entry,
+      score: scoreWorkspaceFile(entry, normalizedQuery),
+    }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+
+      return left.entry.relativePath.localeCompare(
+        right.entry.relativePath,
+        undefined,
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    })
+    .slice(0, 100)
+    .map(({ entry }) => entry);
+}
+
+function renderWorkspaceSearchResults() {
+  if (!isWorkspaceSearchOpen) {
+    workspaceSearchResults.innerHTML = "";
+    workspaceSearchCount.textContent = "";
+    return;
+  }
+
+  if (workspaceSearchState.loading) {
+    workspaceSearchCount.textContent = "Loading workspace files…";
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">Scanning workspace files…</div>';
+    return;
+  }
+
+  const results = workspaceSearchState.filtered;
+  workspaceSearchCount.textContent = results.length
+    ? `${results.length} file${results.length === 1 ? "" : "s"}`
+    : "No matching files";
+
+  if (results.length === 0) {
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">No files matched the current query.</div>';
+    return;
+  }
+
+  workspaceSearchResults.innerHTML = results
+    .map((entry, index) => {
+      const isActive = index === workspaceSearchState.activeIndex;
+      return `
+        <button
+          type="button"
+          class="workspace-search-result ${isActive ? "active" : ""}"
+          data-file-path="${escapeHtml(entry.absolutePath)}"
+          data-file-relative-path="${escapeHtml(entry.relativePath)}"
+        >
+          <div class="workspace-search-result-main">
+            <p class="workspace-search-result-name">${escapeHtml(entry.basename)}</p>
+            <p class="workspace-search-result-path">${escapeHtml(entry.relativePath)}</p>
+          </div>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function applyWorkspaceSearchQuery(query) {
+  workspaceSearchState.query = query;
+  workspaceSearchState.filtered = filterWorkspaceFiles(
+    query,
+    workspaceSearchState.files,
+  );
+  workspaceSearchState.activeIndex = Math.min(
+    workspaceSearchState.activeIndex,
+    Math.max(0, workspaceSearchState.filtered.length - 1),
+  );
+  renderWorkspaceSearchResults();
+}
+
+async function openWorkspaceSearch() {
+  const root = getWorkspaceRootForSearch();
+  if (!root) {
+    setStatus("Error", "Open a session before searching files");
+    return;
+  }
+
+  isWorkspaceSearchOpen = true;
+  workspaceSearchOverlay.classList.remove("hidden");
+  workspaceSearchState = {
+    root,
+    files: [],
+    filtered: [],
+    activeIndex: 0,
+    loading: true,
+    query: workspaceSearchInput.value || "",
+  };
+  renderWorkspaceSearchResults();
+  workspaceSearchInput.focus();
+  workspaceSearchInput.select();
+
+  try {
+    const files = await loadWorkspaceFiles(root);
+    if (!isWorkspaceSearchOpen || workspaceSearchState.root !== root) {
+      return;
+    }
+
+    workspaceSearchState.files = files;
+    workspaceSearchState.loading = false;
+    applyWorkspaceSearchQuery(workspaceSearchInput.value);
+  } catch (error) {
+    workspaceSearchState.loading = false;
+    workspaceSearchCount.textContent =
+      error.message || "Unable to search files";
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">Unable to load workspace files.</div>';
+  }
+}
+
+function closeWorkspaceSearch({ restoreFocus = true } = {}) {
+  isWorkspaceSearchOpen = false;
+  workspaceSearchOverlay.classList.add("hidden");
+  workspaceSearchState.activeIndex = 0;
+
+  if (restoreFocus) {
+    getActiveTerminalInstance()?.terminal.focus();
+  }
+}
+
+function getActiveWorkspaceSearchResult() {
+  if (!workspaceSearchState.filtered.length) {
+    return null;
+  }
+
+  return (
+    workspaceSearchState.filtered[workspaceSearchState.activeIndex] ||
+    workspaceSearchState.filtered[0] ||
+    null
+  );
+}
+
+async function openWorkspaceSearchResult() {
+  const result = getActiveWorkspaceSearchResult();
+  if (!result || !activeSessionId) {
+    return;
+  }
+
+  closeWorkspaceSearch({ restoreFocus: false });
+  await openReferencedFile(activeSessionId, result.absolutePath, null);
+}
+
+function moveWorkspaceSearchSelection(direction) {
+  if (!workspaceSearchState.filtered.length) {
+    return;
+  }
+
+  const delta = direction === "up" ? -1 : 1;
+  const length = workspaceSearchState.filtered.length;
+  workspaceSearchState.activeIndex =
+    (workspaceSearchState.activeIndex + delta + length) % length;
+  renderWorkspaceSearchResults();
+}
+
 function extensionForPath(filePath) {
   const ext = String(filePath || "")
     .split(".")
@@ -769,7 +1057,9 @@ function closeFileEditorModal(force = false) {
 }
 
 function uniqueStrings(values) {
-  return Array.from(new Set(values.filter(Boolean).map((value) => String(value))));
+  return Array.from(
+    new Set(values.filter(Boolean).map((value) => String(value))),
+  );
 }
 
 function monacoLoaderCandidates() {
@@ -886,7 +1176,9 @@ function ensureMonacoEditor() {
       return;
     }
 
-    const existingLoader = document.querySelector('script[data-monaco-loader="1"]');
+    const existingLoader = document.querySelector(
+      'script[data-monaco-loader="1"]',
+    );
     if (existingLoader) {
       // If a script was found but already finished loading, try init immediately.
       if (existingLoader.readyState === "complete") {
@@ -1482,6 +1774,10 @@ async function sendTerminalClearCommand(target) {
   }
 
   markSessionInput(target.sessionId);
+  clearSessionFileReferences(target.sessionId);
+  if (activeSessionId === target.sessionId) {
+    renderSessionFileReferences(target.sessionId);
+  }
   scheduleUiRefresh();
   await window.agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
@@ -1816,6 +2112,7 @@ function showEmptyView(shouldRefresh = true) {
   terminalView.classList.add("hidden");
   processDetailsPanel.classList.add("hidden");
   closeAgentSearch({ restoreFocus: false });
+  closeWorkspaceSearch({ restoreFocus: false });
 
   for (const instance of sessionTerminals.values()) {
     instance.mount.classList.add("hidden");
@@ -1891,6 +2188,14 @@ async function openTerminalView(sessionId) {
 
   if (activeSessionId && activeSessionId !== sessionId && isAgentSearchOpen) {
     closeAgentSearch({ restoreFocus: false });
+  }
+
+  if (
+    activeSessionId &&
+    activeSessionId !== sessionId &&
+    isWorkspaceSearchOpen
+  ) {
+    closeWorkspaceSearch({ restoreFocus: false });
   }
 
   activeSessionId = sessionId;
@@ -2067,6 +2372,7 @@ async function resizeManualTerminals() {
 
 async function initializeContext() {
   const context = await window.agenticApp.getContext();
+  defaultWorkspaceRoot = context.cwd;
   platformName = context.platform || "linux";
   setProcessInspectionSupport(context.processInspectionSupported);
   cwdInput.value = context.cwd;
@@ -2331,6 +2637,21 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "p"
+  ) {
+    event.preventDefault();
+    if (isWorkspaceSearchOpen) {
+      workspaceSearchInput.focus();
+      workspaceSearchInput.select();
+    } else {
+      openWorkspaceSearch();
+    }
+    return;
+  }
+
+  if (
     !editorState.open &&
     (event.ctrlKey || event.metaKey) &&
     !event.altKey &&
@@ -2354,6 +2675,11 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (event.key === "Escape") {
+    if (isWorkspaceSearchOpen) {
+      closeWorkspaceSearch();
+      return;
+    }
+
     if (isAgentSearchOpen) {
       closeAgentSearch();
       return;
@@ -2406,6 +2732,58 @@ agentSearchNextButton.addEventListener("click", () => {
 
 agentSearchCloseButton.addEventListener("click", () => {
   closeAgentSearch();
+});
+
+workspaceSearchInput.addEventListener("input", () => {
+  applyWorkspaceSearchQuery(workspaceSearchInput.value);
+});
+
+workspaceSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    openWorkspaceSearchResult();
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveWorkspaceSearchSelection("down");
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveWorkspaceSearchSelection("up");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeWorkspaceSearch();
+  }
+});
+
+workspaceSearchCloseButton.addEventListener("click", () => {
+  closeWorkspaceSearch();
+});
+
+workspaceSearchResults.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const resultButton = target.closest(".workspace-search-result");
+  if (!resultButton?.dataset.filePath || !activeSessionId) {
+    return;
+  }
+
+  closeWorkspaceSearch({ restoreFocus: false });
+  await openReferencedFile(
+    activeSessionId,
+    resultButton.dataset.filePath,
+    null,
+  );
 });
 
 fileEditorSaveButton.addEventListener("click", () => {

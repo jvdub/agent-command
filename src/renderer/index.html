@@ -276,6 +276,52 @@
             </section>
           </section>
         </section>
+
+        <section
+          id="workspace-search-overlay"
+          class="workspace-search-overlay hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Quick Open"
+        >
+          <section class="workspace-search-panel">
+            <header class="workspace-search-header">
+              <div>
+                <p class="eyebrow">Quick Open</p>
+                <h2>Search files</h2>
+              </div>
+              <button
+                type="button"
+                id="workspace-search-close"
+                class="secondary"
+              >
+                Close
+              </button>
+            </header>
+
+            <div class="workspace-search-input-row">
+              <input
+                id="workspace-search-input"
+                type="search"
+                placeholder="Type a file name or path"
+                aria-label="Search workspace files"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p
+                id="workspace-search-count"
+                class="workspace-search-count status-meta"
+              >
+                Type to search the workspace
+              </p>
+            </div>
+
+            <div
+              id="workspace-search-results"
+              class="workspace-search-results"
+            ></div>
+          </section>
+        </section>
       </main>
     </div>
 

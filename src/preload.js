@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("agenticApp", {
     ipcRenderer.invoke("editor:openFile", { sessionId, filePath }),
   saveWorkspaceFile: (sessionId, filePath, content) =>
     ipcRenderer.invoke("editor:saveFile", { sessionId, filePath, content }),
+  listWorkspaceFiles: (payload) =>
+    ipcRenderer.invoke("workspace:listFiles", payload),
   writeToSession: (sessionId, input) =>
     ipcRenderer.invoke("session:write", { sessionId, input }),
   resizeSession: (sessionId, size) =>

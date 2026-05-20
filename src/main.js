@@ -911,6 +911,27 @@ function listWorkspaceFiles(rootPath, maxEntries = 20000) {
   return files;
 }
 
+function listWorkspaceFileEntries(rootPath) {
+  return listWorkspaceFiles(rootPath).map((filePath) => ({
+    absolutePath: filePath,
+    relativePath: path.relative(rootPath, filePath) || path.basename(filePath),
+    basename: path.basename(filePath),
+  }));
+}
+
+function getWorkspaceRootForListing(sessionId) {
+  const session = sessionId ? sessions.get(sessionId) : null;
+  if (
+    session?.cwd &&
+    fs.existsSync(session.cwd) &&
+    fs.statSync(session.cwd).isDirectory()
+  ) {
+    return path.resolve(session.cwd);
+  }
+
+  return path.resolve(resolveInitialDirectory());
+}
+
 function findWorkspaceFileByFallback(workspaceRoots, variants) {
   for (const root of workspaceRoots) {
     const files = listWorkspaceFiles(root);
@@ -1347,6 +1368,23 @@ ipcMain.handle("editor:openFile", async (_event, payload) => {
       `${error?.message || "Unable to open file."} (reference: ${detail || "<empty>"})`,
     );
   }
+});
+
+ipcMain.handle("workspace:listFiles", async (_event, payload) => {
+  const sessionId = payload?.sessionId;
+  const requestedRoot = payload?.root;
+  const root = requestedRoot
+    ? path.resolve(requestedRoot)
+    : getWorkspaceRootForListing(sessionId);
+
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    throw new Error("Workspace root not found.");
+  }
+
+  return {
+    root,
+    files: listWorkspaceFileEntries(root),
+  };
 });
 
 ipcMain.handle("editor:saveFile", async (_event, payload) => {

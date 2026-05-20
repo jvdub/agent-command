@@ -74,6 +74,7 @@ textarea {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .tab-sidebar {
@@ -669,6 +670,105 @@ button:disabled {
   max-width: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.workspace-search-overlay {
+  position: absolute;
+  inset: 24px;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 48px;
+  background: rgba(7, 9, 12, 0.55);
+  backdrop-filter: blur(10px);
+}
+
+.workspace-search-panel {
+  width: min(920px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.workspace-search-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-search-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-search-count {
+  font-size: 0.82rem;
+}
+
+.workspace-search-results {
+  max-height: min(56vh, 560px);
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.workspace-search-result {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+}
+
+.workspace-search-result.active {
+  background: rgba(238, 108, 77, 0.16);
+  border-color: rgba(238, 108, 77, 0.28);
+}
+
+.workspace-search-result:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.workspace-search-result-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-search-result-name {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-search-result-path {
+  margin: 3px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-search-empty {
+  padding: 18px 14px 20px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .split-view {
