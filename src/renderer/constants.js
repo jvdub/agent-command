@@ -4,7 +4,7 @@ export const FILE_REFERENCE_LIMIT = 24;
 export const AUTOSAVE_DELAY_MS = 1000;
 
 export const FILE_REFERENCE_PATTERN =
-  /(?<![A-Za-z0-9._\\/\-])((?:(?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+|[A-Za-z0-9._\-]+\.[A-Za-z0-9._\-]+|\.[A-Za-z0-9._\-]+))(?:[:#](\d+))?(?![A-Za-z0-9._\\/\-])/g;
+  /(?<![A-Za-z0-9._\\/\-])((?:(?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+|(?:[A-Za-z0-9._\-]+[\\\/])+[A-Za-z0-9._\-]+|[A-Za-z0-9._\-]+\.[A-Za-z0-9._\-]+|\.[A-Za-z0-9._\-]+))(?:[:#](\d+))?(?![A-Za-z0-9._\\/\-])/g;
 
 export const LANGUAGE_BY_EXTENSION = {
   js: "javascript",

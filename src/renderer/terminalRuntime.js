@@ -4,7 +4,11 @@ import { SearchAddon } from "./vendor/@xterm/addon-search/lib/addon-search.mjs";
 import { WebLinksAddon } from "./vendor/@xterm/addon-web-links/lib/addon-web-links.mjs";
 
 import { agenticApp } from "./agenticApp.js";
-import { TERMINAL_OPTIONS, TERMINAL_SEARCH_OPTIONS } from "./constants.js";
+import {
+  FILE_REFERENCE_PATTERN,
+  TERMINAL_OPTIONS,
+  TERMINAL_SEARCH_OPTIONS,
+} from "./constants.js";
 import { elements } from "./dom.js";
 import {
   manualTerminalBuffers,
@@ -14,6 +18,7 @@ import {
   sessionTerminals,
   uiState,
 } from "./state.js";
+import { normalizeCandidateFilePath } from "./utils.js";
 
 function isClipboardShortcut(event, key) {
   const pressedKey = String(event.key || "").toLowerCase();
@@ -43,12 +48,44 @@ async function pasteIntoTerminal(terminal) {
 }
 
 export function createTerminalManager({
-  clearSessionFileReferences,
   markSessionInput,
-  renderSessionFileReferences,
+  openReferencedFile,
   scheduleUiRefresh,
   setStatus,
 }) {
+  function isLikelyFileReference(rawValue) {
+    const cleaned = normalizeCandidateFilePath(rawValue);
+    if (!cleaned) {
+      return false;
+    }
+
+    if (cleaned.includes("://")) {
+      return false;
+    }
+
+    const normalized = cleaned.replace(/\\+/g, "/");
+    if (normalized.includes("/")) {
+      return true;
+    }
+
+    if (normalized.startsWith(".")) {
+      return /[A-Za-z]/.test(normalized.slice(1));
+    }
+
+    const dotIndex = normalized.lastIndexOf(".");
+    if (dotIndex <= 0 || dotIndex === normalized.length - 1) {
+      return false;
+    }
+
+    const base = normalized.slice(0, dotIndex);
+    const ext = normalized.slice(dotIndex + 1);
+    if (!/[A-Za-z]/.test(base)) {
+      return false;
+    }
+
+    return /^[A-Za-z][A-Za-z0-9_-]{1,15}$/.test(ext);
+  }
+
   function closeTerminalContextMenu() {
     elements.terminalContextMenu.classList.add("hidden");
     uiState.terminalContextTarget = null;
@@ -239,12 +276,51 @@ export function createTerminalManager({
     }
 
     markSessionInput(target.sessionId);
-    clearSessionFileReferences(target.sessionId);
-    if (uiState.activeSessionId === target.sessionId) {
-      renderSessionFileReferences(target.sessionId);
-    }
     scheduleUiRefresh();
     await agenticApp.writeToSession(target.sessionId, "/clear\r");
+  }
+
+  function createFileLinkProvider(sessionId, terminal) {
+    return {
+      provideLinks(y, callback) {
+        const line = terminal.buffer.active.getLine(y - 1);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+
+        const text = line.translateToString(true);
+        const matcher = new RegExp(FILE_REFERENCE_PATTERN.source, "g");
+        const links = [];
+        let match;
+
+        while ((match = matcher.exec(text)) !== null) {
+          const rawPath = normalizeCandidateFilePath(match[1]);
+          if (!rawPath || !isLikelyFileReference(rawPath)) {
+            continue;
+          }
+
+          const lineNumber = match[2] ? Number(match[2]) : null;
+          const startColumn = match.index + 1;
+          const endColumn = match.index + match[0].length;
+          if (endColumn < startColumn) {
+            continue;
+          }
+
+          links.push({
+            text: match[0],
+            range: {
+              start: { x: startColumn, y },
+              end: { x: endColumn, y },
+            },
+            activate: () => openReferencedFile(sessionId, rawPath, lineNumber),
+            hover: () => setStatus("Open File", rawPath),
+          });
+        }
+
+        callback(links.length ? links : undefined);
+      },
+    };
   }
 
   function createWebLinksAddon(instance) {
@@ -288,6 +364,7 @@ export function createTerminalManager({
     terminal.loadAddon(searchAddon);
     terminal.loadAddon(webLinksAddon);
     terminal.open(mount);
+    terminal.registerLinkProvider(createFileLinkProvider(sessionId, terminal));
 
     const instance = {
       terminal,

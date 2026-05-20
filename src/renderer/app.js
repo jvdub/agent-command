@@ -8,17 +8,11 @@ import {
   updateInsightFromOutput,
 } from "./insights.js";
 import {
-  clearSessionFileReferences,
-  ingestFileReferences,
-  renderSessionFileReferences,
-} from "./fileReferences.js";
-import {
   capabilities,
   editorState,
   manualTerminalBuffers,
   manualTerminals,
   sessionBuffers,
-  sessionFileReferences,
   sessionInsights,
   sessionProcesses,
   sessionTerminals,
@@ -62,7 +56,6 @@ const {
   processPanelMeta,
   processDetailsList,
   terminalContextMenu,
-  agentFileLinksList,
   workspaceSearchInput,
 } = elements;
 
@@ -113,9 +106,9 @@ function scheduleUiRefresh() {
 }
 
 const terminalManager = createTerminalManager({
-  clearSessionFileReferences,
   markSessionInput,
-  renderSessionFileReferences,
+  openReferencedFile: (sessionId, filePath, line) =>
+    workspaceTools.openReferencedFile(sessionId, filePath, line),
   scheduleUiRefresh,
   setStatus,
 });
@@ -143,7 +136,6 @@ function refreshVisibleUi() {
   terminalManager.updateManualTerminalSubtitle(active, "2");
   setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
-  renderSessionFileReferences(active.id);
 }
 
 function setTerminalActionsEnabled(session) {
@@ -235,7 +227,6 @@ function showEmptyView(shouldRefresh = true) {
   }
 
   uiState.activeSessionId = null;
-  renderSessionFileReferences(null);
   workspaceTools.closeFileEditorModal(true);
   if (shouldRefresh) {
     refreshVisibleUi();
@@ -342,7 +333,6 @@ function updateSessions(payload) {
       sessionProcesses.delete(existingId);
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
-      sessionFileReferences.delete(existingId);
       for (const key of Array.from(manualTerminalBuffers.keys())) {
         if (key.startsWith(`${existingId}:`)) {
           manualTerminalBuffers.delete(key);
@@ -385,15 +375,10 @@ function bindGlobalEvents() {
   agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
     appendSessionBuffer(sessionId, data);
-    ingestFileReferences(sessionId, data);
 
     const instance = sessionTerminals.get(sessionId);
     if (instance) {
       instance.terminal.write(data);
-    }
-
-    if (uiState.activeSessionId === sessionId) {
-      renderSessionFileReferences(sessionId);
     }
 
     scheduleUiRefresh();
@@ -684,9 +669,6 @@ stopSessionButton.addEventListener("click", stopSession);
 sendInterruptButton.addEventListener("click", sendInterrupt);
 openFileDrawerButton.addEventListener("click", () => {
   workspaceTools.openFileDrawer();
-  if (uiState.activeSessionId) {
-    renderSessionFileReferences(uiState.activeSessionId);
-  }
 });
 manualSendInterruptButton1.addEventListener("click", () =>
   sendManualInterrupt("1"),
@@ -730,25 +712,6 @@ sessionTabsList.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     selectSessionFromSidebar(event);
   }
-});
-
-agentFileLinksList.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-
-  const chip = target.closest(".agent-file-chip");
-  if (!chip?.dataset.filePath || !uiState.activeSessionId) {
-    return;
-  }
-
-  const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
-  workspaceTools.openReferencedFile(
-    uiState.activeSessionId,
-    chip.dataset.filePath,
-    fileLine,
-  );
 });
 
 document.addEventListener("click", (event) => {
@@ -1431,7 +1394,7 @@ function collectFileReferences(rawChunk) {
 
     refs.push({
       filePath: normalized,
-      line: match[3] ? Number(match[3]) : null,
+      line: match[2] ? Number(match[2]) : null,
     });
   }
 
@@ -2624,12 +2587,66 @@ async function sendTerminalClearCommand(target) {
   }
 
   markSessionInput(target.sessionId);
-  clearSessionFileReferences(target.sessionId);
-  if (activeSessionId === target.sessionId) {
-    renderSessionFileReferences(target.sessionId);
-  }
   scheduleUiRefresh();
   await agenticApp.writeToSession(target.sessionId, "/clear\r");
+}
+
+function createFileLinkProvider(sessionId, terminal) {
+  return {
+    provideLinks(y, callback) {
+      const line = terminal.buffer.active.getLine(y - 1);
+      if (!line) {
+        callback(undefined);
+        return;
+      }
+
+      const text = line.translateToString(true);
+      const matcher = new RegExp(FILE_REFERENCE_PATTERN.source, "g");
+      const links = [];
+      let match;
+
+      while ((match = matcher.exec(text)) !== null) {
+        const rawPath = normalizeCandidateFilePath(match[1]);
+        if (!rawPath) {
+          continue;
+        }
+
+        const resolvedLine = match[2] ? Number(match[2]) : null;
+        const startColumn = match.index + 1;
+        const endColumn = match.index + match[0].length;
+        if (endColumn < startColumn) {
+          continue;
+        }
+
+        links.push({
+          text: match[0],
+          range: {
+            start: { x: startColumn, y },
+            end: { x: endColumn, y },
+          },
+          activate: async () => {
+            await openReferencedFile(sessionId, rawPath, resolvedLine);
+          },
+          hover: () => {
+            setStatus("Open File", rawPath);
+          },
+          leave: () => {
+            const active = sessions.get(activeSessionId);
+            if (!active) {
+              return;
+            }
+
+            setStatus(
+              getSessionStatusLabel(active),
+              `${active.cwd} - ${formatCommand(active)}`,
+            );
+          },
+        });
+      }
+
+      callback(links.length > 0 ? links : undefined);
+    },
+  };
 }
 
 function createWebLinksAddon(instance) {
@@ -2673,6 +2690,7 @@ function createSessionTerminal(sessionId) {
   terminal.loadAddon(searchAddon);
   terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
+  terminal.registerLinkProvider(createFileLinkProvider(sessionId, terminal));
   const instance = {
     terminal,
     fitAddon,
@@ -2865,7 +2883,6 @@ function refreshVisibleUi() {
   updateManualTerminalSubtitle(active, "2");
   setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
-  renderSessionFileReferences(active.id);
 }
 
 function scheduleUiRefresh() {
@@ -2970,7 +2987,6 @@ function showEmptyView(shouldRefresh = true) {
   }
 
   activeSessionId = null;
-  renderSessionFileReferences(null);
   closeFileEditorModal(true);
   if (shouldRefresh) {
     refreshVisibleUi();
@@ -3114,15 +3130,10 @@ function bindGlobalEvents() {
   agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
     appendSessionBuffer(sessionId, data);
-    ingestFileReferences(sessionId, data);
 
     const instance = sessionTerminals.get(sessionId);
     if (instance) {
       instance.terminal.write(data);
-    }
-
-    if (activeSessionId === sessionId) {
-      renderSessionFileReferences(sessionId);
     }
 
     scheduleUiRefresh();
@@ -3357,9 +3368,6 @@ stopSessionButton.addEventListener("click", stopSession);
 sendInterruptButton.addEventListener("click", sendInterrupt);
 openFileDrawerButton.addEventListener("click", () => {
   openFileDrawer();
-  if (activeSessionId) {
-    renderSessionFileReferences(activeSessionId);
-  }
 });
 manualSendInterruptButton1.addEventListener("click", () =>
   sendManualInterrupt("1"),
@@ -3441,21 +3449,6 @@ sessionTabsList.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     selectSessionFromSidebar(event);
   }
-});
-
-agentFileLinksList.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-
-  const chip = target.closest(".agent-file-chip");
-  if (!chip?.dataset.filePath || !activeSessionId) {
-    return;
-  }
-
-  const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
-  openReferencedFile(activeSessionId, chip.dataset.filePath, fileLine);
 });
 
 document.addEventListener("click", (event) => {
