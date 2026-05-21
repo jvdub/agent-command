@@ -38,7 +38,15 @@ async function copyTerminalSelection(terminal) {
 }
 
 async function pasteIntoTerminal(terminal) {
-  const text = await agenticApp.readClipboardText();
+  let text = await agenticApp.readClipboardText();
+  if (!text && navigator?.clipboard?.readText) {
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      text = "";
+    }
+  }
+
   if (!text) {
     return false;
   }
