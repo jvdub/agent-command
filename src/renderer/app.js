@@ -9,6 +9,7 @@ import {
 } from "./insights.js";
 import {
   capabilities,
+  editorRuntime,
   editorState,
   manualTerminalBuffers,
   manualTerminals,
@@ -18,8 +19,9 @@ import {
   sessionTerminals,
   sessions,
   uiState,
+  workspaceFilesCache,
+  workspaceSearchState,
 } from "./state.js";
-import { createTerminalManager } from "./terminalRuntime.js";
 import {
   escapeHtml,
   getProcessDisplayLabel,
@@ -27,11 +29,14 @@ import {
   shortId,
 } from "./utils.js";
 import { agenticApp } from "./agenticApp.js";
+import { createCommandDispatcher } from "./commandDispatcher.js";
+import { createTerminalManager } from "./terminalRuntime.js";
 import { createWorkspaceTools } from "./workspaceTools.js";
+import { setupIpcEventBinding } from "./ipcEventBinding.js";
 
 const {
   emptyView,
-  terminalView,
+  terminalView: terminalViewPanel,
   sessionForm,
   newSessionButton,
   newSessionPopover,
@@ -105,17 +110,91 @@ function scheduleUiRefresh() {
   }, UI_REFRESH_INTERVAL_MS);
 }
 
+// Create dispatcher for IPC/event flow
+const dispatcher = createCommandDispatcher();
+
+let workspaceTools;
+
 const terminalManager = createTerminalManager({
   markSessionInput,
-  openReferencedFile: (sessionId, filePath, line) =>
-    workspaceTools.openReferencedFile(sessionId, filePath, line),
+  openReferencedFile: (sessionId, filePath, lineNumber) =>
+    workspaceTools?.openReferencedFile(sessionId, filePath, lineNumber),
   scheduleUiRefresh,
   setStatus,
 });
 
-const workspaceTools = createWorkspaceTools({
+workspaceTools = createWorkspaceTools({
   getActiveTerminalInstance: () => terminalManager.getActiveTerminalInstance(),
   setStatus,
+});
+
+setupIpcEventBinding(dispatcher, agenticApp);
+
+dispatcher.on("sessions:changed", (payload) => {
+  updateSessions(Array.isArray(payload) ? payload : payload?.sessions || []);
+});
+
+dispatcher.on("session:dataReceived", ({ sessionId, data }) => {
+  if (!sessionId || typeof data !== "string") {
+    return;
+  }
+
+  appendSessionBuffer(sessionId, data);
+  const instance = sessionTerminals.get(sessionId);
+  if (instance) {
+    instance.terminal.write(data);
+  }
+
+  updateInsightFromOutput(sessionId, data);
+  scheduleUiRefresh();
+});
+
+dispatcher.on("session:exited", ({ sessionId, exitCode, signal }) => {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  sessions.set(sessionId, {
+    ...session,
+    isRunning: false,
+    exitCode,
+    signal,
+  });
+  scheduleUiRefresh();
+});
+
+dispatcher.on("manualTerminal:dataReceived", ({ sessionId, terminalId, data }) => {
+  if (!sessionId || typeof data !== "string") {
+    return;
+  }
+
+  const key = `${sessionId}:${String(terminalId || "1")}`;
+  const existing = manualTerminalBuffers.get(key) || "";
+  manualTerminalBuffers.set(key, `${existing}${data}`);
+
+  const instance = manualTerminals.get(key);
+  if (instance) {
+    instance.terminal.write(data);
+  }
+});
+
+dispatcher.on("manualTerminal:exited", ({ sessionId, terminalId, exitCode, signal }) => {
+  const key = `${sessionId}:${String(terminalId || "1")}`;
+  const instance = manualTerminals.get(key);
+  if (!instance) {
+    return;
+  }
+
+  instance.initialized = false;
+  instance.terminal.write(
+    `\r\n[manual terminal exited${typeof exitCode === "number" ? ` (${exitCode})` : ""}${signal ? ` signal ${signal}` : ""}]\r\n`,
+  );
+});
+
+// Wire dispatcher event: file reference clicked → open file
+dispatcher.on("fileReferenceClicked", ({ sessionId, filePath, lineNumber }) => {
+  workspaceTools.openReferencedFile(sessionId, filePath, lineNumber);
 });
 
 function refreshVisibleUi() {
@@ -213,7 +292,7 @@ function renderSessionTabs() {
 
 function showEmptyView(shouldRefresh = true) {
   emptyView.classList.remove("hidden");
-  terminalView.classList.add("hidden");
+  terminalViewPanel.classList.add("hidden");
   processDetailsPanel.classList.add("hidden");
   terminalManager.closeAgentSearch({ restoreFocus: false });
   workspaceTools.closeWorkspaceSearch({ restoreFocus: false });
@@ -311,7 +390,7 @@ async function openTerminalView(sessionId) {
 
   uiState.activeSessionId = sessionId;
   emptyView.classList.add("hidden");
-  terminalView.classList.remove("hidden");
+  terminalViewPanel.classList.remove("hidden");
   renderSessionTabs();
   renderTerminalHeader(session);
   terminalManager.updateManualTerminalSubtitle(session, "1");
@@ -371,72 +450,16 @@ function updateSessions(payload) {
   pollSessionProcesses();
 }
 
-function bindGlobalEvents() {
-  agenticApp.onSessionData(({ sessionId, data }) => {
-    updateInsightFromOutput(sessionId, data);
-    appendSessionBuffer(sessionId, data);
+function upsertSession(session) {
+  if (!session?.id) {
+    return;
+  }
 
-    const instance = sessionTerminals.get(sessionId);
-    if (instance) {
-      instance.terminal.write(data);
-    }
-
-    scheduleUiRefresh();
-  });
-
-  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
-    const insight = ensureSessionInsight(sessionId);
-    insight.awaitingPermission = false;
-    insight.awaitingQuestion = false;
-    if (exitCode !== 0) {
-      insight.hasError = true;
-      insight.errorMessage = `Exited with code ${exitCode}`;
-      insight.lastErrorAt = Date.now();
-    }
-
-    const exitLine = `\r\n[session exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
-    appendSessionBuffer(sessionId, exitLine);
-
-    const instance = sessionTerminals.get(sessionId);
-    if (instance) {
-      instance.terminal.write(exitLine);
-    }
-
-    scheduleUiRefresh();
-  });
-
-  agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
-    const key = `${sessionId}:${String(terminalId || "1")}`;
-    manualTerminalBuffers.set(
-      key,
-      `${manualTerminalBuffers.get(key) || ""}${data}`,
-    );
-
-    const instance = manualTerminals.get(key);
-    if (instance) {
-      instance.terminal.write(data);
-    }
-  });
-
-  agenticApp.onManualTerminalExit(
-    ({ sessionId, terminalId, exitCode, signal }) => {
-      const key = `${sessionId}:${String(terminalId || "1")}`;
-      const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
-      manualTerminalBuffers.set(
-        key,
-        `${manualTerminalBuffers.get(key) || ""}${exitLine}`,
-      );
-
-      const instance = manualTerminals.get(key);
-      if (instance) {
-        instance.terminal.write(exitLine);
-      }
-    },
+  const next = Array.from(sessions.values()).filter(
+    (existing) => existing.id !== session.id,
   );
-
-  agenticApp.onSessionsChanged((payload) => {
-    updateSessions(payload);
-  });
+  next.push(session);
+  updateSessions(next);
 }
 
 async function initializeContext() {
@@ -485,6 +508,7 @@ async function startSession(event) {
     });
     const session = result.session;
 
+    upsertSession(session);
     ensureSessionBuffer(session.id);
     ensureSessionInsight(session.id);
     terminalManager.createSessionTerminal(session.id);
@@ -587,6 +611,7 @@ async function restartSessionFromSidebar(sessionId) {
     const result = await agenticApp.restartSession(sessionId);
     const session = result.session;
 
+    upsertSession(session);
     ensureSessionBuffer(session.id);
     ensureSessionInsight(session.id);
     terminalManager.createSessionTerminal(session.id);
@@ -799,8 +824,6 @@ document.addEventListener("keydown", (event) => {
 
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
-bindGlobalEvents();
-showEmptyView();
 initializeContext().catch((error) => {
   setStatus("Error", error.message || "Unable to load app context");
 });

@@ -1,9 +1,10 @@
 const { IPC_CHANNELS } = require("../../shared/ipcContract");
 
-function registerWorkspaceIpcHandlers({ ipcMain, workspaceFileService }) {
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.openWorkspaceFile,
-    async (_event, payload) => {
+function registerHandlers(registry, services) {
+  const { workspaceFileService } = services;
+
+  registry.register("workspace", IPC_CHANNELS.invoke.openWorkspaceFile, {
+    handler: async (_event, payload) => {
       const sessionId = payload?.sessionId;
       const filePath = payload?.filePath;
 
@@ -16,20 +17,18 @@ function registerWorkspaceIpcHandlers({ ipcMain, workspaceFileService }) {
         );
       }
     },
-  );
+  });
 
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.listWorkspaceFiles,
-    async (_event, payload) =>
+  registry.register("workspace", IPC_CHANNELS.invoke.listWorkspaceFiles, {
+    handler: async (_event, payload) =>
       await workspaceFileService.listWorkspaceFilesForRoot(
         payload?.sessionId,
         payload?.root,
       ),
-  );
+  });
 
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.saveWorkspaceFile,
-    async (_event, payload) => {
+  registry.register("workspace", IPC_CHANNELS.invoke.saveWorkspaceFile, {
+    handler: async (_event, payload) => {
       const sessionId = payload?.sessionId;
       const filePath = payload?.filePath;
       const content = payload?.content;
@@ -44,9 +43,12 @@ function registerWorkspaceIpcHandlers({ ipcMain, workspaceFileService }) {
         content,
       );
     },
-  );
+  });
 }
 
+const registerWorkspaceIpcHandlers = registerHandlers;
+
 module.exports = {
+  registerHandlers,
   registerWorkspaceIpcHandlers,
 };

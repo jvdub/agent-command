@@ -1,39 +1,43 @@
 const os = require("os");
 const { IPC_CHANNELS, buildOkResponse } = require("../../shared/ipcContract");
 
-function registerAppIpcHandlers({
-  ipcMain,
-  dialog,
-  shell,
-  resolveInitialDirectory,
-  shellForPlatform,
-  processInspectionService,
-}) {
-  ipcMain.handle(IPC_CHANNELS.invoke.pickDirectory, async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openDirectory", "createDirectory"],
-      defaultPath: resolveInitialDirectory(),
-    });
+function registerHandlers(registry, services) {
+  const {
+    dialog,
+    shell,
+    resolveInitialDirectory,
+    shellForPlatform,
+    processInspectionService,
+  } = services;
 
-    if (result.canceled || result.filePaths.length === 0) {
-      return null;
-    }
+  registry.register("app", IPC_CHANNELS.invoke.pickDirectory, {
+    handler: async () => {
+      const result = await dialog.showOpenDialog({
+        properties: ["openDirectory", "createDirectory"],
+        defaultPath: resolveInitialDirectory(),
+      });
 
-    return result.filePaths[0];
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+
+      return result.filePaths[0];
+    },
   });
 
-  ipcMain.handle(IPC_CHANNELS.invoke.getContext, async () => ({
-    cwd: resolveInitialDirectory(),
-    homeDirectory: os.homedir(),
-    shell: shellForPlatform(),
-    platform: process.platform,
-    processInspectionSupported:
-      processInspectionService.isProcessInspectionSupported(),
-  }));
+  registry.register("app", IPC_CHANNELS.invoke.getContext, {
+    handler: async () => ({
+      cwd: resolveInitialDirectory(),
+      homeDirectory: os.homedir(),
+      shell: shellForPlatform(),
+      platform: process.platform,
+      processInspectionSupported:
+        processInspectionService.isProcessInspectionSupported(),
+    }),
+  });
 
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.openExternalUrl,
-    async (_event, payload) => {
+  registry.register("app", IPC_CHANNELS.invoke.openExternalUrl, {
+    handler: async (_event, payload) => {
       const rawUrl = String(payload?.url || "").trim();
       if (!rawUrl) {
         throw new Error("A URL is required.");
@@ -53,9 +57,12 @@ function registerAppIpcHandlers({
       await shell.openExternal(parsed.toString());
       return buildOkResponse(true);
     },
-  );
+  });
 }
+
+const registerAppIpcHandlers = registerHandlers;
 
 module.exports = {
   registerAppIpcHandlers,
+  registerHandlers,
 };

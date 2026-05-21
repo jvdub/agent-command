@@ -1,8 +1,13 @@
-const { registerAppIpcHandlers } = require("./registerAppIpcHandlers");
-const { registerSessionIpcHandlers } = require("./registerSessionIpcHandlers");
-const { registerWorkspaceIpcHandlers } = require("./registerWorkspaceIpcHandlers");
+const { createIpcHandlerRegistry } = require("./handlerRegistry");
+const { registerHandlers: registerAppHandlers } = require("./registerAppIpcHandlers");
 const {
-  registerManualTerminalIpcHandlers,
+  registerHandlers: registerSessionHandlers,
+} = require("./registerSessionIpcHandlers");
+const {
+  registerHandlers: registerWorkspaceHandlers,
+} = require("./registerWorkspaceIpcHandlers");
+const {
+  registerHandlers: registerManualTerminalHandlers,
 } = require("./registerManualTerminalIpcHandlers");
 
 function registerIpcHandlers({
@@ -16,32 +21,26 @@ function registerIpcHandlers({
   workspaceFileService,
   manualTerminalService,
 }) {
-  registerAppIpcHandlers({
+  const registry = createIpcHandlerRegistry(ipcMain, {
     ipcMain,
     dialog,
     shell,
     resolveInitialDirectory,
     shellForPlatform,
     processInspectionService,
-  });
-
-  registerSessionIpcHandlers({
-    ipcMain,
-    shellForPlatform,
-    processInspectionService,
     sessionService,
     workspaceFileService,
-  });
-
-  registerWorkspaceIpcHandlers({
-    ipcMain,
-    workspaceFileService,
-  });
-
-  registerManualTerminalIpcHandlers({
-    ipcMain,
     manualTerminalService,
   });
+
+  registry.registerFromModules([
+    registerAppHandlers,
+    registerSessionHandlers,
+    registerWorkspaceHandlers,
+    registerManualTerminalHandlers,
+  ]);
+
+  return registry;
 }
 
 module.exports = {

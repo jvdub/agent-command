@@ -12,11 +12,13 @@ This document explains the main runtime boundaries and where to add new behavior
 ## Runtime Layers
 
 1. Main process (Node + Electron privileged APIs)
+
 - Entry: src/main.js
 - Owns app lifecycle, BrowserWindow creation, PTY process orchestration, and filesystem access.
 - Delegates business logic to service modules under src/main/services.
 
 2. IPC registration layer (transport wiring)
+
 - Composer: src/main/ipc/registerIpcHandlers.js
 - Domain registrars:
   - src/main/ipc/registerAppIpcHandlers.js
@@ -26,18 +28,35 @@ This document explains the main runtime boundaries and where to add new behavior
 - Keep these files focused on request validation, mapping to services, and response shaping.
 
 3. Shared contract (single source of truth)
+
 - src/shared/ipcContract.js
 - Defines IPC channel names and shared request/response helpers.
 
 4. Preload bridge (sandbox-safe renderer API)
+
 - src/preload.js
 - Exposes window.agentic with narrowed capabilities.
 - Must not expose Node/Electron internals directly to renderer modules.
 
 5. Renderer (UI state + presentation)
+
 - Entry: src/renderer/app.js
-- Feature modules: src/renderer/terminalRuntime.js, src/renderer/workspaceTools.js, etc.
+- Feature modules: src/renderer/features/terminalView, src/renderer/features/fileEditor, etc.
 - Talks only to the preload bridge API.
+- State managed under stateManager.features.
+
+### Dispatcher Wiring
+
+- IPC events wired to dispatcher commands in src/renderer/ipcEventBinding.js.
+- Features listen to dispatcher commands for extensibility.
+
+### Adding a New Feature
+
+1. Create a new feature module under src/renderer/features.
+2. Define state slice under stateManager.features.
+3. Wire dispatcher commands to feature logic.
+4. Update ipcEventBinding.js if IPC events are needed.
+5. Test and validate.
 
 ## IPC Channel Synchronization
 
@@ -50,6 +69,7 @@ Because sandboxed preload contexts cannot freely import local files at runtime, 
   - // END AUTO-GENERATED IPC CHANNELS
 
 Commands:
+
 - Write/sync: npm run prepare:preload-ipc-contract
 - Verify only: npm run check:preload-ipc-contract
 
@@ -76,6 +96,7 @@ The top-level check pipeline enforces this to prevent channel drift.
 ## Security Notes
 
 Current hardening in BrowserWindow should stay enabled:
+
 - contextIsolation: true
 - nodeIntegration: false
 - sandbox: true

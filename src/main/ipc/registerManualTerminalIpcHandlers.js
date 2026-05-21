@@ -4,10 +4,11 @@ const {
   buildOkResponse,
 } = require("../../shared/ipcContract");
 
-function registerManualTerminalIpcHandlers({ ipcMain, manualTerminalService }) {
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.ensureManualTerminal,
-    async (_event, payload) => {
+function registerHandlers(registry, services) {
+  const { manualTerminalService } = services;
+
+  registry.register("manual-terminal", IPC_CHANNELS.invoke.ensureManualTerminal, {
+    handler: async (_event, payload) => {
       const sessionId =
         typeof payload === "string" ? payload : payload?.sessionId;
       const terminalId =
@@ -23,11 +24,10 @@ function registerManualTerminalIpcHandlers({ ipcMain, manualTerminalService }) {
       );
       return buildManualTerminalState(terminal);
     },
-  );
+  });
 
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.writeToManualTerminal,
-    async (_event, payload) => {
+  registry.register("manual-terminal", IPC_CHANNELS.invoke.writeToManualTerminal, {
+    handler: async (_event, payload) => {
       const sessionId = payload?.sessionId;
       const terminalId = String(payload?.terminalId || "1");
       const input = payload?.input;
@@ -47,11 +47,10 @@ function registerManualTerminalIpcHandlers({ ipcMain, manualTerminalService }) {
       terminal.ptyProcess.write(input || "");
       return buildOkResponse(true);
     },
-  );
+  });
 
-  ipcMain.handle(
-    IPC_CHANNELS.invoke.resizeManualTerminal,
-    async (_event, payload) => {
+  registry.register("manual-terminal", IPC_CHANNELS.invoke.resizeManualTerminal, {
+    handler: async (_event, payload) => {
       const sessionId = payload?.sessionId;
       const terminalId = String(payload?.terminalId || "1");
       const cols = payload?.cols;
@@ -72,9 +71,12 @@ function registerManualTerminalIpcHandlers({ ipcMain, manualTerminalService }) {
       terminal.ptyProcess.resize(cols, rows);
       return buildOkResponse(true);
     },
-  );
+  });
 }
 
+const registerManualTerminalIpcHandlers = registerHandlers;
+
 module.exports = {
+  registerHandlers,
   registerManualTerminalIpcHandlers,
 };
