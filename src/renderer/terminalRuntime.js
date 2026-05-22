@@ -33,7 +33,15 @@ async function copyTerminalSelection(terminal) {
     return false;
   }
 
-  await agenticApp.writeClipboardText(selection);
+  agenticApp.writeClipboardText(selection);
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(selection);
+    } catch {
+      // Ignore browser clipboard errors when another clipboard path succeeded.
+    }
+  }
+
   return true;
 }
 
@@ -255,7 +263,7 @@ export function createTerminalManager({
       }
 
       event.preventDefault();
-      agenticApp.writeClipboardText(selection);
+      copyTerminalSelection(terminal);
     });
 
     mount.addEventListener("paste", (event) => {
