@@ -1,6 +1,8 @@
 /** @typedef {import("../shared/ipcContract.js").AgenticAppApi} AgenticAppApi */
 
-const bridge = window.agentic;
+function getBridge() {
+  return window.agentic;
+}
 
 function bridgeUnavailableError() {
   return new Error(
@@ -9,6 +11,7 @@ function bridgeUnavailableError() {
 }
 
 function requireSection(sectionName) {
+  const bridge = getBridge();
   const section = bridge?.[sectionName];
   if (!section) {
     throw bridgeUnavailableError();
@@ -66,8 +69,10 @@ export const agenticApp = Object.freeze({
   listWorkspaceFiles: (payload) => call("workspace", "listFiles", payload),
   writeToSession: (sessionId, input) =>
     call("sessions", "write", sessionId, input),
-  resizeSession: (sessionId, size) => call("sessions", "resize", sessionId, size),
-  getSessionProcesses: (sessionId) => call("sessions", "getProcesses", sessionId),
+  resizeSession: (sessionId, size) =>
+    call("sessions", "resize", sessionId, size),
+  getSessionProcesses: (sessionId) =>
+    call("sessions", "getProcesses", sessionId),
   ensureManualTerminal: (sessionId, terminalId = "1") =>
     call("manualTerminals", "ensure", sessionId, terminalId),
   writeToManualTerminal: (sessionId, input, terminalId = "1") =>

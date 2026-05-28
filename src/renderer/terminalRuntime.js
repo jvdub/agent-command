@@ -12,7 +12,6 @@ import {
 import { elements } from "./dom.js";
 import {
   manualTerminalBuffers,
-  manualTerminalKey,
   manualTerminals,
   sessionBuffers,
   sessionTerminals,
@@ -63,61 +62,10 @@ async function pasteIntoTerminal(terminal) {
   return true;
 }
 
-export function createTerminalManager({
-  markSessionInput,
-  openReferencedFile,
-  scheduleUiRefresh,
-  setStatus,
-}) {
-  function isLikelyFileReference(rawValue) {
-    const cleaned = normalizeCandidateFilePath(rawValue);
-    if (!cleaned) {
-      return false;
-    }
-
-    if (cleaned.includes("://")) {
-      return false;
-    }
-
-    const normalized = cleaned.replace(/\\+/g, "/");
-    if (normalized.includes("/")) {
-      return true;
-    }
-
-    if (normalized.startsWith(".")) {
-      return /[A-Za-z]/.test(normalized.slice(1));
-    }
-
-    const dotIndex = normalized.lastIndexOf(".");
-    if (dotIndex <= 0 || dotIndex === normalized.length - 1) {
-      return false;
-    }
-
-    const base = normalized.slice(0, dotIndex);
-    const ext = normalized.slice(dotIndex + 1);
-    if (!/[A-Za-z]/.test(base)) {
-      return false;
-    }
-
-    return /^[A-Za-z][A-Za-z0-9_-]{1,15}$/.test(ext);
-  }
-
-  function closeTerminalContextMenu() {
-    elements.terminalContextMenu.classList.add("hidden");
-    uiState.terminalContextTarget = null;
-  }
-
+function createManagerSearchUi({ getActiveTerminalInstance, setStatus }) {
   function setAgentSearchMessage(message, isError = false) {
     elements.agentSearchCount.textContent = message;
     elements.agentSearchCount.classList.toggle("error", isError);
-  }
-
-  function getActiveTerminalInstance() {
-    if (!uiState.activeSessionId) {
-      return null;
-    }
-
-    return sessionTerminals.get(uiState.activeSessionId) || null;
   }
 
   function getActiveAgentSearchAddon() {
@@ -216,6 +164,138 @@ export function createTerminalManager({
     return matched;
   }
 
+  function handleSearchResults({ sessionId, resultIndex, resultCount }) {
+    if (uiState.activeSessionId !== sessionId || !uiState.isAgentSearchOpen) {
+      return;
+    }
+
+    if (!elements.agentSearchInput.value.trim()) {
+      setAgentSearchMessage("Type to search");
+      return;
+    }
+
+    if (resultCount === 0) {
+      setAgentSearchMessage("No matches", true);
+      return;
+    }
+
+    if (resultIndex >= 0) {
+      setAgentSearchMessage(`${resultIndex + 1} of ${resultCount}`);
+      return;
+    }
+
+    setAgentSearchMessage(`${resultCount} matches`);
+  }
+
+  function bindEvents() {
+    elements.agentSearchInput.addEventListener("input", () => {
+      const term = elements.agentSearchInput.value.trim();
+
+      if (!term) {
+        const searchAddon = getActiveAgentSearchAddon();
+        if (searchAddon) {
+          searchAddon.clearDecorations();
+        }
+        updateAgentSearchControls();
+        return;
+      }
+
+      runAgentSearch("next", { incremental: true });
+    });
+
+    elements.agentSearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runAgentSearch(event.shiftKey ? "previous" : "next");
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAgentSearch();
+      }
+    });
+
+    elements.agentSearchPrevButton.addEventListener("click", () => {
+      runAgentSearch("previous");
+    });
+
+    elements.agentSearchNextButton.addEventListener("click", () => {
+      runAgentSearch("next");
+    });
+
+    elements.agentSearchCloseButton.addEventListener("click", () => {
+      closeAgentSearch();
+    });
+  }
+
+  return {
+    bindEvents,
+    closeAgentSearch,
+    handleSearchResults,
+    openAgentSearch,
+  };
+}
+
+export function createTerminalManager({
+  markSessionInput,
+  openReferencedFile,
+  scheduleUiRefresh,
+  setStatus,
+}) {
+  let runtime = null;
+
+  function isLikelyFileReference(rawValue) {
+    const cleaned = normalizeCandidateFilePath(rawValue);
+    if (!cleaned) {
+      return false;
+    }
+
+    if (cleaned.includes("://")) {
+      return false;
+    }
+
+    const normalized = cleaned.replace(/\\+/g, "/");
+    if (normalized.includes("/")) {
+      return true;
+    }
+
+    if (normalized.startsWith(".")) {
+      return /[A-Za-z]/.test(normalized.slice(1));
+    }
+
+    const dotIndex = normalized.lastIndexOf(".");
+    if (dotIndex <= 0 || dotIndex === normalized.length - 1) {
+      return false;
+    }
+
+    const base = normalized.slice(0, dotIndex);
+    const ext = normalized.slice(dotIndex + 1);
+    if (!/[A-Za-z]/.test(base)) {
+      return false;
+    }
+
+    return /^[A-Za-z][A-Za-z0-9_-]{1,15}$/.test(ext);
+  }
+
+  function closeTerminalContextMenu() {
+    elements.terminalContextMenu.classList.add("hidden");
+    uiState.terminalContextTarget = null;
+  }
+
+  function getActiveTerminalInstance() {
+    if (!runtime) {
+      return null;
+    }
+
+    return runtime.getActiveTerminalInstance();
+  }
+
+  const managerSearchUi = createManagerSearchUi({
+    getActiveTerminalInstance,
+    setStatus,
+  });
+
   function openTerminalContextMenu(event, target) {
     event.preventDefault();
     uiState.terminalContextTarget = target;
@@ -231,69 +311,6 @@ export function createTerminalManager({
     elements.terminalContextMenu.style.left = `${Math.max(12, left)}px`;
     elements.terminalContextMenu.style.top = `${Math.max(12, top)}px`;
     elements.terminalContextMenu.classList.remove("hidden");
-  }
-
-  function attachTerminalClipboardHandlers(target) {
-    const { terminal, mount } = target;
-
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") {
-        return true;
-      }
-
-      if (isClipboardShortcut(event, "c") && terminal.hasSelection()) {
-        event.preventDefault();
-        copyTerminalSelection(terminal);
-        return false;
-      }
-
-      if (isClipboardShortcut(event, "v")) {
-        event.preventDefault();
-        pasteIntoTerminal(terminal);
-        return false;
-      }
-
-      return true;
-    });
-
-    mount.addEventListener("copy", (event) => {
-      const selection = terminal.getSelection();
-      if (!selection) {
-        return;
-      }
-
-      event.preventDefault();
-      copyTerminalSelection(terminal);
-    });
-
-    mount.addEventListener("paste", (event) => {
-      const text = event.clipboardData?.getData("text");
-      if (!text) {
-        return;
-      }
-
-      event.preventDefault();
-      terminal.paste(text);
-    });
-
-    mount.addEventListener("contextmenu", (event) => {
-      openTerminalContextMenu(event, target);
-    });
-  }
-
-  async function sendTerminalClearCommand(target) {
-    if (!target?.sessionId) {
-      return;
-    }
-
-    if (target.kind === "manual") {
-      await agenticApp.writeToManualTerminal(target.sessionId, "clear\r");
-      return;
-    }
-
-    markSessionInput(target.sessionId);
-    scheduleUiRefresh();
-    await agenticApp.writeToSession(target.sessionId, "/clear\r");
   }
 
   function createFileLinkProvider(sessionId, terminal) {
@@ -339,11 +356,153 @@ export function createTerminalManager({
     };
   }
 
+  runtime = createAppTerminalRuntime({
+    agenticAppApi: agenticApp,
+    sessionTerminalsById: sessionTerminals,
+    manualTerminalsByKey: manualTerminals,
+    manualTerminalBuffersByKey: manualTerminalBuffers,
+    sessionBuffersById: sessionBuffers,
+    getActiveSessionId: () => uiState.activeSessionId,
+    markSessionInput,
+    scheduleUiRefresh,
+    setStatus,
+    openWorkspaceSearch: () => {},
+    openTerminalContextMenu,
+    handleSearchResults: managerSearchUi.handleSearchResults,
+    terminalContainer: elements.terminalContainer,
+    manualTerminalContainer1: elements.manualTerminalContainer1,
+    manualTerminalContainer2: elements.manualTerminalContainer2,
+    manualTerminalSubtitle1: elements.manualTerminalSubtitle1,
+    manualTerminalSubtitle2: elements.manualTerminalSubtitle2,
+    onSessionTerminalCreated: ({ sessionId, terminal }) => {
+      terminal.registerLinkProvider(
+        createFileLinkProvider(sessionId, terminal),
+      );
+    },
+  });
+
+  managerSearchUi.bindEvents();
+
+  elements.terminalContextCopyButton.addEventListener("click", async () => {
+    if (uiState.terminalContextTarget) {
+      await runtime.copyTerminalSelection(
+        uiState.terminalContextTarget.terminal,
+      );
+    }
+    closeTerminalContextMenu();
+  });
+
+  elements.terminalContextPasteButton.addEventListener("click", async () => {
+    if (uiState.terminalContextTarget) {
+      await runtime.pasteIntoTerminal(uiState.terminalContextTarget.terminal);
+    }
+    closeTerminalContextMenu();
+  });
+
+  elements.terminalContextClearButton.addEventListener("click", async () => {
+    if (uiState.terminalContextTarget) {
+      await runtime.sendTerminalClearCommand(uiState.terminalContextTarget);
+    }
+    closeTerminalContextMenu();
+  });
+
+  return {
+    closeAgentSearch: managerSearchUi.closeAgentSearch,
+    closeTerminalContextMenu,
+    createSessionTerminal: runtime.createSessionTerminal,
+    getActiveTerminalInstance,
+    resizeManualTerminals: runtime.resizeManualTerminals,
+    resizeSession: runtime.resizeSession,
+    showManualTerminal: runtime.showManualTerminal,
+    showSessionTerminal: runtime.showSessionTerminal,
+    openAgentSearch: managerSearchUi.openAgentSearch,
+    updateManualTerminalSubtitle: runtime.updateManualTerminalSubtitle,
+  };
+}
+
+export function createAppTerminalRuntime({
+  agenticAppApi,
+  sessionTerminalsById,
+  manualTerminalsByKey,
+  manualTerminalBuffersByKey,
+  sessionBuffersById,
+  getActiveSessionId,
+  markSessionInput,
+  scheduleUiRefresh,
+  setStatus,
+  openWorkspaceSearch,
+  openTerminalContextMenu,
+  handleSearchResults,
+  terminalContainer,
+  manualTerminalContainer1,
+  manualTerminalContainer2,
+  manualTerminalSubtitle1,
+  manualTerminalSubtitle2,
+  onSessionTerminalCreated,
+}) {
+  function runtimeManualTerminalKey(sessionId, terminalId) {
+    return `${sessionId}:${terminalId}`;
+  }
+
+  function attachTerminalClipboardHandlers(target) {
+    const { terminal, mount } = target;
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") {
+        return true;
+      }
+
+      if (isClipboardShortcut(event, "c") && terminal.hasSelection()) {
+        event.preventDefault();
+        copyTerminalSelection(terminal);
+        return false;
+      }
+
+      if (isClipboardShortcut(event, "v")) {
+        event.preventDefault();
+        pasteIntoTerminal(terminal);
+        return false;
+      }
+
+      if (isClipboardShortcut(event, "p")) {
+        event.preventDefault();
+        openWorkspaceSearch();
+        return false;
+      }
+
+      return true;
+    });
+
+    mount.addEventListener("copy", (event) => {
+      const selection = terminal.getSelection();
+      if (!selection) {
+        return;
+      }
+
+      event.preventDefault();
+      agenticAppApi.writeClipboardText(selection);
+    });
+
+    mount.addEventListener("paste", (event) => {
+      const text = event.clipboardData?.getData("text");
+      if (!text) {
+        return;
+      }
+
+      event.preventDefault();
+      terminal.paste(text);
+    });
+
+    mount.addEventListener("contextmenu", (event) => {
+      openTerminalContextMenu(event, target);
+    });
+  }
+
   function createWebLinksAddon(instance) {
     return new WebLinksAddon((event, uri) => {
       event?.preventDefault?.();
 
-      Promise.resolve(agenticApp.openExternalUrl(uri))
+      Promise.resolve(agenticAppApi.openExternalUrl(uri))
         .then(() => {
           setStatus("Opened", uri);
         })
@@ -360,14 +519,14 @@ export function createTerminalManager({
   }
 
   function createSessionTerminal(sessionId) {
-    if (sessionTerminals.has(sessionId)) {
-      return sessionTerminals.get(sessionId);
+    if (sessionTerminalsById.has(sessionId)) {
+      return sessionTerminalsById.get(sessionId);
     }
 
     const mount = document.createElement("div");
     mount.className = "terminal-instance hidden";
     mount.dataset.sessionId = sessionId;
-    elements.terminalContainer.append(mount);
+    terminalContainer.append(mount);
 
     const terminal = new Terminal(TERMINAL_OPTIONS);
     const fitAddon = new FitAddon();
@@ -380,7 +539,6 @@ export function createTerminalManager({
     terminal.loadAddon(searchAddon);
     terminal.loadAddon(webLinksAddon);
     terminal.open(mount);
-    terminal.registerLinkProvider(createFileLinkProvider(sessionId, terminal));
 
     const instance = {
       terminal,
@@ -390,44 +548,30 @@ export function createTerminalManager({
       sessionId,
       kind: "agent",
     };
+
+    if (typeof onSessionTerminalCreated === "function") {
+      onSessionTerminalCreated({ sessionId, terminal, instance });
+    }
+
     attachTerminalClipboardHandlers(instance);
 
     searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
-      if (uiState.activeSessionId !== sessionId || !uiState.isAgentSearchOpen) {
-        return;
-      }
-
-      if (!elements.agentSearchInput.value.trim()) {
-        setAgentSearchMessage("Type to search");
-        return;
-      }
-
-      if (resultCount === 0) {
-        setAgentSearchMessage("No matches", true);
-        return;
-      }
-
-      if (resultIndex >= 0) {
-        setAgentSearchMessage(`${resultIndex + 1} of ${resultCount}`);
-        return;
-      }
-
-      setAgentSearchMessage(`${resultCount} matches`);
+      handleSearchResults({ sessionId, resultIndex, resultCount });
     });
 
     terminal.onData((data) => {
-      if (uiState.activeSessionId !== sessionId) {
+      if (getActiveSessionId() !== sessionId) {
         return;
       }
 
       markSessionInput(sessionId);
       scheduleUiRefresh();
-      agenticApp.writeToSession(sessionId, data);
+      agenticAppApi.writeToSession(sessionId, data);
     });
 
-    sessionTerminals.set(sessionId, instance);
+    sessionTerminalsById.set(sessionId, instance);
 
-    const buffer = sessionBuffers.get(sessionId);
+    const buffer = sessionBuffersById.get(sessionId);
     if (buffer) {
       terminal.write(buffer);
     }
@@ -436,7 +580,7 @@ export function createTerminalManager({
   }
 
   function showSessionTerminal(sessionId) {
-    for (const [id, instance] of sessionTerminals.entries()) {
+    for (const [id, instance] of sessionTerminalsById.entries()) {
       instance.mount.classList.toggle("hidden", id !== sessionId);
     }
 
@@ -447,11 +591,18 @@ export function createTerminalManager({
     return instance;
   }
 
+  function getActiveTerminalInstance() {
+    const activeSessionId = getActiveSessionId();
+    if (!activeSessionId) {
+      return null;
+    }
+
+    return sessionTerminalsById.get(activeSessionId) || null;
+  }
+
   function updateManualTerminalSubtitle(session, terminalId) {
     const target =
-      terminalId === "2"
-        ? elements.manualTerminalSubtitle2
-        : elements.manualTerminalSubtitle1;
+      terminalId === "2" ? manualTerminalSubtitle2 : manualTerminalSubtitle1;
     if (!session) {
       target.textContent = "";
       return;
@@ -462,14 +613,14 @@ export function createTerminalManager({
 
   function getManualTerminalContainer(terminalId) {
     return terminalId === "2"
-      ? elements.manualTerminalContainer2
-      : elements.manualTerminalContainer1;
+      ? manualTerminalContainer2
+      : manualTerminalContainer1;
   }
 
   function createManualTerminal(sessionId, terminalId) {
-    const key = manualTerminalKey(sessionId, terminalId);
-    if (manualTerminals.has(key)) {
-      return manualTerminals.get(key);
+    const key = runtimeManualTerminalKey(sessionId, terminalId);
+    if (manualTerminalsByKey.has(key)) {
+      return manualTerminalsByKey.get(key);
     }
 
     const container = getManualTerminalContainer(terminalId);
@@ -501,39 +652,42 @@ export function createTerminalManager({
     attachTerminalClipboardHandlers(instance);
 
     terminal.onData((data) => {
-      if (uiState.activeSessionId !== sessionId) {
+      if (getActiveSessionId() !== sessionId) {
         return;
       }
 
-      agenticApp.writeToManualTerminal(sessionId, data, terminalId);
+      agenticAppApi.writeToManualTerminal(sessionId, data, terminalId);
     });
 
-    manualTerminals.set(key, instance);
+    manualTerminalsByKey.set(key, instance);
     return instance;
   }
 
   async function ensureManualTerminal(sessionId, terminalId) {
-    const key = manualTerminalKey(sessionId, terminalId);
+    const key = runtimeManualTerminalKey(sessionId, terminalId);
     const instance = createManualTerminal(sessionId, terminalId);
     if (instance.initialized) {
       return instance;
     }
 
-    const result = await agenticApp.ensureManualTerminal(sessionId, terminalId);
+    const result = await agenticAppApi.ensureManualTerminal(
+      sessionId,
+      terminalId,
+    );
     const buffered =
-      manualTerminalBuffers.get(key) || result.outputBuffer || "";
+      manualTerminalBuffersByKey.get(key) || result.outputBuffer || "";
 
     if (buffered) {
       instance.terminal.write(buffered);
     }
 
-    manualTerminalBuffers.set(key, buffered);
+    manualTerminalBuffersByKey.set(key, buffered);
     instance.initialized = true;
     return instance;
   }
 
   async function showManualTerminal(sessionId, terminalId) {
-    for (const instance of manualTerminals.values()) {
+    for (const instance of manualTerminalsByKey.values()) {
       const isVisible = instance.sessionId === sessionId;
       instance.mount.classList.toggle("hidden", !isVisible);
     }
@@ -550,35 +704,36 @@ export function createTerminalManager({
     }
 
     return (
-      manualTerminals.get(manualTerminalKey(sessionId, terminalId)) || null
+      manualTerminalsByKey.get(
+        runtimeManualTerminalKey(sessionId, terminalId),
+      ) || null
     );
   }
 
   async function resizeSession() {
+    const activeSessionId = getActiveSessionId();
     const instance = getActiveTerminalInstance();
-    if (!uiState.activeSessionId || !instance) {
+    if (!activeSessionId || !instance) {
       return;
     }
 
     instance.fitAddon.fit();
-    await agenticApp.resizeSession(uiState.activeSessionId, {
+    await agenticAppApi.resizeSession(activeSessionId, {
       cols: instance.terminal.cols,
       rows: instance.terminal.rows,
     });
   }
 
   async function resizeManualTerminal(terminalId) {
-    const instance = getManualTerminalInstance(
-      uiState.activeSessionId,
-      terminalId,
-    );
-    if (!uiState.activeSessionId || !instance) {
+    const activeSessionId = getActiveSessionId();
+    const instance = getManualTerminalInstance(activeSessionId, terminalId);
+    if (!activeSessionId || !instance) {
       return;
     }
 
     instance.fitAddon.fit();
-    await agenticApp.resizeManualTerminal(
-      uiState.activeSessionId,
+    await agenticAppApi.resizeManualTerminal(
+      activeSessionId,
       {
         cols: instance.terminal.cols,
         rows: instance.terminal.rows,
@@ -591,77 +746,31 @@ export function createTerminalManager({
     await Promise.all([resizeManualTerminal("1"), resizeManualTerminal("2")]);
   }
 
-  elements.agentSearchInput.addEventListener("input", () => {
-    const term = elements.agentSearchInput.value.trim();
-
-    if (!term) {
-      const searchAddon = getActiveAgentSearchAddon();
-      if (searchAddon) {
-        searchAddon.clearDecorations();
-      }
-      updateAgentSearchControls();
+  async function sendTerminalClearCommand(target) {
+    if (!target?.sessionId) {
       return;
     }
 
-    runAgentSearch("next", { incremental: true });
-  });
-
-  elements.agentSearchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      runAgentSearch(event.shiftKey ? "previous" : "next");
+    if (target.kind === "manual") {
+      await agenticAppApi.writeToManualTerminal(target.sessionId, "clear\r");
       return;
     }
 
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeAgentSearch();
-    }
-  });
-
-  elements.agentSearchPrevButton.addEventListener("click", () => {
-    runAgentSearch("previous");
-  });
-
-  elements.agentSearchNextButton.addEventListener("click", () => {
-    runAgentSearch("next");
-  });
-
-  elements.agentSearchCloseButton.addEventListener("click", () => {
-    closeAgentSearch();
-  });
-
-  elements.terminalContextCopyButton.addEventListener("click", async () => {
-    if (uiState.terminalContextTarget) {
-      await copyTerminalSelection(uiState.terminalContextTarget.terminal);
-    }
-    closeTerminalContextMenu();
-  });
-
-  elements.terminalContextPasteButton.addEventListener("click", async () => {
-    if (uiState.terminalContextTarget) {
-      await pasteIntoTerminal(uiState.terminalContextTarget.terminal);
-    }
-    closeTerminalContextMenu();
-  });
-
-  elements.terminalContextClearButton.addEventListener("click", async () => {
-    if (uiState.terminalContextTarget) {
-      await sendTerminalClearCommand(uiState.terminalContextTarget);
-    }
-    closeTerminalContextMenu();
-  });
+    markSessionInput(target.sessionId);
+    scheduleUiRefresh();
+    await agenticAppApi.writeToSession(target.sessionId, "/clear\r");
+  }
 
   return {
-    closeAgentSearch,
-    closeTerminalContextMenu,
+    copyTerminalSelection,
     createSessionTerminal,
     getActiveTerminalInstance,
+    pasteIntoTerminal,
     resizeManualTerminals,
     resizeSession,
+    sendTerminalClearCommand,
     showManualTerminal,
     showSessionTerminal,
-    openAgentSearch,
     updateManualTerminalSubtitle,
   };
 }

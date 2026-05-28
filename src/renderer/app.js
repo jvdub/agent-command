@@ -2,6 +2,7 @@ import { Terminal } from "../../node_modules/@xterm/xterm/lib/xterm.mjs";
 import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs";
 import { SearchAddon } from "../../node_modules/@xterm/addon-search/lib/addon-search.mjs";
 import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
+import { agenticApp } from "./agenticApp.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -41,6 +42,14 @@ const agentSearchCount = document.querySelector("#agent-search-count");
 const agentSearchPrevButton = document.querySelector("#agent-search-prev");
 const agentSearchNextButton = document.querySelector("#agent-search-next");
 const agentSearchCloseButton = document.querySelector("#agent-search-close");
+const agentSearchEnabled = Boolean(
+  agentSearchBar &&
+  agentSearchInput &&
+  agentSearchCount &&
+  agentSearchPrevButton &&
+  agentSearchNextButton &&
+  agentSearchCloseButton,
+);
 const terminalContainer = document.querySelector("#terminal");
 const manualTerminalSubtitle1 = document.querySelector(
   "#manual-terminal-subtitle-1",
@@ -74,17 +83,6 @@ const fileEditorAutosave = document.querySelector("#file-editor-autosave");
 const fileEditorSaveButton = document.querySelector("#file-editor-save");
 const fileEditorCloseButton = document.querySelector("#file-editor-close");
 const fileEditorSurface = document.querySelector("#file-editor-surface");
-const workspaceSearchOverlay = document.querySelector(
-  "#workspace-search-overlay",
-);
-const workspaceSearchCloseButton = document.querySelector(
-  "#workspace-search-close",
-);
-const workspaceSearchInput = document.querySelector("#workspace-search-input");
-const workspaceSearchCount = document.querySelector("#workspace-search-count");
-const workspaceSearchResults = document.querySelector(
-  "#workspace-search-results",
-);
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
@@ -295,7 +293,6 @@ const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
 const sessionFileReferences = new Map();
-const workspaceFilesCache = new Map();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -305,8 +302,6 @@ let refreshScheduled = false;
 let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
 let terminalContextTarget = null;
-let sessionTabsInteractionActive = false;
-let pendingSessionTabsRender = false;
 let monacoEditor = null;
 let monacoApi = null;
 let monacoLoaderPromise = null;
@@ -326,15 +321,6 @@ let editorState = {
 };
 
 let isAgentSearchOpen = false;
-let isWorkspaceSearchOpen = false;
-const workspaceSearchState = {
-  root: "",
-  files: [],
-  filtered: [],
-  activeIndex: 0,
-  loading: false,
-  query: "",
-};
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -549,269 +535,6 @@ function extensionForPath(filePath) {
 
 function languageForPath(filePath) {
   return LANGUAGE_BY_EXTENSION[extensionForPath(filePath)] || "plaintext";
-}
-
-function pathBasename(filePath) {
-  const normalized = String(filePath || "").replace(/\\+/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : normalized;
-}
-
-function normalizeWorkspaceSearchText(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\\+/g, "/")
-    .toLowerCase();
-}
-
-function getWorkspaceRootForSearch() {
-  const active = activeSessionId ? sessions.get(activeSessionId) : null;
-  return active?.cwd || cwdInput.value.trim() || "";
-}
-
-async function loadWorkspaceFiles(root) {
-  if (!root) {
-    return [];
-  }
-
-  if (workspaceFilesCache.has(root)) {
-    return workspaceFilesCache.get(root);
-  }
-
-  const result = await window.agenticApp.listWorkspaceFiles({
-    sessionId: activeSessionId,
-    root,
-  });
-
-  const files = Array.isArray(result?.files) ? result.files : [];
-  const sorted = files
-    .map((entry) => ({
-      absolutePath: String(entry.absolutePath || ""),
-      relativePath: String(entry.relativePath || ""),
-      basename: String(
-        entry.basename ||
-          pathBasename(entry.relativePath || entry.absolutePath || ""),
-      ),
-    }))
-    .filter((entry) => entry.absolutePath && entry.relativePath)
-    .sort((left, right) =>
-      left.relativePath.localeCompare(right.relativePath, undefined, {
-        sensitivity: "base",
-        numeric: true,
-      }),
-    );
-
-  workspaceFilesCache.set(root, sorted);
-  return sorted;
-}
-
-function scoreWorkspaceFile(entry, query) {
-  if (!query) {
-    return 0;
-  }
-
-  const normalizedQuery = normalizeWorkspaceSearchText(query);
-  const relativePath = normalizeWorkspaceSearchText(entry.relativePath);
-  const basename = normalizeWorkspaceSearchText(entry.basename);
-  const absolutePath = normalizeWorkspaceSearchText(entry.absolutePath);
-
-  if (
-    basename === normalizedQuery ||
-    relativePath === normalizedQuery ||
-    absolutePath === normalizedQuery
-  ) {
-    return 0;
-  }
-
-  if (
-    basename.startsWith(normalizedQuery) ||
-    relativePath.startsWith(normalizedQuery) ||
-    absolutePath.startsWith(normalizedQuery)
-  ) {
-    return 1;
-  }
-
-  if (basename.includes(normalizedQuery)) {
-    return 2;
-  }
-
-  if (
-    relativePath.includes(normalizedQuery) ||
-    absolutePath.includes(normalizedQuery)
-  ) {
-    return 3;
-  }
-
-  return Number.POSITIVE_INFINITY;
-}
-
-function filterWorkspaceFiles(query, files) {
-  const normalizedQuery = normalizeWorkspaceSearchText(query);
-  if (!normalizedQuery) {
-    return files.slice(0, 100);
-  }
-
-  return files
-    .map((entry) => ({
-      entry,
-      score: scoreWorkspaceFile(entry, normalizedQuery),
-    }))
-    .filter(({ score }) => Number.isFinite(score))
-    .sort((left, right) => {
-      if (left.score !== right.score) {
-        return left.score - right.score;
-      }
-
-      return left.entry.relativePath.localeCompare(
-        right.entry.relativePath,
-        undefined,
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
-      );
-    })
-    .slice(0, 100)
-    .map(({ entry }) => entry);
-}
-
-function renderWorkspaceSearchResults() {
-  if (!isWorkspaceSearchOpen) {
-    workspaceSearchResults.innerHTML = "";
-    workspaceSearchCount.textContent = "";
-    return;
-  }
-
-  if (workspaceSearchState.loading) {
-    workspaceSearchCount.textContent = "Loading workspace files...";
-    workspaceSearchResults.innerHTML =
-      '<div class="workspace-search-empty">Scanning workspace files...</div>';
-    return;
-  }
-
-  const results = workspaceSearchState.filtered;
-  workspaceSearchCount.textContent = results.length
-    ? `${results.length} file${results.length === 1 ? "" : "s"}`
-    : "No matching files";
-
-  if (results.length === 0) {
-    workspaceSearchResults.innerHTML =
-      '<div class="workspace-search-empty">No files matched the current query.</div>';
-    return;
-  }
-
-  workspaceSearchResults.innerHTML = results
-    .map((entry, index) => {
-      const isActive = index === workspaceSearchState.activeIndex;
-      return `
-        <button
-          type="button"
-          class="workspace-search-result ${isActive ? "active" : ""}"
-          data-file-path="${escapeHtml(entry.absolutePath)}"
-          data-file-relative-path="${escapeHtml(entry.relativePath)}"
-        >
-          <div class="workspace-search-result-main">
-            <p class="workspace-search-result-name">${escapeHtml(entry.basename)}</p>
-            <p class="workspace-search-result-path">${escapeHtml(entry.relativePath)}</p>
-          </div>
-        </button>
-      `;
-    })
-    .join("");
-}
-
-function applyWorkspaceSearchQuery(query) {
-  workspaceSearchState.query = query;
-  workspaceSearchState.filtered = filterWorkspaceFiles(
-    query,
-    workspaceSearchState.files,
-  );
-  workspaceSearchState.activeIndex = Math.min(
-    workspaceSearchState.activeIndex,
-    Math.max(0, workspaceSearchState.filtered.length - 1),
-  );
-  renderWorkspaceSearchResults();
-}
-
-function getActiveWorkspaceSearchResult() {
-  if (!workspaceSearchState.filtered.length) {
-    return null;
-  }
-
-  return (
-    workspaceSearchState.filtered[workspaceSearchState.activeIndex] ||
-    workspaceSearchState.filtered[0] ||
-    null
-  );
-}
-
-function moveWorkspaceSearchSelection(direction) {
-  if (!workspaceSearchState.filtered.length) {
-    return;
-  }
-
-  const delta = direction === "up" ? -1 : 1;
-  const length = workspaceSearchState.filtered.length;
-  workspaceSearchState.activeIndex =
-    (workspaceSearchState.activeIndex + delta + length) % length;
-  renderWorkspaceSearchResults();
-}
-
-function closeWorkspaceSearch({ restoreFocus = true } = {}) {
-  isWorkspaceSearchOpen = false;
-  workspaceSearchOverlay.classList.add("hidden");
-  workspaceSearchState.activeIndex = 0;
-
-  if (restoreFocus) {
-    getActiveTerminalInstance()?.terminal.focus();
-  }
-}
-
-async function openWorkspaceSearchResult() {
-  const result = getActiveWorkspaceSearchResult();
-  if (!result || !activeSessionId) {
-    return;
-  }
-
-  closeWorkspaceSearch({ restoreFocus: false });
-  await openReferencedFile(activeSessionId, result.absolutePath, null);
-}
-
-async function openWorkspaceSearch() {
-  const root = getWorkspaceRootForSearch();
-  if (!root) {
-    setStatus("Error", "Open a session before searching files");
-    return;
-  }
-
-  isWorkspaceSearchOpen = true;
-  workspaceSearchOverlay.classList.remove("hidden");
-  workspaceSearchState.root = root;
-  workspaceSearchState.files = [];
-  workspaceSearchState.filtered = [];
-  workspaceSearchState.activeIndex = 0;
-  workspaceSearchState.loading = true;
-  workspaceSearchState.query = workspaceSearchInput.value || "";
-  renderWorkspaceSearchResults();
-  workspaceSearchInput.focus();
-  workspaceSearchInput.select();
-
-  try {
-    const files = await loadWorkspaceFiles(root);
-    if (!isWorkspaceSearchOpen || workspaceSearchState.root !== root) {
-      return;
-    }
-
-    workspaceSearchState.files = files;
-    workspaceSearchState.loading = false;
-    applyWorkspaceSearchQuery(workspaceSearchInput.value);
-  } catch (error) {
-    workspaceSearchState.loading = false;
-    workspaceSearchCount.textContent =
-      error.message || "Unable to search files";
-    workspaceSearchResults.innerHTML =
-      '<div class="workspace-search-empty">Unable to load workspace files.</div>';
-  }
 }
 
 function setEditorStatus(message) {
@@ -1037,7 +760,7 @@ async function saveOpenEditorFile(successLabel = "Saved") {
   try {
     fileEditorSaveButton.disabled = true;
     const content = monacoEditor.getValue();
-    await window.agenticApp.saveWorkspaceFile(
+    await agenticApp.saveWorkspaceFile(
       editorState.sessionId,
       editorState.filePath,
       content,
@@ -1055,7 +778,7 @@ async function saveOpenEditorFile(successLabel = "Saved") {
 
 async function openReferencedFile(sessionId, filePath, lineNumber = null) {
   try {
-    const file = await window.agenticApp.openWorkspaceFile(sessionId, filePath);
+    const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
     await ensureMonacoEditor();
 
     suppressEditorChange = true;
@@ -1380,12 +1103,12 @@ async function copyTerminalSelection(terminal) {
     return false;
   }
 
-  await window.agenticApp.writeClipboardText(selection);
+  await agenticApp.writeClipboardText(selection);
   return true;
 }
 
 async function pasteIntoTerminal(terminal) {
-  const text = await window.agenticApp.readClipboardText();
+  const text = await agenticApp.readClipboardText();
   if (!text) {
     return false;
   }
@@ -1404,6 +1127,10 @@ function closeTerminalContextMenu() {
 }
 
 function setAgentSearchMessage(message, isError = false) {
+  if (!agentSearchEnabled) {
+    return;
+  }
+
   agentSearchCount.textContent = message;
   agentSearchCount.classList.toggle("error", isError);
 }
@@ -1413,6 +1140,10 @@ function getActiveAgentSearchAddon() {
 }
 
 function updateAgentSearchControls() {
+  if (!agentSearchEnabled) {
+    return;
+  }
+
   const hasActiveTerminal = Boolean(getActiveTerminalInstance());
   const hasTerm = Boolean(agentSearchInput.value.trim());
 
@@ -1431,6 +1162,10 @@ function updateAgentSearchControls() {
 }
 
 function clearAgentSearch() {
+  if (!agentSearchEnabled) {
+    return;
+  }
+
   const searchAddon = getActiveAgentSearchAddon();
   if (searchAddon) {
     searchAddon.clearDecorations();
@@ -1441,6 +1176,11 @@ function clearAgentSearch() {
 }
 
 function closeAgentSearch({ restoreFocus = true, clear = true } = {}) {
+  if (!agentSearchEnabled) {
+    isAgentSearchOpen = false;
+    return;
+  }
+
   isAgentSearchOpen = false;
   agentSearchBar.classList.add("hidden");
 
@@ -1454,6 +1194,11 @@ function closeAgentSearch({ restoreFocus = true, clear = true } = {}) {
 }
 
 function openAgentSearch({ selectText = true } = {}) {
+  if (!agentSearchEnabled) {
+    setStatus("Find", "Search UI unavailable in this layout");
+    return;
+  }
+
   if (!getActiveTerminalInstance()) {
     setStatus("Find", "Open a session before searching");
     return;
@@ -1472,6 +1217,10 @@ function openAgentSearch({ selectText = true } = {}) {
 }
 
 function runAgentSearch(direction = "next", options = {}) {
+  if (!agentSearchEnabled) {
+    return false;
+  }
+
   const searchAddon = getActiveAgentSearchAddon();
   const term = agentSearchInput.value.trim();
 
@@ -1541,12 +1290,6 @@ function attachTerminalClipboardHandlers(target) {
       return false;
     }
 
-    if (isClipboardShortcut(event, "p")) {
-      event.preventDefault();
-      openWorkspaceSearch();
-      return false;
-    }
-
     return true;
   });
 
@@ -1557,7 +1300,7 @@ function attachTerminalClipboardHandlers(target) {
     }
 
     event.preventDefault();
-    window.agenticApp.writeClipboardText(selection);
+    agenticApp.writeClipboardText(selection);
   });
 
   mount.addEventListener("paste", (event) => {
@@ -1581,20 +1324,20 @@ async function sendTerminalClearCommand(target) {
   }
 
   if (target.kind === "manual") {
-    await window.agenticApp.writeToManualTerminal(target.sessionId, "clear\r");
+    await agenticApp.writeToManualTerminal(target.sessionId, "clear\r");
     return;
   }
 
   markSessionInput(target.sessionId);
   scheduleUiRefresh();
-  await window.agenticApp.writeToSession(target.sessionId, "/clear\r");
+  await agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
 
 function createWebLinksAddon(instance) {
   return new WebLinksAddon((event, uri) => {
     event?.preventDefault?.();
 
-    Promise.resolve(window.agenticApp.openExternalUrl(uri))
+    Promise.resolve(agenticApp.openExternalUrl(uri))
       .then(() => {
         setStatus("Opened", uri);
       })
@@ -1671,7 +1414,7 @@ function createSessionTerminal(sessionId) {
 
     markSessionInput(sessionId);
     scheduleUiRefresh();
-    window.agenticApp.writeToSession(sessionId, data);
+    agenticApp.writeToSession(sessionId, data);
   });
 
   sessionTerminals.set(sessionId, instance);
@@ -1759,7 +1502,7 @@ function createManualTerminal(sessionId, terminalId) {
       return;
     }
 
-    window.agenticApp.writeToManualTerminal(sessionId, data, terminalId);
+    agenticApp.writeToManualTerminal(sessionId, data, terminalId);
   });
 
   manualTerminals.set(key, instance);
@@ -1773,10 +1516,7 @@ async function ensureManualTerminal(sessionId, terminalId) {
     return instance;
   }
 
-  const result = await window.agenticApp.ensureManualTerminal(
-    sessionId,
-    terminalId,
-  );
+  const result = await agenticApp.ensureManualTerminal(sessionId, terminalId);
   const buffered = manualTerminalBuffers.get(key) || result.outputBuffer || "";
 
   if (buffered) {
@@ -1808,21 +1548,11 @@ function getManualTerminalInstance(sessionId, terminalId) {
   return manualTerminals.get(manualTerminalKey(sessionId, terminalId)) || null;
 }
 
-function refreshVisibleUi(options = {}) {
-  const {
-    includeSessionTabs = true,
-    includeTerminalHeader = true,
-    includeFileReferences = true,
-  } = options;
-
-  if (includeSessionTabs) {
-    renderSessionTabs();
-  }
+function refreshVisibleUi() {
+  renderSessionTabs();
 
   if (!activeSessionId) {
-    if (includeSessionTabs) {
-      showEmptyView(false);
-    }
+    showEmptyView(false);
     return;
   }
 
@@ -1831,18 +1561,12 @@ function refreshVisibleUi(options = {}) {
     return;
   }
 
-  if (includeTerminalHeader) {
-    renderTerminalHeader(active);
-    updateManualTerminalSubtitle(active, "1");
-    updateManualTerminalSubtitle(active, "2");
-    setTerminalActionsEnabled(active);
-  }
-
+  renderTerminalHeader(active);
+  updateManualTerminalSubtitle(active, "1");
+  updateManualTerminalSubtitle(active, "2");
+  setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
-
-  if (includeFileReferences) {
-    renderSessionFileReferences(active.id);
-  }
+  renderSessionFileReferences(active.id);
 }
 
 function scheduleUiRefresh() {
@@ -1876,143 +1600,59 @@ function getSessionStatusLabel(session) {
   return "Stopped";
 }
 
-function getOrderedSessions() {
-  return Array.from(sessions.values()).sort(
+function renderSessionTabs() {
+  const allSessions = Array.from(sessions.values()).sort(
     (left, right) => right.createdAt - left.createdAt,
   );
-}
-
-function renderSessionTabs() {
-  const allSessions = getOrderedSessions();
-
-  if (sessionTabsInteractionActive) {
-    pendingSessionTabsRender = true;
-    return;
-  }
-
-  pendingSessionTabsRender = false;
 
   if (allSessions.length === 0) {
-    sessionTabsList.replaceChildren();
-    const empty = document.createElement("p");
-    empty.className = "status-meta";
-    empty.textContent = "No sessions";
-    sessionTabsList.append(empty);
+    sessionTabsList.innerHTML = '<p class="status-meta">No sessions</p>';
     return;
   }
 
-  const existing = new Map();
-  for (const child of sessionTabsList.children) {
-    if (!(child instanceof HTMLElement)) {
-      continue;
-    }
+  const tabs = allSessions
+    .map((session) => {
+      const attention = deriveAttentionStatus(session);
+      const procs = sessionProcesses.get(session.id) || [];
+      const isActive = activeSessionId === session.id;
+      const primaryProc = procs[0] ? getProcessDisplayLabel(procs[0]) : "";
+      const procSummary =
+        procs.length > 0
+          ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
+          : "";
 
-    const id = child.dataset.sessionId;
-    if (id) {
-      existing.set(id, child);
-    }
-  }
+      if (!session.isRunning) {
+        return `
+          <div class="session-tab-group ${isActive ? "active" : ""}">
+            <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
+              <div class="session-tab-top">
+                <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
+                <p class="session-tab-id">#${shortId(session.id)}</p>
+              </div>
+              <p class="session-tab-attention">${attention.label}</p>
+            </button>
+            <div class="session-tab-actions">
+              <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
+              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
+            </div>
+          </div>
+        `;
+      }
 
-  const desiredIds = allSessions.map((session) => session.id);
-  for (const [id, node] of existing.entries()) {
-    if (!desiredIds.includes(id)) {
-      node.remove();
-      existing.delete(id);
-    }
-  }
-
-  for (const session of allSessions) {
-    const attention = deriveAttentionStatus(session);
-    const procs = sessionProcesses.get(session.id) || [];
-    const isActive = activeSessionId === session.id;
-    const primaryProc = procs[0] ? getProcessDisplayLabel(procs[0]) : "";
-    const procSummary =
-      procs.length > 0
-        ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
-        : "";
-
-    const expectsGroup = !session.isRunning;
-    const existingNode = existing.get(session.id);
-    const isGroupNode = existingNode?.classList.contains("session-tab-group");
-    const needsReplacement =
-      !existingNode ||
-      (expectsGroup && !isGroupNode) ||
-      (!expectsGroup && isGroupNode);
-
-    let node = existingNode;
-    if (needsReplacement) {
-      node = expectsGroup
-        ? document.createElement("div")
-        : document.createElement("button");
-      node.dataset.sessionId = session.id;
-      existing.set(session.id, node);
-    }
-
-    if (expectsGroup) {
-      node.className = `session-tab-group ${isActive ? "active" : ""}`;
-      node.innerHTML = `
-        <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
+      return `
+        <button type="button" class="session-tab ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">
           <div class="session-tab-top">
             <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
             <p class="session-tab-id">#${shortId(session.id)}</p>
           </div>
           <p class="session-tab-attention">${attention.label}</p>
+          ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
         </button>
-        <div class="session-tab-actions">
-          <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
-          <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
-        </div>
       `;
-    } else {
-      node.className = `session-tab ${isActive ? "active" : ""} ${attention.className}`;
-      node.setAttribute("type", "button");
-      node.setAttribute("data-session-id", session.id);
-      node.innerHTML = `
-        <div class="session-tab-top">
-          <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
-          <p class="session-tab-id">#${shortId(session.id)}</p>
-        </div>
-        <p class="session-tab-attention">${attention.label}</p>
-        ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
-      `;
-    }
-  }
+    })
+    .join("");
 
-  for (const session of allSessions) {
-    const node = existing.get(session.id);
-    if (node) {
-      sessionTabsList.append(node);
-    }
-  }
-}
-
-function flushPendingSessionTabRender() {
-  if (!pendingSessionTabsRender) {
-    return;
-  }
-
-  renderSessionTabs();
-}
-
-function cycleActiveSession(direction = 1) {
-  const allSessions = getOrderedSessions();
-  if (allSessions.length === 0) {
-    return;
-  }
-
-  const activeIndex = allSessions.findIndex(
-    (session) => session.id === activeSessionId,
-  );
-  const startIndex = activeIndex >= 0 ? activeIndex : 0;
-  const nextIndex =
-    (startIndex + direction + allSessions.length) % allSessions.length;
-  const targetSessionId = allSessions[nextIndex]?.id;
-
-  if (!targetSessionId || targetSessionId === activeSessionId) {
-    return;
-  }
-
-  openTerminalView(targetSessionId);
+  sessionTabsList.innerHTML = tabs;
 }
 
 function showEmptyView(shouldRefresh = true) {
@@ -2098,6 +1738,7 @@ async function openTerminalView(sessionId) {
   }
 
   activeSessionId = sessionId;
+  newSessionPopover.classList.add("hidden");
   emptyView.classList.add("hidden");
   terminalView.classList.remove("hidden");
   renderSessionTabs();
@@ -2163,7 +1804,7 @@ function updateSessions(payload) {
 }
 
 function bindGlobalEvents() {
-  window.agenticApp.onSessionData(({ sessionId, data }) => {
+  agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
     appendSessionBuffer(sessionId, data);
     ingestFileReferences(sessionId, data);
@@ -2180,7 +1821,7 @@ function bindGlobalEvents() {
     scheduleUiRefresh();
   });
 
-  window.agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
+  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
     const insight = ensureSessionInsight(sessionId);
     insight.awaitingPermission = false;
     insight.awaitingQuestion = false;
@@ -2201,7 +1842,7 @@ function bindGlobalEvents() {
     scheduleUiRefresh();
   });
 
-  window.agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
+  agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
     const key = manualTerminalKey(sessionId, String(terminalId || "1"));
     manualTerminalBuffers.set(
       key,
@@ -2214,7 +1855,7 @@ function bindGlobalEvents() {
     }
   });
 
-  window.agenticApp.onManualTerminalExit(
+  agenticApp.onManualTerminalExit(
     ({ sessionId, terminalId, exitCode, signal }) => {
       const key = manualTerminalKey(sessionId, String(terminalId || "1"));
       const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
@@ -2230,7 +1871,7 @@ function bindGlobalEvents() {
     },
   );
 
-  window.agenticApp.onSessionsChanged((payload) => {
+  agenticApp.onSessionsChanged((payload) => {
     updateSessions(payload);
   });
 }
@@ -2242,7 +1883,7 @@ async function resizeSession() {
   }
 
   instance.fitAddon.fit();
-  await window.agenticApp.resizeSession(activeSessionId, {
+  await agenticApp.resizeSession(activeSessionId, {
     cols: instance.terminal.cols,
     rows: instance.terminal.rows,
   });
@@ -2255,7 +1896,7 @@ async function resizeManualTerminal(terminalId) {
   }
 
   instance.fitAddon.fit();
-  await window.agenticApp.resizeManualTerminal(
+  await agenticApp.resizeManualTerminal(
     activeSessionId,
     {
       cols: instance.terminal.cols,
@@ -2270,12 +1911,25 @@ async function resizeManualTerminals() {
 }
 
 async function initializeContext() {
-  const context = await window.agenticApp.getContext();
+  const context = await agenticApp.getContext();
   setProcessInspectionSupport(context.processInspectionSupported);
+
+  const contextDefaultCommand =
+    typeof context.defaultCommand === "string"
+      ? context.defaultCommand.trim()
+      : "";
+  const currentCommand = (commandInput.value || "").trim();
+  if (
+    contextDefaultCommand &&
+    (!currentCommand || currentCommand === "claude")
+  ) {
+    commandInput.value = contextDefaultCommand;
+  }
+
   cwdInput.value = context.cwd;
   setStatus("Idle", `Default directory ${context.cwd}`);
 
-  const existing = await window.agenticApp.listSessions();
+  const existing = await agenticApp.listSessions();
   updateSessions(existing.sessions || []);
 
   const runningCount = (existing.sessions || []).filter(
@@ -2305,7 +1959,7 @@ async function startSession(event) {
   try {
     const cols = 120;
     const rows = 36;
-    const result = await window.agenticApp.startSession({
+    const result = await agenticApp.startSession({
       label,
       command,
       args,
@@ -2333,7 +1987,7 @@ async function stopSession() {
   }
 
   try {
-    await window.agenticApp.stopSession(activeSessionId);
+    await agenticApp.stopSession(activeSessionId);
     setStatus("Stopped", "Session terminated by user");
   } catch (error) {
     setStatus("Error", error.message || "Unable to stop session");
@@ -2345,7 +1999,7 @@ async function sendInterrupt() {
     return;
   }
 
-  await window.agenticApp.writeToSession(activeSessionId, "\u0003");
+  await agenticApp.writeToSession(activeSessionId, "\u0003");
   markSessionInput(activeSessionId);
   scheduleUiRefresh();
 }
@@ -2355,15 +2009,11 @@ async function sendManualInterrupt(terminalId) {
     return;
   }
 
-  await window.agenticApp.writeToManualTerminal(
-    activeSessionId,
-    "\u0003",
-    terminalId,
-  );
+  await agenticApp.writeToManualTerminal(activeSessionId, "\u0003", terminalId);
 }
 
 async function pickDirectory() {
-  const selected = await window.agenticApp.pickDirectory();
+  const selected = await agenticApp.pickDirectory();
   if (selected) {
     cwdInput.value = selected;
   }
@@ -2431,15 +2081,14 @@ function selectSessionFromSidebar(event) {
 
   const tab = target.closest(".session-tab");
   if (tab?.dataset.sessionId) {
-    if (activeSessionId !== tab.dataset.sessionId) {
-      openTerminalView(tab.dataset.sessionId);
-    }
+    event.preventDefault();
+    openTerminalView(tab.dataset.sessionId);
   }
 }
 
 async function restartSessionFromSidebar(sessionId) {
   try {
-    const result = await window.agenticApp.restartSession(sessionId);
+    const result = await agenticApp.restartSession(sessionId);
     const session = result.session;
 
     ensureSessionBuffer(session.id);
@@ -2455,7 +2104,7 @@ async function restartSessionFromSidebar(sessionId) {
 
 async function removeSessionFromSidebar(sessionId) {
   try {
-    await window.agenticApp.removeSession(sessionId);
+    await agenticApp.removeSession(sessionId);
     setStatus("Removed", "Session deleted");
     if (activeSessionId === sessionId) {
       showEmptyView(false);
@@ -2465,6 +2114,7 @@ async function removeSessionFromSidebar(sessionId) {
   }
 }
 
+sessionTabsList.addEventListener("pointerdown", selectSessionFromSidebar);
 sessionTabsList.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -2486,36 +2136,11 @@ sessionTabsList.addEventListener("click", (event) => {
     removeSessionFromSidebar(removeBtn.dataset.sessionId);
     return;
   }
-
-  selectSessionFromSidebar(event);
 });
 sessionTabsList.addEventListener("keydown", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
+  if (event.key === "Enter" || event.key === " ") {
+    selectSessionFromSidebar(event);
   }
-
-  if (!(event.key === "Enter" || event.key === " ")) {
-    return;
-  }
-
-  if (!target.closest(".session-tab")) {
-    return;
-  }
-
-  event.preventDefault();
-  selectSessionFromSidebar(event);
-});
-sessionTabsList.addEventListener("pointerdown", () => {
-  sessionTabsInteractionActive = true;
-});
-document.addEventListener("pointerup", () => {
-  sessionTabsInteractionActive = false;
-  flushPendingSessionTabRender();
-});
-document.addEventListener("pointercancel", () => {
-  sessionTabsInteractionActive = false;
-  flushPendingSessionTabRender();
 });
 
 agentFileLinksList.addEventListener("click", (event) => {
@@ -2558,22 +2183,6 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.ctrlKey && !event.altKey && !event.metaKey && event.key === "Tab") {
-    event.preventDefault();
-    cycleActiveSession(event.shiftKey ? -1 : 1);
-    return;
-  }
-
-  if (
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "p"
-  ) {
-    event.preventDefault();
-    openWorkspaceSearch();
-    return;
-  }
-
   if (
     !editorState.open &&
     (event.ctrlKey || event.metaKey) &&
@@ -2598,11 +2207,6 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (event.key === "Escape") {
-    if (isWorkspaceSearchOpen) {
-      closeWorkspaceSearch();
-      return;
-    }
-
     if (isAgentSearchOpen) {
       closeAgentSearch();
       return;
@@ -2617,97 +2221,47 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-agentSearchInput.addEventListener("input", () => {
-  const term = agentSearchInput.value.trim();
+if (agentSearchEnabled) {
+  agentSearchInput.addEventListener("input", () => {
+    const term = agentSearchInput.value.trim();
 
-  if (!term) {
-    const searchAddon = getActiveAgentSearchAddon();
-    if (searchAddon) {
-      searchAddon.clearDecorations();
+    if (!term) {
+      const searchAddon = getActiveAgentSearchAddon();
+      if (searchAddon) {
+        searchAddon.clearDecorations();
+      }
+      updateAgentSearchControls();
+      return;
     }
-    updateAgentSearchControls();
-    return;
-  }
 
-  runAgentSearch("next", { incremental: true });
-});
+    runAgentSearch("next", { incremental: true });
+  });
 
-agentSearchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    runAgentSearch(event.shiftKey ? "previous" : "next");
-    return;
-  }
+  agentSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runAgentSearch(event.shiftKey ? "previous" : "next");
+      return;
+    }
 
-  if (event.key === "Escape") {
-    event.preventDefault();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeAgentSearch();
+    }
+  });
+
+  agentSearchPrevButton.addEventListener("click", () => {
+    runAgentSearch("previous");
+  });
+
+  agentSearchNextButton.addEventListener("click", () => {
+    runAgentSearch("next");
+  });
+
+  agentSearchCloseButton.addEventListener("click", () => {
     closeAgentSearch();
-  }
-});
-
-agentSearchPrevButton.addEventListener("click", () => {
-  runAgentSearch("previous");
-});
-
-agentSearchNextButton.addEventListener("click", () => {
-  runAgentSearch("next");
-});
-
-agentSearchCloseButton.addEventListener("click", () => {
-  closeAgentSearch();
-});
-
-workspaceSearchInput.addEventListener("input", () => {
-  applyWorkspaceSearchQuery(workspaceSearchInput.value);
-});
-
-workspaceSearchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    openWorkspaceSearchResult();
-    return;
-  }
-
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    moveWorkspaceSearchSelection("down");
-    return;
-  }
-
-  if (event.key === "ArrowUp") {
-    event.preventDefault();
-    moveWorkspaceSearchSelection("up");
-    return;
-  }
-
-  if (event.key === "Escape") {
-    event.preventDefault();
-    closeWorkspaceSearch();
-  }
-});
-
-workspaceSearchCloseButton.addEventListener("click", () => {
-  closeWorkspaceSearch();
-});
-
-workspaceSearchResults.addEventListener("click", async (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-
-  const resultButton = target.closest(".workspace-search-result");
-  if (!resultButton?.dataset.filePath || !activeSessionId) {
-    return;
-  }
-
-  closeWorkspaceSearch({ restoreFocus: false });
-  await openReferencedFile(
-    activeSessionId,
-    resultButton.dataset.filePath,
-    null,
-  );
-});
+  });
+}
 
 fileEditorSaveButton.addEventListener("click", () => {
   saveOpenEditorFile("Saved");
@@ -2763,15 +2317,11 @@ initializeContext().catch((error) => {
 });
 
 setInterval(() => {
-  refreshVisibleUi({
-    includeSessionTabs: false,
-    includeTerminalHeader: false,
-    includeFileReferences: false,
-  });
+  refreshVisibleUi();
 }, 3000);
 
 async function pollSessionProcesses() {
-  if (typeof window.agenticApp.getSessionProcesses !== "function") {
+  if (typeof agenticApp.getSessionProcesses !== "function") {
     return;
   }
 
@@ -2798,7 +2348,7 @@ async function pollSessionProcesses() {
   }
 
   try {
-    const result = await window.agenticApp.getSessionProcesses(activeSessionId);
+    const result = await agenticApp.getSessionProcesses(activeSessionId);
 
     if (result?.supported === false) {
       setProcessInspectionSupport(false);

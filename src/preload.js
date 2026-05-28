@@ -1,100 +1,120 @@
 const { clipboard, contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("agenticApp", {
-  getContext: async () => {
-    const context = await ipcRenderer.invoke("app:getContext");
-    return {
-      ...context,
-      processInspectionSupported: context?.processInspectionSupported !== false,
-    };
-  },
-  pickDirectory: () => ipcRenderer.invoke("dialog:pickDirectory"),
-  startSession: (options) => ipcRenderer.invoke("session:start", options),
-  listSessions: () => ipcRenderer.invoke("sessions:list"),
-  stopSession: (sessionId) => ipcRenderer.invoke("session:stop", sessionId),
-  restartSession: (sessionId) =>
-    ipcRenderer.invoke("session:restart", sessionId),
-  removeSession: (sessionId) => ipcRenderer.invoke("session:remove", sessionId),
-  openWorkspaceFile: (sessionId, filePath) =>
-    ipcRenderer.invoke("editor:openFile", { sessionId, filePath }),
-  saveWorkspaceFile: (sessionId, filePath, content) =>
-    ipcRenderer.invoke("editor:saveFile", { sessionId, filePath, content }),
-  writeToSession: (sessionId, input) =>
-    ipcRenderer.invoke("session:write", { sessionId, input }),
-  resizeSession: (sessionId, size) =>
-    ipcRenderer.invoke("session:resize", {
-      sessionId,
-      cols: size.cols,
-      rows: size.rows,
-    }),
-  getSessionProcesses: async (sessionId) => {
-    const result = await ipcRenderer.invoke("session:processes", sessionId);
-
-    if (Array.isArray(result)) {
-      return { processes: result, supported: true };
-    }
-
-    return {
-      processes: Array.isArray(result?.processes) ? result.processes : [],
-      supported: result?.supported !== false,
-    };
-  },
-  ensureManualTerminal: (sessionId, terminalId = "1") =>
-    ipcRenderer.invoke("manual-terminal:ensure", { sessionId, terminalId }),
-  writeToManualTerminal: (sessionId, input, terminalId = "1") =>
-    ipcRenderer.invoke("manual-terminal:write", {
-      sessionId,
-      input,
-      terminalId,
-    }),
-  resizeManualTerminal: (sessionId, size, terminalId = "1") =>
-    ipcRenderer.invoke("manual-terminal:resize", {
-      sessionId,
-      terminalId,
-      cols: size.cols,
-      rows: size.rows,
-    }),
-  openExternalUrl: (url) => ipcRenderer.invoke("external-link:open", { url }),
-  readClipboardText: () => clipboard.readText(),
-  writeClipboardText: (value) => clipboard.writeText(value || ""),
-  onSessionsChanged: (listener) => {
-    const subscription = (_event, payload) => listener(payload);
-    ipcRenderer.on("sessions:changed", subscription);
-
-    return () => {
-      ipcRenderer.removeListener("sessions:changed", subscription);
-    };
-  },
-  onSessionData: (listener) => {
-    const subscription = (_event, payload) => listener(payload);
-    ipcRenderer.on("session:data", subscription);
-
-    return () => {
-      ipcRenderer.removeListener("session:data", subscription);
-    };
-  },
-  onSessionExit: (listener) => {
-    const subscription = (_event, payload) => listener(payload);
-    ipcRenderer.on("session:exit", subscription);
-
-    return () => {
-      ipcRenderer.removeListener("session:exit", subscription);
-    };
-  },
-  onManualTerminalData: (listener) => {
-    const subscription = (_event, payload) => listener(payload);
-    ipcRenderer.on("manual-terminal:data", subscription);
-
-    return () => {
-      ipcRenderer.removeListener("manual-terminal:data", subscription);
-    };
-  },
-  onManualTerminalExit: (listener) => {
-    const subscription = (_event, payload) => listener(payload);
-    ipcRenderer.on("manual-terminal:exit", subscription);
-
-    return () => {
-      ipcRenderer.removeListener("manual-terminal:exit", subscription);
-    };
-  },
+// BEGIN AUTO-GENERATED IPC CHANNELS
+const IPC_CHANNELS = Object.freeze({
+  invoke: Object.freeze({
+    getContext: "app:getContext",
+    pickDirectory: "dialog:pickDirectory",
+    startSession: "session:start",
+    listSessions: "sessions:list",
+    stopSession: "session:stop",
+    restartSession: "session:restart",
+    removeSession: "session:remove",
+    openWorkspaceFile: "editor:openFile",
+    saveWorkspaceFile: "editor:saveFile",
+    listWorkspaceFiles: "workspace:listFiles",
+    writeToSession: "session:write",
+    resizeSession: "session:resize",
+    getSessionProcesses: "session:processes",
+    ensureManualTerminal: "manual-terminal:ensure",
+    writeToManualTerminal: "manual-terminal:write",
+    resizeManualTerminal: "manual-terminal:resize",
+    openExternalUrl: "external-link:open",
+  }),
+  events: Object.freeze({
+    sessionsChanged: "sessions:changed",
+    sessionData: "session:data",
+    sessionExit: "session:exit",
+    manualTerminalData: "manual-terminal:data",
+    manualTerminalExit: "manual-terminal:exit",
+  }),
 });
+// END AUTO-GENERATED IPC CHANNELS
+
+function on(channel, listener) {
+  const subscription = (_event, payload) => listener(payload);
+  ipcRenderer.on(channel, subscription);
+
+  return () => {
+    ipcRenderer.removeListener(channel, subscription);
+  };
+}
+
+const agentic = {
+  app: {
+    getContext: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.getContext),
+    pickDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.pickDirectory),
+    openExternalUrl: (url) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.openExternalUrl, { url }),
+  },
+  sessions: {
+    start: (options) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.startSession, options),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.listSessions),
+    stop: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.stopSession, sessionId),
+    restart: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.restartSession, sessionId),
+    remove: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.removeSession, sessionId),
+    write: (sessionId, input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.writeToSession, {
+        sessionId,
+        input,
+      }),
+    resize: (sessionId, size) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.resizeSession, {
+        sessionId,
+        cols: size.cols,
+        rows: size.rows,
+      }),
+    getProcesses: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.getSessionProcesses, sessionId),
+    onChanged: (listener) => on(IPC_CHANNELS.events.sessionsChanged, listener),
+    onData: (listener) => on(IPC_CHANNELS.events.sessionData, listener),
+    onExit: (listener) => on(IPC_CHANNELS.events.sessionExit, listener),
+  },
+  workspace: {
+    openFile: (sessionId, filePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.openWorkspaceFile, {
+        sessionId,
+        filePath,
+      }),
+    saveFile: (sessionId, filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.saveWorkspaceFile, {
+        sessionId,
+        filePath,
+        content,
+      }),
+    listFiles: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.listWorkspaceFiles, payload),
+  },
+  manualTerminals: {
+    ensure: (sessionId, terminalId = "1") =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.ensureManualTerminal, {
+        sessionId,
+        terminalId,
+      }),
+    write: (sessionId, input, terminalId = "1") =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.writeToManualTerminal, {
+        sessionId,
+        input,
+        terminalId,
+      }),
+    resize: (sessionId, size, terminalId = "1") =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.resizeManualTerminal, {
+        sessionId,
+        terminalId,
+        cols: size.cols,
+        rows: size.rows,
+      }),
+    onData: (listener) => on(IPC_CHANNELS.events.manualTerminalData, listener),
+    onExit: (listener) => on(IPC_CHANNELS.events.manualTerminalExit, listener),
+  },
+  clipboard: {
+    readText: () => clipboard.readText(),
+    writeText: (value) => clipboard.writeText(value || ""),
+  },
+};
+
+contextBridge.exposeInMainWorld("agentic", agentic);

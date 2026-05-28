@@ -1,0 +1,75 @@
+/** @jest-environment node */
+
+describe("preload bridge", () => {
+  test("exposes modular agentic API wired to IPC channels", async () => {
+    jest.resetModules();
+
+    const exposeInMainWorld = jest.fn();
+    const invoke = jest.fn(async () => ({ ok: true }));
+    const on = jest.fn();
+    const removeListener = jest.fn();
+    const readText = jest.fn(() => "clip");
+    const writeText = jest.fn();
+
+    jest.doMock("electron", () => ({
+      clipboard: {
+        readText,
+        writeText,
+      },
+      contextBridge: {
+        exposeInMainWorld,
+      },
+      ipcRenderer: {
+        invoke,
+        on,
+        removeListener,
+      },
+    }));
+
+    require("../../preload.js");
+
+    const exposed = Object.fromEntries(
+      exposeInMainWorld.mock.calls.map(([key, value]) => [key, value]),
+    );
+
+    expect(exposed.agentic).toBeDefined();
+    expect(exposed.agenticApp).toBeUndefined();
+
+    await exposed.agentic.sessions.write("session-1", "pwd\r");
+    expect(invoke).toHaveBeenCalledWith("session:write", {
+      sessionId: "session-1",
+      input: "pwd\r",
+    });
+
+    await exposed.agentic.workspace.openFile("session-1", "src/main.js");
+    expect(invoke).toHaveBeenCalledWith("editor:openFile", {
+      sessionId: "session-1",
+      filePath: "src/main.js",
+    });
+
+    await exposed.agentic.manualTerminals.resize(
+      "session-1",
+      { cols: 120, rows: 36 },
+      "2",
+    );
+    expect(invoke).toHaveBeenCalledWith("manual-terminal:resize", {
+      sessionId: "session-1",
+      terminalId: "2",
+      cols: 120,
+      rows: 36,
+    });
+
+    expect(exposed.agentic.clipboard.readText()).toBe("clip");
+    exposed.agentic.clipboard.writeText("new-value");
+    expect(writeText).toHaveBeenCalledWith("new-value");
+
+    const listener = jest.fn();
+    const unsubscribe = exposed.agentic.sessions.onData(listener);
+    expect(on).toHaveBeenCalledWith("session:data", expect.any(Function));
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(
+      "session:data",
+      expect.any(Function),
+    );
+  });
+});

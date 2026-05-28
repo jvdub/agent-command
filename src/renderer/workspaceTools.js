@@ -383,7 +383,12 @@ function getActiveWorkspaceSearchResult() {
   );
 }
 
-export function createWorkspaceTools({ getActiveTerminalInstance, setStatus }) {
+export function createWorkspaceTools({
+  getActiveTerminalInstance,
+  setStatus,
+  registerUiBindings = true,
+  initializeAutosave = true,
+}) {
   async function saveOpenEditorFile(successLabel = "Saved") {
     if (!editorState.open || !editorState.sessionId || !editorState.filePath) {
       return;
@@ -574,88 +579,95 @@ export function createWorkspaceTools({ getActiveTerminalInstance, setStatus }) {
     renderWorkspaceSearchResults();
   }
 
-  elements.workspaceSearchInput.addEventListener("input", () => {
-    applyWorkspaceSearchQuery(elements.workspaceSearchInput.value);
-  });
+  if (registerUiBindings) {
+    elements.workspaceSearchInput.addEventListener("input", () => {
+      applyWorkspaceSearchQuery(elements.workspaceSearchInput.value);
+    });
 
-  elements.workspaceSearchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      openWorkspaceSearchResult();
-      return;
-    }
+    elements.workspaceSearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        openWorkspaceSearchResult();
+        return;
+      }
 
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      moveWorkspaceSearchSelection("down");
-      return;
-    }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveWorkspaceSearchSelection("down");
+        return;
+      }
 
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      moveWorkspaceSearchSelection("up");
-      return;
-    }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveWorkspaceSearchSelection("up");
+        return;
+      }
 
-    if (event.key === "Escape") {
-      event.preventDefault();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeWorkspaceSearch();
+      }
+    });
+
+    elements.workspaceSearchCloseButton.addEventListener("click", () => {
       closeWorkspaceSearch();
-    }
-  });
+    });
 
-  elements.workspaceSearchCloseButton.addEventListener("click", () => {
-    closeWorkspaceSearch();
-  });
+    elements.workspaceSearchResults.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
 
-  elements.workspaceSearchResults.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) {
-      return;
-    }
+      const resultButton = target.closest(".workspace-search-result");
+      if (!resultButton?.dataset.filePath || !uiState.activeSessionId) {
+        return;
+      }
 
-    const resultButton = target.closest(".workspace-search-result");
-    if (!resultButton?.dataset.filePath || !uiState.activeSessionId) {
-      return;
-    }
+      closeWorkspaceSearch({ restoreFocus: false });
+      await openReferencedFile(
+        uiState.activeSessionId,
+        resultButton.dataset.filePath,
+        null,
+      );
+    });
 
-    closeWorkspaceSearch({ restoreFocus: false });
-    await openReferencedFile(
-      uiState.activeSessionId,
-      resultButton.dataset.filePath,
-      null,
-    );
-  });
+    elements.fileEditorSaveButton.addEventListener("click", () => {
+      saveOpenEditorFile("Saved");
+    });
 
-  elements.fileEditorSaveButton.addEventListener("click", () => {
-    saveOpenEditorFile("Saved");
-  });
+    elements.fileEditorCloseButton.addEventListener("click", () => {
+      closeFileEditorModal();
+    });
 
-  elements.fileEditorCloseButton.addEventListener("click", () => {
-    closeFileEditorModal();
-  });
+    elements.fileEditorAutosave.addEventListener("change", () => {
+      editorState.autosave = elements.fileEditorAutosave.checked;
+      window.localStorage.setItem(
+        "agentic-command-editor-autosave",
+        editorState.autosave ? "1" : "0",
+      );
 
-  elements.fileEditorAutosave.addEventListener("change", () => {
-    editorState.autosave = elements.fileEditorAutosave.checked;
-    window.localStorage.setItem(
-      "agentic-command-editor-autosave",
-      editorState.autosave ? "1" : "0",
-    );
+      if (!editorState.autosave && editorRuntime.autosaveTimeoutId) {
+        window.clearTimeout(editorRuntime.autosaveTimeoutId);
+        editorRuntime.autosaveTimeoutId = null;
+      }
+    });
+  }
 
-    if (!editorState.autosave && editorRuntime.autosaveTimeoutId) {
-      window.clearTimeout(editorRuntime.autosaveTimeoutId);
-      editorRuntime.autosaveTimeoutId = null;
-    }
-  });
-
-  editorState.autosave =
-    window.localStorage.getItem("agentic-command-editor-autosave") === "1";
-  elements.fileEditorAutosave.checked = editorState.autosave;
+  if (initializeAutosave) {
+    editorState.autosave =
+      window.localStorage.getItem("agentic-command-editor-autosave") === "1";
+    elements.fileEditorAutosave.checked = editorState.autosave;
+  }
 
   return {
+    applyWorkspaceSearchQuery,
     closeFileEditorModal,
+    moveWorkspaceSearchSelection,
     openFileDrawer,
     openReferencedFile,
     openWorkspaceSearch,
+    openWorkspaceSearchResult,
     closeWorkspaceSearch,
     saveOpenEditorFile,
   };

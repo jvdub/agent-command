@@ -3,7 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const pty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -99,6 +99,48 @@ function resolveInitialDirectory() {
     );
 
   return candidate ? path.resolve(candidate) : process.cwd();
+}
+
+function isExecutableFile(candidate) {
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function commandExists(command) {
+  if (!command || typeof command !== "string") {
+    return false;
+  }
+
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed.includes(path.sep)) {
+    return fs.existsSync(trimmed) && isExecutableFile(trimmed);
+  }
+
+  const pathValue = process.env.PATH || "";
+  const entries = pathValue.split(path.delimiter).filter(Boolean);
+
+  for (const entry of entries) {
+    const candidate = path.join(entry, trimmed);
+    if (fs.existsSync(candidate) && isExecutableFile(candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resolveDefaultCommand() {
+  const preferred = ["claude", "copilot", "codex"];
+  const found = preferred.find((command) => commandExists(command));
+  return found || "claude";
 }
 
 function createWindow() {
@@ -1244,6 +1286,7 @@ ipcMain.handle("app:getContext", async () => ({
   homeDirectory: os.homedir(),
   shell: shellForPlatform(),
   platform: process.platform,
+  defaultCommand: resolveDefaultCommand(),
   processInspectionSupported: isProcessInspectionSupported(),
 }));
 
@@ -1469,26 +1512,5 @@ ipcMain.handle("manual-terminal:resize", async (_event, payload) => {
   }
 
   terminal.ptyProcess.resize(cols, rows);
-  return { ok: true };
-});
-
-ipcMain.handle("external-link:open", async (_event, payload) => {
-  const rawUrl = String(payload?.url || "").trim();
-  if (!rawUrl) {
-    throw new Error("A URL is required.");
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error("Invalid URL.");
-  }
-
-  if (!/^https?:$/i.test(parsed.protocol)) {
-    throw new Error("Only http and https links are allowed.");
-  }
-
-  await shell.openExternal(parsed.toString());
   return { ok: true };
 });

@@ -5,7 +5,10 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agentic Command</title>
-    <link rel="stylesheet" href="./vendor/@xterm/xterm/css/xterm.css" />
+    <link
+      rel="stylesheet"
+      href="../../node_modules/@xterm/xterm/css/xterm.css"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -137,31 +140,6 @@
               </div>
             </div>
 
-            <div id="agent-search-bar" class="agent-search-bar hidden">
-              <input
-                id="agent-search-input"
-                type="search"
-                placeholder="Find in main session"
-                aria-label="Find in main agent session"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <p id="agent-search-count" class="agent-search-count status-meta">
-                Type to search
-              </p>
-              <div class="agent-search-actions">
-                <button type="button" id="agent-search-prev" class="secondary">
-                  Prev
-                </button>
-                <button type="button" id="agent-search-next" class="secondary">
-                  Next
-                </button>
-                <button type="button" id="agent-search-close" class="secondary">
-                  Close
-                </button>
-              </div>
-            </div>
-
             <section id="process-details-panel" class="process-panel hidden">
               <div class="process-panel-header">
                 <p class="status-label">Spawned Processes</p>
@@ -237,7 +215,7 @@
 
               <section id="file-editor-empty" class="file-editor-empty">
                 <p class="status-meta">
-                  Press Ctrl+P to search files, or click a file path in agent output.
+                  Click a referenced file to open it here.
                 </p>
               </section>
 
@@ -273,52 +251,6 @@
             </section>
           </section>
         </section>
-
-        <section
-          id="workspace-search-overlay"
-          class="workspace-search-overlay hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Quick Open"
-        >
-          <section class="workspace-search-panel">
-            <header class="workspace-search-header">
-              <div>
-                <p class="eyebrow">Quick Open</p>
-                <h2>Search files</h2>
-              </div>
-              <button
-                type="button"
-                id="workspace-search-close"
-                class="secondary"
-              >
-                Close
-              </button>
-            </header>
-
-            <div class="workspace-search-input-row">
-              <input
-                id="workspace-search-input"
-                type="search"
-                placeholder="Type a file name or path"
-                aria-label="Search workspace files"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <p
-                id="workspace-search-count"
-                class="workspace-search-count status-meta"
-              >
-                Type to search the workspace
-              </p>
-            </div>
-
-            <div
-              id="workspace-search-results"
-              class="workspace-search-results"
-            ></div>
-          </section>
-        </section>
       </main>
     </div>
 
@@ -346,7 +278,7 @@
       </button>
     </div>
 
-    <script src="./vendor/monaco-editor/min/vs/loader.js"></script>
+    <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
     <script src="./app.js" type="module"></script>
   </body>
 </html>
