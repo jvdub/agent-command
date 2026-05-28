@@ -819,6 +819,150 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
   }
 }
 
+function normalizeWorkspaceFileEntry(entry) {
+  if (!entry) {
+    return null;
+  }
+
+  if (typeof entry === "string") {
+    const normalized = entry.replace(/\\+/g, "/");
+    const parts = normalized.split("/").filter(Boolean);
+    return {
+      relativePath: normalized,
+      basename: parts[parts.length - 1] || normalized,
+    };
+  }
+
+  const relativePath = String(entry.relativePath || entry.path || "").replace(
+    /\\+/g,
+    "/",
+  );
+  if (!relativePath) {
+    return null;
+  }
+
+  return {
+    relativePath,
+    basename: entry.basename || relativePath.split("/").pop() || relativePath,
+  };
+}
+
+function scoreWorkspaceFileMatch(fileEntry, normalizedQuery) {
+  const rel = fileEntry.relativePath.toLowerCase();
+  const base = fileEntry.basename.toLowerCase();
+
+  if (base === normalizedQuery) {
+    return 0;
+  }
+
+  if (base.startsWith(normalizedQuery)) {
+    return 1;
+  }
+
+  if (rel.startsWith(normalizedQuery)) {
+    return 2;
+  }
+
+  if (base.includes(normalizedQuery)) {
+    return 3;
+  }
+
+  if (rel.includes(normalizedQuery)) {
+    return 4;
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+async function openQuickFilePicker() {
+  if (!activeSessionId) {
+    setStatus("Find File", "Open a session before searching files");
+    return;
+  }
+
+  const rawQuery = window.prompt("Search workspace files", "");
+  if (rawQuery === null) {
+    return;
+  }
+
+  const query = rawQuery.trim();
+  if (!query) {
+    setStatus("Find File", "Type a filename to search");
+    return;
+  }
+
+  let listing;
+  try {
+    listing = await agenticApp.listWorkspaceFiles({
+      sessionId: activeSessionId,
+    });
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to list workspace files");
+    return;
+  }
+
+  const entries = Array.isArray(listing?.files)
+    ? listing.files.map(normalizeWorkspaceFileEntry).filter(Boolean)
+    : [];
+
+  if (entries.length === 0) {
+    setStatus("Find File", "No workspace files found");
+    return;
+  }
+
+  const normalizedQuery = query.toLowerCase();
+  const matches = entries
+    .map((entry) => ({
+      entry,
+      score: scoreWorkspaceFileMatch(entry, normalizedQuery),
+    }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+
+      if (left.entry.relativePath.length !== right.entry.relativePath.length) {
+        return left.entry.relativePath.length - right.entry.relativePath.length;
+      }
+
+      return left.entry.relativePath.localeCompare(right.entry.relativePath);
+    })
+    .slice(0, 20);
+
+  if (matches.length === 0) {
+    setStatus("Find File", `No matches for \"${query}\"`);
+    return;
+  }
+
+  let selected = matches[0].entry;
+  if (matches.length > 1) {
+    const options = matches
+      .map(({ entry }, index) => `${index + 1}. ${entry.relativePath}`)
+      .join("\n");
+    const choice = window.prompt(
+      `Select file number for \"${query}\":\n${options}`,
+      "1",
+    );
+
+    if (choice === null) {
+      return;
+    }
+
+    const index = Number.parseInt(choice, 10) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= matches.length) {
+      setStatus("Find File", "Invalid selection");
+      return;
+    }
+
+    selected = matches[index].entry;
+  }
+
+  await openReferencedFile(activeSessionId, selected.relativePath);
+  openFileDrawer();
+  setStatus("Opened", selected.relativePath);
+}
+
 function ensureSessionBuffer(sessionId) {
   if (!sessionBuffers.has(sessionId)) {
     sessionBuffers.set(sessionId, "");
@@ -1287,6 +1431,12 @@ function attachTerminalClipboardHandlers(target) {
     if (isClipboardShortcut(event, "v")) {
       event.preventDefault();
       pasteIntoTerminal(terminal);
+      return false;
+    }
+
+    if (isClipboardShortcut(event, "p")) {
+      event.preventDefault();
+      openQuickFilePicker();
       return false;
     }
 
@@ -2182,44 +2332,58 @@ document.addEventListener("click", (event) => {
   newSessionPopover.classList.add("hidden");
 });
 
-document.addEventListener("keydown", (event) => {
-  if (
-    !editorState.open &&
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "f"
-  ) {
-    if (activeSessionId) {
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      String(event.key || "").toLowerCase() === "p"
+    ) {
       event.preventDefault();
-      openAgentSearch();
-    }
-    return;
-  }
-
-  if (
-    editorState.open &&
-    (event.key === "s" || event.key === "S") &&
-    (event.ctrlKey || event.metaKey)
-  ) {
-    event.preventDefault();
-    saveOpenEditorFile("Saved");
-    return;
-  }
-
-  if (event.key === "Escape") {
-    if (isAgentSearchOpen) {
-      closeAgentSearch();
+      openQuickFilePicker();
       return;
     }
 
-    if (editorState.open) {
-      closeFileEditorModal();
+    if (
+      !editorState.open &&
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      String(event.key || "").toLowerCase() === "f"
+    ) {
+      if (activeSessionId) {
+        event.preventDefault();
+        openAgentSearch();
+      }
       return;
     }
 
-    closeTerminalContextMenu();
-  }
-});
+    if (
+      editorState.open &&
+      (event.key === "s" || event.key === "S") &&
+      (event.ctrlKey || event.metaKey)
+    ) {
+      event.preventDefault();
+      saveOpenEditorFile("Saved");
+      return;
+    }
+
+    if (event.key === "Escape") {
+      if (isAgentSearchOpen) {
+        closeAgentSearch();
+        return;
+      }
+
+      if (editorState.open) {
+        closeFileEditorModal();
+        return;
+      }
+
+      closeTerminalContextMenu();
+    }
+  },
+  true,
+);
 
 if (agentSearchEnabled) {
   agentSearchInput.addEventListener("input", () => {

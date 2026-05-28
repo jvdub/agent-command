@@ -683,11 +683,125 @@ button:disabled {
   gap: 12px;
   min-height: 0;
   min-width: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .manual-pane {
   flex: 1;
   min-height: 0;
+}
+
+.file-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(17, 18, 24, 0.98);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.file-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-file-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-file-links-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.agent-file-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-file-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: none;
+}
+
+.file-editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.file-editor-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+
+.file-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.file-editor-title {
+  min-width: 0;
+}
+
+.file-editor-path {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-editor-meta-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.file-editor-surface {
+  flex: 1;
+  min-height: 240px;
 }
 
 .workspace-tabs {
