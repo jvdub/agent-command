@@ -376,13 +376,8 @@ button {
   font-weight: 700;
   cursor: pointer;
   transition:
-    transform 140ms ease,
     opacity 140ms ease,
     background 140ms ease;
-}
-
-button:hover {
-  transform: translateY(-1px);
 }
 
 button.secondary,

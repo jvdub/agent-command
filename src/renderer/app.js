@@ -74,6 +74,17 @@ const fileEditorAutosave = document.querySelector("#file-editor-autosave");
 const fileEditorSaveButton = document.querySelector("#file-editor-save");
 const fileEditorCloseButton = document.querySelector("#file-editor-close");
 const fileEditorSurface = document.querySelector("#file-editor-surface");
+const workspaceSearchOverlay = document.querySelector(
+  "#workspace-search-overlay",
+);
+const workspaceSearchCloseButton = document.querySelector(
+  "#workspace-search-close",
+);
+const workspaceSearchInput = document.querySelector("#workspace-search-input");
+const workspaceSearchCount = document.querySelector("#workspace-search-count");
+const workspaceSearchResults = document.querySelector(
+  "#workspace-search-results",
+);
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
@@ -284,6 +295,7 @@ const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
 const sessionFileReferences = new Map();
+const workspaceFilesCache = new Map();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -293,6 +305,8 @@ let refreshScheduled = false;
 let refreshTimeoutId = null;
 let isProcessPanelOpen = false;
 let terminalContextTarget = null;
+let sessionTabsInteractionActive = false;
+let pendingSessionTabsRender = false;
 let monacoEditor = null;
 let monacoApi = null;
 let monacoLoaderPromise = null;
@@ -312,6 +326,15 @@ let editorState = {
 };
 
 let isAgentSearchOpen = false;
+let isWorkspaceSearchOpen = false;
+const workspaceSearchState = {
+  root: "",
+  files: [],
+  filtered: [],
+  activeIndex: 0,
+  loading: false,
+  query: "",
+};
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -528,6 +551,269 @@ function languageForPath(filePath) {
   return LANGUAGE_BY_EXTENSION[extensionForPath(filePath)] || "plaintext";
 }
 
+function pathBasename(filePath) {
+  const normalized = String(filePath || "").replace(/\\+/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : normalized;
+}
+
+function normalizeWorkspaceSearchText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\\+/g, "/")
+    .toLowerCase();
+}
+
+function getWorkspaceRootForSearch() {
+  const active = activeSessionId ? sessions.get(activeSessionId) : null;
+  return active?.cwd || cwdInput.value.trim() || "";
+}
+
+async function loadWorkspaceFiles(root) {
+  if (!root) {
+    return [];
+  }
+
+  if (workspaceFilesCache.has(root)) {
+    return workspaceFilesCache.get(root);
+  }
+
+  const result = await window.agenticApp.listWorkspaceFiles({
+    sessionId: activeSessionId,
+    root,
+  });
+
+  const files = Array.isArray(result?.files) ? result.files : [];
+  const sorted = files
+    .map((entry) => ({
+      absolutePath: String(entry.absolutePath || ""),
+      relativePath: String(entry.relativePath || ""),
+      basename: String(
+        entry.basename ||
+          pathBasename(entry.relativePath || entry.absolutePath || ""),
+      ),
+    }))
+    .filter((entry) => entry.absolutePath && entry.relativePath)
+    .sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath, undefined, {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    );
+
+  workspaceFilesCache.set(root, sorted);
+  return sorted;
+}
+
+function scoreWorkspaceFile(entry, query) {
+  if (!query) {
+    return 0;
+  }
+
+  const normalizedQuery = normalizeWorkspaceSearchText(query);
+  const relativePath = normalizeWorkspaceSearchText(entry.relativePath);
+  const basename = normalizeWorkspaceSearchText(entry.basename);
+  const absolutePath = normalizeWorkspaceSearchText(entry.absolutePath);
+
+  if (
+    basename === normalizedQuery ||
+    relativePath === normalizedQuery ||
+    absolutePath === normalizedQuery
+  ) {
+    return 0;
+  }
+
+  if (
+    basename.startsWith(normalizedQuery) ||
+    relativePath.startsWith(normalizedQuery) ||
+    absolutePath.startsWith(normalizedQuery)
+  ) {
+    return 1;
+  }
+
+  if (basename.includes(normalizedQuery)) {
+    return 2;
+  }
+
+  if (
+    relativePath.includes(normalizedQuery) ||
+    absolutePath.includes(normalizedQuery)
+  ) {
+    return 3;
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function filterWorkspaceFiles(query, files) {
+  const normalizedQuery = normalizeWorkspaceSearchText(query);
+  if (!normalizedQuery) {
+    return files.slice(0, 100);
+  }
+
+  return files
+    .map((entry) => ({
+      entry,
+      score: scoreWorkspaceFile(entry, normalizedQuery),
+    }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+
+      return left.entry.relativePath.localeCompare(
+        right.entry.relativePath,
+        undefined,
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    })
+    .slice(0, 100)
+    .map(({ entry }) => entry);
+}
+
+function renderWorkspaceSearchResults() {
+  if (!isWorkspaceSearchOpen) {
+    workspaceSearchResults.innerHTML = "";
+    workspaceSearchCount.textContent = "";
+    return;
+  }
+
+  if (workspaceSearchState.loading) {
+    workspaceSearchCount.textContent = "Loading workspace files...";
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">Scanning workspace files...</div>';
+    return;
+  }
+
+  const results = workspaceSearchState.filtered;
+  workspaceSearchCount.textContent = results.length
+    ? `${results.length} file${results.length === 1 ? "" : "s"}`
+    : "No matching files";
+
+  if (results.length === 0) {
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">No files matched the current query.</div>';
+    return;
+  }
+
+  workspaceSearchResults.innerHTML = results
+    .map((entry, index) => {
+      const isActive = index === workspaceSearchState.activeIndex;
+      return `
+        <button
+          type="button"
+          class="workspace-search-result ${isActive ? "active" : ""}"
+          data-file-path="${escapeHtml(entry.absolutePath)}"
+          data-file-relative-path="${escapeHtml(entry.relativePath)}"
+        >
+          <div class="workspace-search-result-main">
+            <p class="workspace-search-result-name">${escapeHtml(entry.basename)}</p>
+            <p class="workspace-search-result-path">${escapeHtml(entry.relativePath)}</p>
+          </div>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function applyWorkspaceSearchQuery(query) {
+  workspaceSearchState.query = query;
+  workspaceSearchState.filtered = filterWorkspaceFiles(
+    query,
+    workspaceSearchState.files,
+  );
+  workspaceSearchState.activeIndex = Math.min(
+    workspaceSearchState.activeIndex,
+    Math.max(0, workspaceSearchState.filtered.length - 1),
+  );
+  renderWorkspaceSearchResults();
+}
+
+function getActiveWorkspaceSearchResult() {
+  if (!workspaceSearchState.filtered.length) {
+    return null;
+  }
+
+  return (
+    workspaceSearchState.filtered[workspaceSearchState.activeIndex] ||
+    workspaceSearchState.filtered[0] ||
+    null
+  );
+}
+
+function moveWorkspaceSearchSelection(direction) {
+  if (!workspaceSearchState.filtered.length) {
+    return;
+  }
+
+  const delta = direction === "up" ? -1 : 1;
+  const length = workspaceSearchState.filtered.length;
+  workspaceSearchState.activeIndex =
+    (workspaceSearchState.activeIndex + delta + length) % length;
+  renderWorkspaceSearchResults();
+}
+
+function closeWorkspaceSearch({ restoreFocus = true } = {}) {
+  isWorkspaceSearchOpen = false;
+  workspaceSearchOverlay.classList.add("hidden");
+  workspaceSearchState.activeIndex = 0;
+
+  if (restoreFocus) {
+    getActiveTerminalInstance()?.terminal.focus();
+  }
+}
+
+async function openWorkspaceSearchResult() {
+  const result = getActiveWorkspaceSearchResult();
+  if (!result || !activeSessionId) {
+    return;
+  }
+
+  closeWorkspaceSearch({ restoreFocus: false });
+  await openReferencedFile(activeSessionId, result.absolutePath, null);
+}
+
+async function openWorkspaceSearch() {
+  const root = getWorkspaceRootForSearch();
+  if (!root) {
+    setStatus("Error", "Open a session before searching files");
+    return;
+  }
+
+  isWorkspaceSearchOpen = true;
+  workspaceSearchOverlay.classList.remove("hidden");
+  workspaceSearchState.root = root;
+  workspaceSearchState.files = [];
+  workspaceSearchState.filtered = [];
+  workspaceSearchState.activeIndex = 0;
+  workspaceSearchState.loading = true;
+  workspaceSearchState.query = workspaceSearchInput.value || "";
+  renderWorkspaceSearchResults();
+  workspaceSearchInput.focus();
+  workspaceSearchInput.select();
+
+  try {
+    const files = await loadWorkspaceFiles(root);
+    if (!isWorkspaceSearchOpen || workspaceSearchState.root !== root) {
+      return;
+    }
+
+    workspaceSearchState.files = files;
+    workspaceSearchState.loading = false;
+    applyWorkspaceSearchQuery(workspaceSearchInput.value);
+  } catch (error) {
+    workspaceSearchState.loading = false;
+    workspaceSearchCount.textContent =
+      error.message || "Unable to search files";
+    workspaceSearchResults.innerHTML =
+      '<div class="workspace-search-empty">Unable to load workspace files.</div>';
+  }
+}
+
 function setEditorStatus(message) {
   fileEditorStatus.textContent = message;
 }
@@ -577,7 +863,9 @@ function closeFileEditorModal(force = false) {
 }
 
 function uniqueStrings(values) {
-  return Array.from(new Set(values.filter(Boolean).map((value) => String(value))));
+  return Array.from(
+    new Set(values.filter(Boolean).map((value) => String(value))),
+  );
 }
 
 function monacoLoaderCandidates() {
@@ -694,7 +982,9 @@ function ensureMonacoEditor() {
       return;
     }
 
-    const existingLoader = document.querySelector('script[data-monaco-loader="1"]');
+    const existingLoader = document.querySelector(
+      'script[data-monaco-loader="1"]',
+    );
     if (existingLoader) {
       // If a script was found but already finished loading, try init immediately.
       if (existingLoader.readyState === "complete") {
@@ -1251,6 +1541,12 @@ function attachTerminalClipboardHandlers(target) {
       return false;
     }
 
+    if (isClipboardShortcut(event, "p")) {
+      event.preventDefault();
+      openWorkspaceSearch();
+      return false;
+    }
+
     return true;
   });
 
@@ -1512,11 +1808,21 @@ function getManualTerminalInstance(sessionId, terminalId) {
   return manualTerminals.get(manualTerminalKey(sessionId, terminalId)) || null;
 }
 
-function refreshVisibleUi() {
-  renderSessionTabs();
+function refreshVisibleUi(options = {}) {
+  const {
+    includeSessionTabs = true,
+    includeTerminalHeader = true,
+    includeFileReferences = true,
+  } = options;
+
+  if (includeSessionTabs) {
+    renderSessionTabs();
+  }
 
   if (!activeSessionId) {
-    showEmptyView(false);
+    if (includeSessionTabs) {
+      showEmptyView(false);
+    }
     return;
   }
 
@@ -1525,12 +1831,18 @@ function refreshVisibleUi() {
     return;
   }
 
-  renderTerminalHeader(active);
-  updateManualTerminalSubtitle(active, "1");
-  updateManualTerminalSubtitle(active, "2");
-  setTerminalActionsEnabled(active);
+  if (includeTerminalHeader) {
+    renderTerminalHeader(active);
+    updateManualTerminalSubtitle(active, "1");
+    updateManualTerminalSubtitle(active, "2");
+    setTerminalActionsEnabled(active);
+  }
+
   renderProcessDetails(active.id);
-  renderSessionFileReferences(active.id);
+
+  if (includeFileReferences) {
+    renderSessionFileReferences(active.id);
+  }
 }
 
 function scheduleUiRefresh() {
@@ -1573,54 +1885,113 @@ function getOrderedSessions() {
 function renderSessionTabs() {
   const allSessions = getOrderedSessions();
 
-  if (allSessions.length === 0) {
-    sessionTabsList.innerHTML = '<p class="status-meta">No sessions</p>';
+  if (sessionTabsInteractionActive) {
+    pendingSessionTabsRender = true;
     return;
   }
 
-  const tabs = allSessions
-    .map((session) => {
-      const attention = deriveAttentionStatus(session);
-      const procs = sessionProcesses.get(session.id) || [];
-      const isActive = activeSessionId === session.id;
-      const primaryProc = procs[0] ? getProcessDisplayLabel(procs[0]) : "";
-      const procSummary =
-        procs.length > 0
-          ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
-          : "";
+  pendingSessionTabsRender = false;
 
-      if (!session.isRunning) {
-        return `
-          <div class="session-tab-group ${isActive ? "active" : ""}">
-            <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
-              <div class="session-tab-top">
-                <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
-                <p class="session-tab-id">#${shortId(session.id)}</p>
-              </div>
-              <p class="session-tab-attention">${attention.label}</p>
-            </button>
-            <div class="session-tab-actions">
-              <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
-              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
-            </div>
-          </div>
-        `;
-      }
+  if (allSessions.length === 0) {
+    sessionTabsList.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "status-meta";
+    empty.textContent = "No sessions";
+    sessionTabsList.append(empty);
+    return;
+  }
 
-      return `
-        <button type="button" class="session-tab ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">
+  const existing = new Map();
+  for (const child of sessionTabsList.children) {
+    if (!(child instanceof HTMLElement)) {
+      continue;
+    }
+
+    const id = child.dataset.sessionId;
+    if (id) {
+      existing.set(id, child);
+    }
+  }
+
+  const desiredIds = allSessions.map((session) => session.id);
+  for (const [id, node] of existing.entries()) {
+    if (!desiredIds.includes(id)) {
+      node.remove();
+      existing.delete(id);
+    }
+  }
+
+  for (const session of allSessions) {
+    const attention = deriveAttentionStatus(session);
+    const procs = sessionProcesses.get(session.id) || [];
+    const isActive = activeSessionId === session.id;
+    const primaryProc = procs[0] ? getProcessDisplayLabel(procs[0]) : "";
+    const procSummary =
+      procs.length > 0
+        ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
+        : "";
+
+    const expectsGroup = !session.isRunning;
+    const existingNode = existing.get(session.id);
+    const isGroupNode = existingNode?.classList.contains("session-tab-group");
+    const needsReplacement =
+      !existingNode ||
+      (expectsGroup && !isGroupNode) ||
+      (!expectsGroup && isGroupNode);
+
+    let node = existingNode;
+    if (needsReplacement) {
+      node = expectsGroup
+        ? document.createElement("div")
+        : document.createElement("button");
+      node.dataset.sessionId = session.id;
+      existing.set(session.id, node);
+    }
+
+    if (expectsGroup) {
+      node.className = `session-tab-group ${isActive ? "active" : ""}`;
+      node.innerHTML = `
+        <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
           <div class="session-tab-top">
             <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
             <p class="session-tab-id">#${shortId(session.id)}</p>
           </div>
           <p class="session-tab-attention">${attention.label}</p>
-          ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
         </button>
+        <div class="session-tab-actions">
+          <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
+          <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
+        </div>
       `;
-    })
-    .join("");
+    } else {
+      node.className = `session-tab ${isActive ? "active" : ""} ${attention.className}`;
+      node.setAttribute("type", "button");
+      node.setAttribute("data-session-id", session.id);
+      node.innerHTML = `
+        <div class="session-tab-top">
+          <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
+          <p class="session-tab-id">#${shortId(session.id)}</p>
+        </div>
+        <p class="session-tab-attention">${attention.label}</p>
+        ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
+      `;
+    }
+  }
 
-  sessionTabsList.innerHTML = tabs;
+  for (const session of allSessions) {
+    const node = existing.get(session.id);
+    if (node) {
+      sessionTabsList.append(node);
+    }
+  }
+}
+
+function flushPendingSessionTabRender() {
+  if (!pendingSessionTabsRender) {
+    return;
+  }
+
+  renderSessionTabs();
 }
 
 function cycleActiveSession(direction = 1) {
@@ -2060,8 +2431,9 @@ function selectSessionFromSidebar(event) {
 
   const tab = target.closest(".session-tab");
   if (tab?.dataset.sessionId) {
-    event.preventDefault();
-    openTerminalView(tab.dataset.sessionId);
+    if (activeSessionId !== tab.dataset.sessionId) {
+      openTerminalView(tab.dataset.sessionId);
+    }
   }
 }
 
@@ -2093,7 +2465,6 @@ async function removeSessionFromSidebar(sessionId) {
   }
 }
 
-sessionTabsList.addEventListener("pointerdown", selectSessionFromSidebar);
 sessionTabsList.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -2115,11 +2486,36 @@ sessionTabsList.addEventListener("click", (event) => {
     removeSessionFromSidebar(removeBtn.dataset.sessionId);
     return;
   }
+
+  selectSessionFromSidebar(event);
 });
 sessionTabsList.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    selectSessionFromSidebar(event);
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
   }
+
+  if (!(event.key === "Enter" || event.key === " ")) {
+    return;
+  }
+
+  if (!target.closest(".session-tab")) {
+    return;
+  }
+
+  event.preventDefault();
+  selectSessionFromSidebar(event);
+});
+sessionTabsList.addEventListener("pointerdown", () => {
+  sessionTabsInteractionActive = true;
+});
+document.addEventListener("pointerup", () => {
+  sessionTabsInteractionActive = false;
+  flushPendingSessionTabRender();
+});
+document.addEventListener("pointercancel", () => {
+  sessionTabsInteractionActive = false;
+  flushPendingSessionTabRender();
 });
 
 agentFileLinksList.addEventListener("click", (event) => {
@@ -2162,14 +2558,19 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (
-    event.ctrlKey &&
-    !event.altKey &&
-    !event.metaKey &&
-    event.key === "Tab"
-  ) {
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.key === "Tab") {
     event.preventDefault();
     cycleActiveSession(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "p"
+  ) {
+    event.preventDefault();
+    openWorkspaceSearch();
     return;
   }
 
@@ -2197,6 +2598,11 @@ document.addEventListener("keydown", (event) => {
   }
 
   if (event.key === "Escape") {
+    if (isWorkspaceSearchOpen) {
+      closeWorkspaceSearch();
+      return;
+    }
+
     if (isAgentSearchOpen) {
       closeAgentSearch();
       return;
@@ -2249,6 +2655,58 @@ agentSearchNextButton.addEventListener("click", () => {
 
 agentSearchCloseButton.addEventListener("click", () => {
   closeAgentSearch();
+});
+
+workspaceSearchInput.addEventListener("input", () => {
+  applyWorkspaceSearchQuery(workspaceSearchInput.value);
+});
+
+workspaceSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    openWorkspaceSearchResult();
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveWorkspaceSearchSelection("down");
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveWorkspaceSearchSelection("up");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeWorkspaceSearch();
+  }
+});
+
+workspaceSearchCloseButton.addEventListener("click", () => {
+  closeWorkspaceSearch();
+});
+
+workspaceSearchResults.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const resultButton = target.closest(".workspace-search-result");
+  if (!resultButton?.dataset.filePath || !activeSessionId) {
+    return;
+  }
+
+  closeWorkspaceSearch({ restoreFocus: false });
+  await openReferencedFile(
+    activeSessionId,
+    resultButton.dataset.filePath,
+    null,
+  );
 });
 
 fileEditorSaveButton.addEventListener("click", () => {
@@ -2305,7 +2763,11 @@ initializeContext().catch((error) => {
 });
 
 setInterval(() => {
-  refreshVisibleUi();
+  refreshVisibleUi({
+    includeSessionTabs: false,
+    includeTerminalHeader: false,
+    includeFileReferences: false,
+  });
 }, 3000);
 
 async function pollSessionProcesses() {
