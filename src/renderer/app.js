@@ -104,7 +104,7 @@ const QUICK_OPEN_RECENTS_LIMIT = 40;
 // - POSIX relative: ./file.js, ../file.js, dir/file.js
 // - Home: ~/file.js
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s("'`])((?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/?]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/?])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
+  /(^|[\s("'`])((?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
@@ -316,8 +316,10 @@ let monacoLoaderPromise = null;
 let editorModel = null;
 let openingReferencedFile = false;
 
-const MONACO_LOADER_PATH = "../../node_modules/monaco-editor/min/vs/loader.js";
-const MONACO_VS_BASE_PATH = "../../node_modules/monaco-editor/min/vs";
+const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
+const MONACO_VS_BASE_PATH = "./vendor/monaco-editor/min/vs";
+const FILE_REFERENCE_RESOLVE_DEBOUNCE_MS = 75;
+const WORKSPACE_FILE_INDEX_TTL_MS = 30000;
 let autosaveTimeoutId = null;
 let suppressEditorChange = false;
 let editorState = {
@@ -338,6 +340,9 @@ let quickOpenState = {
   activeIndex: 0,
   recentPaths: [],
 };
+const pendingSessionFileReferences = new Map();
+const pendingSessionFileResolveTimers = new Map();
+const workspaceFileIndexBySession = new Map();
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -519,6 +524,186 @@ function normalizeCandidateFilePath(candidate) {
     .replace(/[)'"`\],.;:!?]+$/, "");
 }
 
+function normalizeFileLookupKey(pathValue) {
+  if (!pathValue) {
+    return "";
+  }
+
+  let normalized = String(pathValue).replace(/\\+/g, "/").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  normalized = normalized.replace(/^\.\//, "");
+  if (normalized.startsWith("a/") || normalized.startsWith("b/")) {
+    normalized = normalized.slice(2);
+  }
+
+  return normalized;
+}
+
+function basenameForPath(pathValue) {
+  const normalized = String(pathValue || "").replace(/\\+/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : normalized;
+}
+
+function buildWorkspaceFileIndex(entries) {
+  const allEntries = [];
+  const byRelative = new Map();
+  const byAbsolute = new Map();
+  const byBasename = new Map();
+
+  for (const entry of entries) {
+    const relativePath = String(entry.relativePath || "").replace(/\\+/g, "/");
+    const absolutePath = String(entry.absolutePath || "").replace(/\\+/g, "/");
+    if (!relativePath || !absolutePath) {
+      continue;
+    }
+
+    const normalizedEntry = {
+      relativePath,
+      absolutePath,
+      basename: basenameForPath(relativePath),
+    };
+    allEntries.push(normalizedEntry);
+
+    const relativeKey = normalizeFileLookupKey(relativePath);
+    const absoluteKey = normalizeFileLookupKey(absolutePath);
+    if (relativeKey) {
+      byRelative.set(relativeKey, normalizedEntry);
+    }
+    if (absoluteKey) {
+      byAbsolute.set(absoluteKey, normalizedEntry);
+    }
+
+    const basenameKey = normalizeFileLookupKey(normalizedEntry.basename);
+    if (!basenameKey) {
+      continue;
+    }
+
+    const group = byBasename.get(basenameKey) || [];
+    group.push(normalizedEntry);
+    byBasename.set(basenameKey, group);
+  }
+
+  return {
+    allEntries,
+    byRelative,
+    byAbsolute,
+    byBasename,
+  };
+}
+
+function findUniqueSuffixMatch(index, candidateKey) {
+  if (!candidateKey || !candidateKey.includes("/")) {
+    return null;
+  }
+
+  const suffixes = Array.from(
+    new Set([candidateKey, candidateKey.replace(/^\/+/, "")].filter(Boolean)),
+  );
+  const matches = [];
+
+  for (const entry of index.allEntries) {
+    const relativeKey = normalizeFileLookupKey(entry.relativePath);
+    const absoluteKey = normalizeFileLookupKey(entry.absolutePath);
+
+    const matched = suffixes.some((suffix) => {
+      if (relativeKey === suffix || absoluteKey === suffix) {
+        return true;
+      }
+
+      return (
+        relativeKey.endsWith(`/${suffix}`) || absoluteKey.endsWith(`/${suffix}`)
+      );
+    });
+
+    if (matched) {
+      matches.push(entry);
+      if (matches.length > 1) {
+        return null;
+      }
+    }
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function getWorkspaceFileIndex(sessionId) {
+  if (!sessionId) {
+    return null;
+  }
+
+  const session = sessions.get(sessionId);
+  const root = String(session?.cwd || cwdInput.value || "").trim();
+  if (!root) {
+    return null;
+  }
+
+  const existing = workspaceFileIndexBySession.get(sessionId);
+  const now = Date.now();
+  if (
+    existing &&
+    existing.root === root &&
+    now - existing.loadedAt < WORKSPACE_FILE_INDEX_TTL_MS
+  ) {
+    return existing.index;
+  }
+
+  const listing = await agenticApp.listWorkspaceFiles({
+    sessionId,
+    root,
+  });
+  const entries = Array.isArray(listing?.files)
+    ? listing.files.map(normalizeWorkspaceFileEntry).filter(Boolean)
+    : [];
+  const index = buildWorkspaceFileIndex(entries);
+
+  workspaceFileIndexBySession.set(sessionId, {
+    root,
+    loadedAt: now,
+    index,
+  });
+
+  return index;
+}
+
+function resolveWorkspaceReference(index, rawPath) {
+  const cleaned = normalizeCandidateFilePath(rawPath);
+  if (!cleaned || cleaned.includes("://")) {
+    return null;
+  }
+
+  const normalized = cleaned.replace(/\\+/g, "/");
+  const candidateKey = normalizeFileLookupKey(normalized);
+  if (!candidateKey) {
+    return null;
+  }
+
+  const directMatch =
+    index.byRelative.get(candidateKey) || index.byAbsolute.get(candidateKey);
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const suffixMatch = findUniqueSuffixMatch(index, candidateKey);
+  if (suffixMatch) {
+    return suffixMatch;
+  }
+
+  if (candidateKey.includes("/")) {
+    return null;
+  }
+
+  const basenameMatches = index.byBasename.get(candidateKey) || [];
+  if (basenameMatches.length !== 1) {
+    return null;
+  }
+
+  return basenameMatches[0];
+}
+
 function collectFileReferences(rawChunk) {
   const plainText = stripAnsi(rawChunk);
   const refs = [];
@@ -554,14 +739,84 @@ function ingestFileReferences(sessionId, rawChunk) {
     return;
   }
 
+  const pending = pendingSessionFileReferences.get(sessionId) || new Map();
+  const now = Date.now();
+  for (const ref of found) {
+    const candidatePath = normalizeCandidateFilePath(ref.filePath);
+    const key = normalizeFileLookupKey(candidatePath);
+    if (!candidatePath || !key) {
+      continue;
+    }
+
+    const existing = pending.get(key);
+    pending.set(key, {
+      filePath: candidatePath,
+      line: Number.isInteger(ref.line)
+        ? ref.line
+        : Number.isInteger(existing?.line)
+          ? existing.line
+          : null,
+      updatedAt: now,
+    });
+  }
+
+  if (pending.size === 0) {
+    return;
+  }
+
+  pendingSessionFileReferences.set(sessionId, pending);
+
+  if (pendingSessionFileResolveTimers.has(sessionId)) {
+    return;
+  }
+
+  const timerId = window.setTimeout(() => {
+    pendingSessionFileResolveTimers.delete(sessionId);
+    void resolveSessionFileReferences(sessionId);
+  }, FILE_REFERENCE_RESOLVE_DEBOUNCE_MS);
+  pendingSessionFileResolveTimers.set(sessionId, timerId);
+}
+
+async function resolveSessionFileReferences(sessionId) {
+  const pending = pendingSessionFileReferences.get(sessionId);
+  if (!pending || pending.size === 0) {
+    return;
+  }
+
+  pendingSessionFileReferences.delete(sessionId);
+
+  let index;
+  try {
+    index = await getWorkspaceFileIndex(sessionId);
+  } catch {
+    return;
+  }
+
+  if (!index) {
+    return;
+  }
+
   const existing = ensureSessionFileReferences(sessionId);
   const byPath = new Map(existing.map((entry) => [entry.filePath, entry]));
 
-  for (const ref of found) {
-    byPath.set(ref.filePath, {
-      filePath: ref.filePath,
-      line: Number.isInteger(ref.line) ? ref.line : null,
-      updatedAt: Date.now(),
+  for (const candidate of pending.values()) {
+    const resolved = resolveWorkspaceReference(index, candidate.filePath);
+    if (!resolved) {
+      continue;
+    }
+
+    const existingRef = byPath.get(resolved.relativePath);
+    byPath.set(resolved.relativePath, {
+      filePath: resolved.relativePath,
+      line: Number.isInteger(candidate.line)
+        ? candidate.line
+        : Number.isInteger(existingRef?.line)
+          ? existingRef.line
+          : null,
+      updatedAt: Math.max(
+        Number(candidate.updatedAt) || 0,
+        Number(existingRef?.updatedAt) || 0,
+      ),
     });
   }
 
@@ -570,6 +825,10 @@ function ingestFileReferences(sessionId, rawChunk) {
     .slice(0, FILE_REFERENCE_LIMIT);
 
   sessionFileReferences.set(sessionId, sorted);
+
+  if (activeSessionId === sessionId) {
+    renderSessionFileReferences(sessionId);
+  }
 }
 
 function renderSessionFileReferences(sessionId) {
@@ -1814,6 +2073,85 @@ function createWebLinksAddon(instance) {
   });
 }
 
+function createFileLinkProvider(sessionId, terminal) {
+  return {
+    provideLinks(y, callback) {
+      const line = terminal.buffer.active.getLine(y - 1);
+      if (!line) {
+        callback(undefined);
+        return;
+      }
+
+      const text = line.translateToString(true);
+      const matcher = new RegExp(FILE_REFERENCE_PATTERN.source, "g");
+      const matches = [];
+      let match;
+
+      while ((match = matcher.exec(text)) !== null) {
+        const rawPath = normalizeCandidateFilePath(match[2]);
+        if (!rawPath || rawPath.includes("://")) {
+          continue;
+        }
+
+        const lineNumber = match[3] ? Number(match[3]) : null;
+        const startColumn = match.index + 1;
+        const endColumn = match.index + match[0].length;
+        if (endColumn < startColumn) {
+          continue;
+        }
+
+        matches.push({
+          rawPath,
+          lineNumber,
+          startColumn,
+          endColumn,
+        });
+      }
+
+      if (matches.length === 0) {
+        callback(undefined);
+        return;
+      }
+
+      getWorkspaceFileIndex(sessionId)
+        .then((index) => {
+          if (!index) {
+            callback(undefined);
+            return;
+          }
+
+          const links = [];
+          for (const candidate of matches) {
+            const resolved = resolveWorkspaceReference(index, candidate.rawPath);
+            if (!resolved) {
+              continue;
+            }
+
+            links.push({
+              text: candidate.rawPath,
+              range: {
+                start: { x: candidate.startColumn, y },
+                end: { x: candidate.endColumn, y },
+              },
+              activate: () =>
+                openReferencedFile(
+                  sessionId,
+                  resolved.relativePath,
+                  candidate.lineNumber,
+                ),
+              hover: () => setStatus("Open File", resolved.relativePath),
+            });
+          }
+
+          callback(links.length ? links : undefined);
+        })
+        .catch(() => {
+          callback(undefined);
+        });
+    },
+  };
+}
+
 function createSessionTerminal(sessionId) {
   if (sessionTerminals.has(sessionId)) {
     return sessionTerminals.get(sessionId);
@@ -1835,6 +2173,7 @@ function createSessionTerminal(sessionId) {
   terminal.loadAddon(searchAddon);
   terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
+  terminal.registerLinkProvider(createFileLinkProvider(sessionId, terminal));
   const instance = {
     terminal,
     fitAddon,
@@ -2224,6 +2563,13 @@ function updateSessions(payload) {
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
       sessionFileReferences.delete(existingId);
+      pendingSessionFileReferences.delete(existingId);
+      workspaceFileIndexBySession.delete(existingId);
+      const pendingTimer = pendingSessionFileResolveTimers.get(existingId);
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+        pendingSessionFileResolveTimers.delete(existingId);
+      }
       for (const key of Array.from(manualTerminalBuffers.keys())) {
         if (key.startsWith(`${existingId}:`)) {
           manualTerminalBuffers.delete(key);
