@@ -129,14 +129,21 @@ export function updateInsightFromOutput(sessionId, data) {
     .map((line) => ({ raw: line, normalized: line.toLowerCase() }))
     .concat(
       trailingFragment.trim()
-        ? [{ raw: trailingFragment, normalized: trailingFragment.toLowerCase() }]
+        ? [
+            {
+              raw: trailingFragment,
+              normalized: trailingFragment.toLowerCase(),
+            },
+          ]
         : [],
     );
 
   for (const segment of segments) {
     const snippet = extractAttentionSnippet(segment.raw);
 
-    if (PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))) {
+    if (
+      PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))
+    ) {
       insight.awaitingPermission = true;
       insight.awaitingQuestion = false;
       insight.permissionDetail = snippet;

@@ -67,7 +67,10 @@ describe("insights status classification", () => {
   });
 
   test("classifies working activity as Active", () => {
-    updateInsightFromOutput(sessionId, "Thinking through implementation details");
+    updateInsightFromOutput(
+      sessionId,
+      "Thinking through implementation details",
+    );
 
     const status = deriveAttentionStatus(runningSession());
     expect(status.label).toBe("Active");
@@ -90,10 +93,7 @@ describe("insights status classification", () => {
   });
 
   test("rehydrates last known attention state from buffered output", () => {
-    sessionBuffers.set(
-      sessionId,
-      "Thinking...\nAllow this tool call? [y/n]\n",
-    );
+    sessionBuffers.set(sessionId, "Thinking...\nAllow this tool call? [y/n]\n");
 
     rehydrateInsightFromBuffer(runningSession());
     const status = deriveAttentionStatus(runningSession());

@@ -314,6 +314,7 @@ let monacoEditor = null;
 let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
+let openingReferencedFile = false;
 
 const MONACO_LOADER_PATH = "../../node_modules/monaco-editor/min/vs/loader.js";
 const MONACO_VS_BASE_PATH = "../../node_modules/monaco-editor/min/vs";
@@ -629,6 +630,11 @@ function setEditorDirtyState(isDirty) {
 
 function openFileDrawer() {
   fileDrawer.classList.remove("hidden");
+
+  // Warm Monaco in the background so the first file click opens faster.
+  ensureMonacoEditor().catch(() => {
+    // Ignore preload failures here; openReferencedFile will surface user-facing errors.
+  });
 }
 
 function closeFileEditorModal(force = false) {
@@ -864,7 +870,10 @@ async function saveOpenEditorFile(successLabel = "Saved") {
 }
 
 async function openReferencedFile(sessionId, filePath, lineNumber = null) {
+  openingReferencedFile = true;
+
   try {
+    setEditorStatus(`Opening ${filePath}...`);
     const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
     await ensureMonacoEditor();
 
@@ -903,6 +912,7 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
     setStatus("Error", error.message || "Unable to open referenced file");
   } finally {
     suppressEditorChange = false;
+    openingReferencedFile = false;
   }
 }
 
@@ -1319,14 +1329,21 @@ function updateInsightFromOutput(sessionId, data) {
     .map((line) => ({ raw: line, normalized: line.toLowerCase() }))
     .concat(
       trailingFragment.trim()
-        ? [{ raw: trailingFragment, normalized: trailingFragment.toLowerCase() }]
+        ? [
+            {
+              raw: trailingFragment,
+              normalized: trailingFragment.toLowerCase(),
+            },
+          ]
         : [],
     );
 
   for (const segment of segments) {
     const snippet = extractAttentionSnippet(segment.raw);
 
-    if (PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))) {
+    if (
+      PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))
+    ) {
       insight.awaitingPermission = true;
       insight.awaitingQuestion = false;
       insight.permissionDetail = snippet;
@@ -2558,7 +2575,6 @@ async function removeSessionFromSidebar(sessionId) {
   }
 }
 
-sessionTabsList.addEventListener("pointerdown", selectSessionFromSidebar);
 sessionTabsList.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -2580,6 +2596,8 @@ sessionTabsList.addEventListener("click", (event) => {
     removeSessionFromSidebar(removeBtn.dataset.sessionId);
     return;
   }
+
+  selectSessionFromSidebar(event);
 });
 sessionTabsList.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
@@ -2587,7 +2605,7 @@ sessionTabsList.addEventListener("keydown", (event) => {
   }
 });
 
-agentFileLinksList.addEventListener("click", (event) => {
+agentFileLinksList.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
     return;
@@ -2598,8 +2616,20 @@ agentFileLinksList.addEventListener("click", (event) => {
     return;
   }
 
+  if (openingReferencedFile) {
+    return;
+  }
+
   const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
-  openReferencedFile(activeSessionId, chip.dataset.filePath, fileLine);
+  chip.disabled = true;
+  chip.classList.add("loading");
+
+  try {
+    await openReferencedFile(activeSessionId, chip.dataset.filePath, fileLine);
+  } finally {
+    chip.disabled = false;
+    chip.classList.remove("loading");
+  }
 });
 
 document.addEventListener("click", (event) => {

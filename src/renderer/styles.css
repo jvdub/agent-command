@@ -370,13 +370,20 @@ button {
   font-weight: 700;
   cursor: pointer;
   transition:
-    transform 140ms ease,
+    box-shadow 140ms ease,
     opacity 140ms ease,
-    background 140ms ease;
+    background 140ms ease,
+    filter 140ms ease;
 }
 
 button:hover {
-  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
+}
+
+button:active {
+  filter: brightness(0.98);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
 button.secondary,
@@ -392,7 +399,8 @@ button.ghost {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
+  box-shadow: none;
+  filter: none;
 }
 
 .path-row,
@@ -745,6 +753,11 @@ button:disabled {
 .agent-file-chip:hover {
   background: rgba(255, 255, 255, 0.12);
   transform: none;
+}
+
+.agent-file-chip.loading {
+  opacity: 0.72;
+  cursor: progress;
 }
 
 .file-editor-empty {
