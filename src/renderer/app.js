@@ -93,6 +93,7 @@ const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
 const FILE_REFERENCE_LIMIT = 24;
 const AUTOSAVE_DELAY_MS = 1000;
+const ATTENTION_STREAM_MAX_BUFFER = 8192;
 const QUICK_OPEN_RECENTS_KEY = "agentic-command-quick-open-recents";
 const QUICK_OPEN_RECENTS_LIMIT = 40;
 // Matches file paths in terminal output, supporting both POSIX and Windows formats:
@@ -1257,10 +1258,16 @@ function ensureSessionInsight(sessionId) {
       hasError: false,
       errorMessage: "",
       lastErrorAt: null,
+      streamCarry: "",
     });
   }
 
-  return sessionInsights.get(sessionId);
+  const insight = sessionInsights.get(sessionId);
+  if (typeof insight.streamCarry !== "string") {
+    insight.streamCarry = "";
+  }
+
+  return insight;
 }
 
 function markSessionInput(sessionId) {
@@ -1274,6 +1281,7 @@ function markSessionInput(sessionId) {
   insight.hasError = false;
   insight.errorMessage = "";
   insight.lastErrorAt = null;
+  insight.streamCarry = "";
 }
 
 function extractAttentionSnippet(rawData) {
@@ -1297,65 +1305,86 @@ function extractAttentionSnippet(rawData) {
 
 function updateInsightFromOutput(sessionId, data) {
   const insight = ensureSessionInsight(sessionId);
-  const normalized = stripAnsi(data).toLowerCase();
   insight.lastActivityAt = Date.now();
 
-  if (PERMISSION_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    insight.awaitingPermission = true;
-    insight.awaitingQuestion = false;
-    insight.permissionDetail = extractAttentionSnippet(data);
-  } else if (QUESTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    insight.awaitingQuestion = true;
-    insight.awaitingPermission = false;
-    insight.questionDetail = extractAttentionSnippet(data);
-  }
-
-  const containsError = ERROR_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
+  const normalizedChunk = stripAnsi(String(data || ""));
+  const combined = `${insight.streamCarry || ""}${normalizedChunk}`.slice(
+    -ATTENTION_STREAM_MAX_BUFFER,
   );
-  const looksBenign = BENIGN_ERROR_PHRASES.some((pattern) =>
-    pattern.test(normalized),
-  );
+  const lines = combined.split(/\r?\n/);
+  const trailingFragment = lines.pop() || "";
+  insight.streamCarry = trailingFragment.slice(-ATTENTION_STREAM_MAX_BUFFER);
 
-  if (containsError && !looksBenign) {
-    insight.hasError = true;
-    insight.lastErrorAt = Date.now();
-    insight.errorMessage = stripAnsi(data).trim().slice(0, 80);
-  }
+  const segments = lines
+    .map((line) => ({ raw: line, normalized: line.toLowerCase() }))
+    .concat(
+      trailingFragment.trim()
+        ? [{ raw: trailingFragment, normalized: trailingFragment.toLowerCase() }]
+        : [],
+    );
 
-  const workingLabel = extractWorkingLabel(normalized);
-  const matchedReady = READY_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
-  );
-  const matchedErrorClear = ERROR_CLEAR_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
-  );
+  for (const segment of segments) {
+    const snippet = extractAttentionSnippet(segment.raw);
 
-  if (workingLabel) {
-    insight.lastWorkingAt = Date.now();
-    insight.workingDetail = workingLabel;
-    insight.lastReadyAt = null;
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    // Clear question/permission flags when agent is actively working
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
-  } else if (matchedReady) {
-    insight.lastReadyAt = Date.now();
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    // Clear question/permission flags when agent becomes ready
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
-  } else if (matchedErrorClear) {
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    // Clear question/permission flags on error clear
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
+    if (PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))) {
+      insight.awaitingPermission = true;
+      insight.awaitingQuestion = false;
+      insight.permissionDetail = snippet;
+    } else if (
+      QUESTION_PATTERNS.some((pattern) => pattern.test(segment.normalized))
+    ) {
+      insight.awaitingQuestion = true;
+      insight.awaitingPermission = false;
+      insight.questionDetail = snippet;
+    }
+
+    const containsError = ERROR_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+    const looksBenign = BENIGN_ERROR_PHRASES.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+
+    if (containsError && !looksBenign) {
+      insight.hasError = true;
+      insight.lastErrorAt = Date.now();
+      insight.errorMessage = segment.raw.trim().slice(0, 80);
+    }
+
+    const workingLabel = extractWorkingLabel(segment.normalized);
+    const matchedReady = READY_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+    const matchedErrorClear = ERROR_CLEAR_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+
+    if (workingLabel) {
+      insight.lastWorkingAt = Date.now();
+      insight.workingDetail = workingLabel;
+      insight.lastReadyAt = null;
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      // Clear question/permission flags when agent is actively working
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    } else if (matchedReady) {
+      insight.lastReadyAt = Date.now();
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      // Clear question/permission flags when agent becomes ready
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    } else if (matchedErrorClear) {
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      // Clear question/permission flags on error clear
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    }
   }
 }
 
@@ -1373,6 +1402,7 @@ function resetSessionInsight(sessionId) {
     hasError: false,
     errorMessage: "",
     lastErrorAt: null,
+    streamCarry: "",
   });
 }
 
@@ -1386,11 +1416,7 @@ function rehydrateInsightFromBuffer(session) {
 
   // Replay recent output to recover the latest attention/status state after refresh.
   const tail = buffer.slice(-12000);
-  const chunks = tail.split(/\r?\n/).filter(Boolean);
-
-  for (const chunk of chunks) {
-    updateInsightFromOutput(session.id, chunk);
-  }
+  updateInsightFromOutput(session.id, tail);
 }
 
 function deriveAttentionStatus(session) {

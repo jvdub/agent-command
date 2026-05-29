@@ -75,6 +75,7 @@ function createDefaultSessionInsight() {
     hasError: false,
     errorMessage: "",
     lastErrorAt: null,
+    streamCarry: "",
   };
 }
 

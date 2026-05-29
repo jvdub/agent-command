@@ -35,6 +35,8 @@ const WORKING_PATTERNS = [
   { pattern: /[●◉◎○]\s+(?:loading|generating|thinking|working)/i, label: null },
 ];
 
+const ATTENTION_STREAM_MAX_BUFFER = 8192;
+
 function extractWorkingLabel(raw) {
   for (const { pattern, label } of WORKING_PATTERNS) {
     if (pattern.test(raw)) {
@@ -70,10 +72,16 @@ export function ensureSessionInsight(sessionId) {
       hasError: false,
       errorMessage: "",
       lastErrorAt: null,
+      streamCarry: "",
     });
   }
 
-  return sessionInsights.get(sessionId);
+  const insight = sessionInsights.get(sessionId);
+  if (typeof insight.streamCarry !== "string") {
+    insight.streamCarry = "";
+  }
+
+  return insight;
 }
 
 export function markSessionInput(sessionId) {
@@ -86,6 +94,7 @@ export function markSessionInput(sessionId) {
   insight.hasError = false;
   insight.errorMessage = "";
   insight.lastErrorAt = null;
+  insight.streamCarry = "";
 }
 
 function extractAttentionSnippet(rawData) {
@@ -106,62 +115,83 @@ function extractAttentionSnippet(rawData) {
 
 export function updateInsightFromOutput(sessionId, data) {
   const insight = ensureSessionInsight(sessionId);
-  const normalized = stripAnsi(data).toLowerCase();
   insight.lastActivityAt = Date.now();
 
-  if (PERMISSION_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    insight.awaitingPermission = true;
-    insight.awaitingQuestion = false;
-    insight.permissionDetail = extractAttentionSnippet(data);
-  } else if (QUESTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    insight.awaitingQuestion = true;
-    insight.awaitingPermission = false;
-    insight.questionDetail = extractAttentionSnippet(data);
-  }
-
-  const containsError = ERROR_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
+  const normalizedChunk = stripAnsi(String(data || ""));
+  const combined = `${insight.streamCarry || ""}${normalizedChunk}`.slice(
+    -ATTENTION_STREAM_MAX_BUFFER,
   );
-  const looksBenign = BENIGN_ERROR_PHRASES.some((pattern) =>
-    pattern.test(normalized),
-  );
+  const lines = combined.split(/\r?\n/);
+  const trailingFragment = lines.pop() || "";
+  insight.streamCarry = trailingFragment.slice(-ATTENTION_STREAM_MAX_BUFFER);
 
-  if (containsError && !looksBenign) {
-    insight.hasError = true;
-    insight.lastErrorAt = Date.now();
-    insight.errorMessage = stripAnsi(data).trim().slice(0, 80);
-  }
+  const segments = lines
+    .map((line) => ({ raw: line, normalized: line.toLowerCase() }))
+    .concat(
+      trailingFragment.trim()
+        ? [{ raw: trailingFragment, normalized: trailingFragment.toLowerCase() }]
+        : [],
+    );
 
-  const workingLabel = extractWorkingLabel(normalized);
-  const matchedReady = READY_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
-  );
-  const matchedErrorClear = ERROR_CLEAR_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
-  );
+  for (const segment of segments) {
+    const snippet = extractAttentionSnippet(segment.raw);
 
-  if (workingLabel) {
-    insight.lastWorkingAt = Date.now();
-    insight.workingDetail = workingLabel;
-    insight.lastReadyAt = null;
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
-  } else if (matchedReady) {
-    insight.lastReadyAt = Date.now();
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
-  } else if (matchedErrorClear) {
-    insight.hasError = false;
-    insight.errorMessage = "";
-    insight.lastErrorAt = null;
-    insight.awaitingQuestion = false;
-    insight.awaitingPermission = false;
+    if (PERMISSION_PATTERNS.some((pattern) => pattern.test(segment.normalized))) {
+      insight.awaitingPermission = true;
+      insight.awaitingQuestion = false;
+      insight.permissionDetail = snippet;
+    } else if (
+      QUESTION_PATTERNS.some((pattern) => pattern.test(segment.normalized))
+    ) {
+      insight.awaitingQuestion = true;
+      insight.awaitingPermission = false;
+      insight.questionDetail = snippet;
+    }
+
+    const containsError = ERROR_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+    const looksBenign = BENIGN_ERROR_PHRASES.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+
+    if (containsError && !looksBenign) {
+      insight.hasError = true;
+      insight.lastErrorAt = Date.now();
+      insight.errorMessage = segment.raw.trim().slice(0, 80);
+    }
+
+    const workingLabel = extractWorkingLabel(segment.normalized);
+    const matchedReady = READY_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+    const matchedErrorClear = ERROR_CLEAR_PATTERNS.some((pattern) =>
+      pattern.test(segment.normalized),
+    );
+
+    if (workingLabel) {
+      insight.lastWorkingAt = Date.now();
+      insight.workingDetail = workingLabel;
+      insight.lastReadyAt = null;
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    } else if (matchedReady) {
+      insight.lastReadyAt = Date.now();
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    } else if (matchedErrorClear) {
+      insight.hasError = false;
+      insight.errorMessage = "";
+      insight.lastErrorAt = null;
+      insight.awaitingQuestion = false;
+      insight.awaitingPermission = false;
+    }
   }
 }
 
@@ -179,6 +209,7 @@ export function resetSessionInsight(sessionId) {
     hasError: false,
     errorMessage: "",
     lastErrorAt: null,
+    streamCarry: "",
   });
 }
 
@@ -191,11 +222,7 @@ export function rehydrateInsightFromBuffer(session) {
   }
 
   const tail = buffer.slice(-12000);
-  const chunks = tail.split(/\r?\n/).filter(Boolean);
-
-  for (const chunk of chunks) {
-    updateInsightFromOutput(session.id, chunk);
-  }
+  updateInsightFromOutput(session.id, tail);
 }
 
 export function deriveAttentionStatus(session) {
