@@ -77,7 +77,8 @@ const agentic = {
     onExit: (listener) => on(IPC_CHANNELS.events.sessionExit, listener),
   },
   shortcuts: {
-    onQuickOpen: (listener) => on(IPC_CHANNELS.events.shortcutQuickOpen, listener),
+    onQuickOpen: (listener) =>
+      on(IPC_CHANNELS.events.shortcutQuickOpen, listener),
     onCopyOrInterrupt: (listener) =>
       on(IPC_CHANNELS.events.shortcutCopyOrInterrupt, listener),
   },
