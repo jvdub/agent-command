@@ -240,6 +240,7 @@ function createManagerSearchUi({ getActiveTerminalInstance, setStatus }) {
 export function createTerminalManager({
   markSessionInput,
   openReferencedFile,
+  openWorkspaceSearch,
   scheduleUiRefresh,
   setStatus,
 }) {
@@ -295,6 +296,15 @@ export function createTerminalManager({
     getActiveTerminalInstance,
     setStatus,
   });
+
+  function triggerWorkspaceSearch() {
+    if (typeof openWorkspaceSearch === "function") {
+      openWorkspaceSearch();
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent("agentic:quick-open"));
+  }
 
   function openTerminalContextMenu(event, target) {
     event.preventDefault();
@@ -366,7 +376,7 @@ export function createTerminalManager({
     markSessionInput,
     scheduleUiRefresh,
     setStatus,
-    openWorkspaceSearch: () => {},
+    openWorkspaceSearch: triggerWorkspaceSearch,
     openTerminalContextMenu,
     handleSearchResults: managerSearchUi.handleSearchResults,
     terminalContainer: elements.terminalContainer,

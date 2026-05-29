@@ -278,6 +278,38 @@
       </button>
     </div>
 
+    <div id="quick-open-overlay" class="quick-open-overlay hidden">
+      <section
+        class="quick-open-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Quick open workspace file"
+      >
+        <header class="quick-open-header">
+          <p class="status-label">Quick Open</p>
+          <button
+            type="button"
+            id="quick-open-close"
+            class="secondary quick-open-close"
+          >
+            Close
+          </button>
+        </header>
+        <input
+          id="quick-open-input"
+          class="quick-open-input"
+          type="text"
+          placeholder="Type a file name or path"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p id="quick-open-meta" class="status-meta quick-open-meta">
+          Type to search workspace files
+        </p>
+        <div id="quick-open-results" class="quick-open-results"></div>
+      </section>
+    </div>
+
     <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
     <script src="./app.js" type="module"></script>
   </body>

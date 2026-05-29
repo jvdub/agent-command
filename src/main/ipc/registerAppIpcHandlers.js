@@ -1,6 +1,34 @@
 const os = require("os");
 const { IPC_CHANNELS, buildOkResponse } = require("../../shared/ipcContract");
 
+function sanitizeExternalOpenUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) {
+    throw new Error("A URL is required.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Invalid URL.");
+  }
+
+  if (/^https?:$/i.test(parsed.protocol)) {
+    return parsed.toString();
+  }
+
+  if (
+    /^vscode:$/i.test(parsed.protocol) &&
+    parsed.hostname === "command" &&
+    parsed.pathname === "/workbench.action.quickOpen"
+  ) {
+    return parsed.toString();
+  }
+
+  throw new Error("Only http(s) URLs and VS Code quick open are allowed.");
+}
+
 function registerHandlers(registry, services) {
   const {
     dialog,
@@ -38,23 +66,8 @@ function registerHandlers(registry, services) {
 
   registry.register("app", IPC_CHANNELS.invoke.openExternalUrl, {
     handler: async (_event, payload) => {
-      const rawUrl = String(payload?.url || "").trim();
-      if (!rawUrl) {
-        throw new Error("A URL is required.");
-      }
-
-      let parsed;
-      try {
-        parsed = new URL(rawUrl);
-      } catch {
-        throw new Error("Invalid URL.");
-      }
-
-      if (!/^https?:$/i.test(parsed.protocol)) {
-        throw new Error("Only http and https links are allowed.");
-      }
-
-      await shell.openExternal(parsed.toString());
+      const url = sanitizeExternalOpenUrl(payload?.url);
+      await shell.openExternal(url);
       return buildOkResponse(true);
     },
   });

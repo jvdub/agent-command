@@ -83,11 +83,18 @@ const fileEditorAutosave = document.querySelector("#file-editor-autosave");
 const fileEditorSaveButton = document.querySelector("#file-editor-save");
 const fileEditorCloseButton = document.querySelector("#file-editor-close");
 const fileEditorSurface = document.querySelector("#file-editor-surface");
+const quickOpenOverlay = document.querySelector("#quick-open-overlay");
+const quickOpenInput = document.querySelector("#quick-open-input");
+const quickOpenMeta = document.querySelector("#quick-open-meta");
+const quickOpenResults = document.querySelector("#quick-open-results");
+const quickOpenCloseButton = document.querySelector("#quick-open-close");
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
 const FILE_REFERENCE_LIMIT = 24;
 const AUTOSAVE_DELAY_MS = 1000;
+const QUICK_OPEN_RECENTS_KEY = "agentic-command-quick-open-recents";
+const QUICK_OPEN_RECENTS_LIMIT = 40;
 // Matches file paths in terminal output, supporting both POSIX and Windows formats:
 // - Windows absolute: C:\path\to\file.js, D:\project\src\main.ts
 // - Windows UNC: \\server\share\file.js
@@ -321,6 +328,14 @@ let editorState = {
 };
 
 let isAgentSearchOpen = false;
+let quickOpenState = {
+  open: false,
+  loading: false,
+  files: [],
+  filtered: [],
+  activeIndex: 0,
+  recentPaths: [],
+};
 
 function manualTerminalKey(sessionId, terminalId) {
   return `${sessionId}:${terminalId}`;
@@ -359,6 +374,69 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function loadQuickOpenRecents() {
+  try {
+    const raw = window.localStorage.getItem(QUICK_OPEN_RECENTS_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .slice(0, QUICK_OPEN_RECENTS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveQuickOpenRecents(recents) {
+  try {
+    window.localStorage.setItem(
+      QUICK_OPEN_RECENTS_KEY,
+      JSON.stringify(recents.slice(0, QUICK_OPEN_RECENTS_LIMIT)),
+    );
+  } catch {
+    // Ignore localStorage write failures.
+  }
+}
+
+function touchQuickOpenRecent(relativePath) {
+  if (!relativePath) {
+    return;
+  }
+
+  const normalized = String(relativePath);
+  const nextRecents = [
+    normalized,
+    ...quickOpenState.recentPaths.filter((path) => path !== normalized),
+  ].slice(0, QUICK_OPEN_RECENTS_LIMIT);
+
+  quickOpenState.recentPaths = nextRecents;
+  saveQuickOpenRecents(nextRecents);
+}
+
+function highlightQuickOpenPath(path, query) {
+  if (!query) {
+    return escapeHtml(path);
+  }
+
+  const normalizedQuery = query.toLowerCase();
+  const normalizedPath = String(path || "").toLowerCase();
+  const start = normalizedPath.indexOf(normalizedQuery);
+  if (start < 0) {
+    return escapeHtml(path);
+  }
+
+  const end = start + normalizedQuery.length;
+  return `${escapeHtml(path.slice(0, start))}<mark class="quick-open-match">${escapeHtml(path.slice(start, end))}</mark>${escapeHtml(path.slice(end))}`;
 }
 
 function shortId(sessionId) {
@@ -676,6 +754,14 @@ function ensureMonacoEditor() {
         theme: "vs-dark",
       });
 
+      // Ensure quick-open works when Monaco has keyboard focus.
+      monacoEditor.addCommand(
+        monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyP,
+        () => {
+          openVsCodeQuickOpen();
+        },
+      );
+
       monacoEditor.onDidChangeModelContent(() => {
         if (suppressEditorChange || !editorState.open) {
           return;
@@ -828,6 +914,7 @@ function normalizeWorkspaceFileEntry(entry) {
     const normalized = entry.replace(/\\+/g, "/");
     const parts = normalized.split("/").filter(Boolean);
     return {
+      absolutePath: normalized,
       relativePath: normalized,
       basename: parts[parts.length - 1] || normalized,
     };
@@ -842,6 +929,10 @@ function normalizeWorkspaceFileEntry(entry) {
   }
 
   return {
+    absolutePath: String(entry.absolutePath || relativePath).replace(
+      /\\+/g,
+      "/",
+    ),
     relativePath,
     basename: entry.basename || relativePath.split("/").pop() || relativePath,
   };
@@ -875,21 +966,39 @@ function scoreWorkspaceFileMatch(fileEntry, normalizedQuery) {
 }
 
 async function openQuickFilePicker() {
+  if (
+    !quickOpenOverlay ||
+    !quickOpenInput ||
+    !quickOpenMeta ||
+    !quickOpenResults
+  ) {
+    setStatus("Find File", "Quick-open UI unavailable");
+    return;
+  }
+
   if (!activeSessionId) {
     setStatus("Find File", "Open a session before searching files");
     return;
   }
 
-  const rawQuery = window.prompt("Search workspace files", "");
-  if (rawQuery === null) {
+  if (quickOpenState.open) {
+    quickOpenInput.focus();
+    quickOpenInput.select();
     return;
   }
 
-  const query = rawQuery.trim();
-  if (!query) {
-    setStatus("Find File", "Type a filename to search");
-    return;
-  }
+  quickOpenState.open = true;
+  quickOpenState.loading = true;
+  quickOpenState.files = [];
+  quickOpenState.filtered = [];
+  quickOpenState.activeIndex = 0;
+  quickOpenOverlay.classList.remove("hidden");
+  quickOpenInput.value = "";
+  quickOpenMeta.textContent = "Loading workspace files...";
+  quickOpenResults.innerHTML =
+    '<div class="quick-open-empty">Loading workspace files...</div>';
+  quickOpenInput.focus();
+  quickOpenInput.select();
 
   let listing;
   try {
@@ -897,29 +1006,88 @@ async function openQuickFilePicker() {
       sessionId: activeSessionId,
     });
   } catch (error) {
+    quickOpenState.loading = false;
+    quickOpenMeta.textContent =
+      error.message || "Unable to list workspace files";
+    quickOpenResults.innerHTML =
+      '<div class="quick-open-empty">Unable to load workspace files.</div>';
     setStatus("Error", error.message || "Unable to list workspace files");
     return;
   }
 
-  const entries = Array.isArray(listing?.files)
+  quickOpenState.loading = false;
+  quickOpenState.files = Array.isArray(listing?.files)
     ? listing.files.map(normalizeWorkspaceFileEntry).filter(Boolean)
     : [];
 
-  if (entries.length === 0) {
-    setStatus("Find File", "No workspace files found");
+  renderQuickOpenResults();
+}
+
+function closeQuickOpen({ restoreFocus = true } = {}) {
+  if (!quickOpenState.open) {
     return;
   }
 
-  const normalizedQuery = query.toLowerCase();
-  const matches = entries
+  quickOpenState.open = false;
+  quickOpenOverlay.classList.add("hidden");
+
+  if (restoreFocus) {
+    if (editorState.open) {
+      monacoEditor?.focus();
+      return;
+    }
+
+    getActiveTerminalInstance()?.terminal.focus();
+  }
+}
+
+function renderQuickOpenResults() {
+  if (!quickOpenState.open) {
+    return;
+  }
+
+  const query = quickOpenInput.value.trim().toLowerCase();
+  const files = quickOpenState.files;
+  const recentIndexByPath = new Map(
+    quickOpenState.recentPaths.map((path, index) => [path, index]),
+  );
+
+  if (quickOpenState.loading) {
+    quickOpenMeta.textContent = "Loading workspace files...";
+    quickOpenResults.innerHTML =
+      '<div class="quick-open-empty">Loading workspace files...</div>';
+    return;
+  }
+
+  if (files.length === 0) {
+    quickOpenMeta.textContent = "No workspace files found";
+    quickOpenResults.innerHTML =
+      '<div class="quick-open-empty">No workspace files found.</div>';
+    return;
+  }
+
+  const ranked = files
     .map((entry) => ({
       entry,
-      score: scoreWorkspaceFileMatch(entry, normalizedQuery),
+      score: query ? scoreWorkspaceFileMatch(entry, query) : 2,
+      recentRank: recentIndexByPath.get(entry.relativePath),
     }))
     .filter(({ score }) => Number.isFinite(score))
     .sort((left, right) => {
       if (left.score !== right.score) {
         return left.score - right.score;
+      }
+
+      const leftRecent =
+        typeof left.recentRank === "number"
+          ? left.recentRank
+          : Number.POSITIVE_INFINITY;
+      const rightRecent =
+        typeof right.recentRank === "number"
+          ? right.recentRank
+          : Number.POSITIVE_INFINITY;
+      if (leftRecent !== rightRecent) {
+        return leftRecent - rightRecent;
       }
 
       if (left.entry.relativePath.length !== right.entry.relativePath.length) {
@@ -928,39 +1096,139 @@ async function openQuickFilePicker() {
 
       return left.entry.relativePath.localeCompare(right.entry.relativePath);
     })
-    .slice(0, 20);
+    .slice(0, 200)
+    .map(({ entry }) => entry);
 
-  if (matches.length === 0) {
-    setStatus("Find File", `No matches for \"${query}\"`);
+  quickOpenState.filtered = ranked;
+  quickOpenState.activeIndex = Math.max(
+    0,
+    Math.min(quickOpenState.activeIndex, ranked.length - 1),
+  );
+
+  if (ranked.length === 0) {
+    quickOpenMeta.textContent = query
+      ? `No matches for "${quickOpenInput.value.trim()}"`
+      : "Type to search workspace files";
+    quickOpenResults.innerHTML =
+      '<div class="quick-open-empty">No matching files.</div>';
     return;
   }
 
-  let selected = matches[0].entry;
-  if (matches.length > 1) {
-    const options = matches
-      .map(({ entry }, index) => `${index + 1}. ${entry.relativePath}`)
-      .join("\n");
-    const choice = window.prompt(
-      `Select file number for \"${query}\":\n${options}`,
-      "1",
-    );
+  quickOpenMeta.textContent = `${quickOpenState.activeIndex + 1} of ${ranked.length}`;
+  quickOpenResults.innerHTML = ranked
+    .map((entry, index) => {
+      const isActive = index === quickOpenState.activeIndex;
+      const recentRank = recentIndexByPath.get(entry.relativePath);
+      const recentPrefix =
+        typeof recentRank === "number"
+          ? '<span class="quick-open-recent">Recent</span>'
+          : "";
+      return `
+        <button
+          type="button"
+          class="quick-open-result${isActive ? " active" : ""}"
+          data-index="${index}"
+          title="${escapeHtml(entry.relativePath)}"
+        >
+          <span class="quick-open-result-path">${recentPrefix}${highlightQuickOpenPath(entry.relativePath, query)}</span>
+        </button>
+      `;
+    })
+    .join("");
 
-    if (choice === null) {
-      return;
-    }
+  const activeButton = quickOpenResults.querySelector(
+    ".quick-open-result.active",
+  );
+  if (activeButton) {
+    activeButton.scrollIntoView({ block: "nearest" });
+  }
+}
 
-    const index = Number.parseInt(choice, 10) - 1;
-    if (!Number.isInteger(index) || index < 0 || index >= matches.length) {
-      setStatus("Find File", "Invalid selection");
-      return;
-    }
-
-    selected = matches[index].entry;
+function moveQuickOpenSelection(direction) {
+  if (!quickOpenState.filtered.length) {
+    return;
   }
 
-  await openReferencedFile(activeSessionId, selected.relativePath);
+  const delta = direction === "up" ? -1 : 1;
+  const length = quickOpenState.filtered.length;
+  quickOpenState.activeIndex =
+    (quickOpenState.activeIndex + delta + length) % length;
+  renderQuickOpenResults();
+}
+
+async function openQuickOpenSelection(index = quickOpenState.activeIndex) {
+  const result = quickOpenState.filtered[index];
+  if (!result || !activeSessionId) {
+    return;
+  }
+
+  closeQuickOpen({ restoreFocus: false });
+  const openPath = result.absolutePath || result.relativePath;
+  await openReferencedFile(activeSessionId, openPath);
+  touchQuickOpenRecent(result.relativePath);
   openFileDrawer();
-  setStatus("Opened", selected.relativePath);
+  setStatus("Opened", result.relativePath);
+}
+
+async function openVsCodeQuickOpen() {
+  await openQuickFilePicker();
+  return false;
+}
+
+async function copyEditorSelection() {
+  if (!editorState.open || !monacoEditor) {
+    return false;
+  }
+
+  const model = monacoEditor.getModel();
+  const selection = monacoEditor.getSelection();
+  if (
+    !model ||
+    !selection ||
+    (typeof selection.isEmpty === "function" && selection.isEmpty())
+  ) {
+    return false;
+  }
+
+  const text = model.getValueInRange(selection);
+  if (!text) {
+    return false;
+  }
+
+  await agenticApp.writeClipboardText(text);
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Ignore browser clipboard errors when another clipboard path succeeded.
+    }
+  }
+
+  setStatus("Copied", editorState.relativePath || "Selection copied");
+  return true;
+}
+
+async function handleCopyOrInterruptShortcut() {
+  if (editorState.open) {
+    const copied = await copyEditorSelection();
+    if (!copied) {
+      setStatus("Copy", "Select text to copy");
+    }
+    return;
+  }
+
+  if (!activeSessionId) {
+    return;
+  }
+
+  const instance = getActiveTerminalInstance();
+  if (instance?.terminal?.hasSelection()) {
+    await copyTerminalSelection(instance.terminal);
+    setStatus("Copied", "Terminal selection");
+    return;
+  }
+
+  await sendInterrupt();
 }
 
 function ensureSessionBuffer(sessionId) {
@@ -1436,7 +1704,7 @@ function attachTerminalClipboardHandlers(target) {
 
     if (isClipboardShortcut(event, "p")) {
       event.preventDefault();
-      openQuickFilePicker();
+      openVsCodeQuickOpen();
       return false;
     }
 
@@ -2332,58 +2600,155 @@ document.addEventListener("click", (event) => {
   newSessionPopover.classList.add("hidden");
 });
 
-document.addEventListener(
-  "keydown",
-  (event) => {
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      !event.altKey &&
-      String(event.key || "").toLowerCase() === "p"
-    ) {
+function handleGlobalKeydown(event) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "p"
+  ) {
+    event.preventDefault();
+    openVsCodeQuickOpen();
+    return;
+  }
+
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "c"
+  ) {
+    event.preventDefault();
+    handleCopyOrInterruptShortcut();
+    return;
+  }
+
+  if (
+    !editorState.open &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    String(event.key || "").toLowerCase() === "f"
+  ) {
+    if (activeSessionId) {
       event.preventDefault();
-      openQuickFilePicker();
+      openAgentSearch();
+    }
+    return;
+  }
+
+  if (
+    editorState.open &&
+    (event.key === "s" || event.key === "S") &&
+    (event.ctrlKey || event.metaKey)
+  ) {
+    event.preventDefault();
+    saveOpenEditorFile("Saved");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    if (quickOpenState.open) {
+      closeQuickOpen();
       return;
     }
 
-    if (
-      !editorState.open &&
-      (event.ctrlKey || event.metaKey) &&
-      !event.altKey &&
-      String(event.key || "").toLowerCase() === "f"
-    ) {
-      if (activeSessionId) {
-        event.preventDefault();
-        openAgentSearch();
-      }
+    if (isAgentSearchOpen) {
+      closeAgentSearch();
       return;
     }
 
-    if (
-      editorState.open &&
-      (event.key === "s" || event.key === "S") &&
-      (event.ctrlKey || event.metaKey)
-    ) {
+    if (editorState.open) {
+      closeFileEditorModal();
+      return;
+    }
+
+    closeTerminalContextMenu();
+  }
+}
+
+window.addEventListener("agentic:quick-open", () => {
+  openVsCodeQuickOpen();
+});
+
+window.addEventListener("agentic:copy-or-interrupt", () => {
+  handleCopyOrInterruptShortcut();
+});
+
+agenticApp.onQuickOpenShortcut(() => {
+  openVsCodeQuickOpen();
+});
+
+agenticApp.onCopyOrInterruptShortcut(() => {
+  handleCopyOrInterruptShortcut();
+});
+
+window.addEventListener("keydown", handleGlobalKeydown, true);
+document.addEventListener("keydown", handleGlobalKeydown, true);
+
+if (
+  quickOpenInput &&
+  quickOpenResults &&
+  quickOpenCloseButton &&
+  quickOpenOverlay
+) {
+  quickOpenInput.addEventListener("input", () => {
+    quickOpenState.activeIndex = 0;
+    renderQuickOpenResults();
+  });
+
+  quickOpenInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
       event.preventDefault();
-      saveOpenEditorFile("Saved");
+      openQuickOpenSelection();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveQuickOpenSelection("down");
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveQuickOpenSelection("up");
       return;
     }
 
     if (event.key === "Escape") {
-      if (isAgentSearchOpen) {
-        closeAgentSearch();
-        return;
-      }
-
-      if (editorState.open) {
-        closeFileEditorModal();
-        return;
-      }
-
-      closeTerminalContextMenu();
+      event.preventDefault();
+      closeQuickOpen();
     }
-  },
-  true,
-);
+  });
+
+  quickOpenResults.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const button = target.closest(".quick-open-result");
+    if (!button?.dataset.index) {
+      return;
+    }
+
+    const index = Number.parseInt(button.dataset.index, 10);
+    if (!Number.isInteger(index) || index < 0) {
+      return;
+    }
+
+    quickOpenState.activeIndex = index;
+    openQuickOpenSelection(index);
+  });
+
+  quickOpenCloseButton.addEventListener("click", () => {
+    closeQuickOpen();
+  });
+
+  quickOpenOverlay.addEventListener("click", (event) => {
+    if (event.target === quickOpenOverlay) {
+      closeQuickOpen();
+    }
+  });
+}
 
 if (agentSearchEnabled) {
   agentSearchInput.addEventListener("input", () => {
@@ -2471,6 +2836,7 @@ terminalContextClearButton.addEventListener("click", async () => {
 
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
+quickOpenState.recentPaths = loadQuickOpenRecents();
 editorState.autosave =
   window.localStorage.getItem("agentic-command-editor-autosave") === "1";
 fileEditorAutosave.checked = editorState.autosave;

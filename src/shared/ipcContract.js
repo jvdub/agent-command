@@ -24,6 +24,8 @@ const IPC_CHANNELS = Object.freeze({
     sessionExit: "session:exit",
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
+    shortcutQuickOpen: "app:shortcut:quick-open",
+    shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
 });
 
@@ -188,6 +190,10 @@ const IPC_CHANNELS = Object.freeze({
  */
 
 /**
+ * @typedef {null} ShortcutEvent
+ */
+
+/**
  * @typedef {object} AgenticAppApi
  * @property {() => Promise<AppContext>} getContext
  * @property {() => Promise<string | null>} pickDirectory
@@ -213,6 +219,8 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(listener: (payload: SessionExitEvent) => void) => () => void} onSessionExit
  * @property {(listener: (payload: ManualTerminalDataEvent) => void) => () => void} onManualTerminalData
  * @property {(listener: (payload: ManualTerminalExitEvent) => void) => () => void} onManualTerminalExit
+ * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onQuickOpenShortcut
+ * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onCopyOrInterruptShortcut
  */
 
 function buildOpenWorkspaceFileRequest(sessionId, filePath) {

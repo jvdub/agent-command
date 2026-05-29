@@ -960,6 +960,116 @@ button:disabled {
   transform: none;
 }
 
+.quick-open-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 20px 20px;
+  background: rgba(9, 10, 14, 0.62);
+  backdrop-filter: blur(4px);
+}
+
+.quick-open-modal {
+  width: min(760px, 100%);
+  max-height: min(72vh, 680px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(17, 18, 24, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.quick-open-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-open-close {
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.quick-open-input {
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.quick-open-meta {
+  min-height: 20px;
+}
+
+.quick-open-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 84px;
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.quick-open-result {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  text-align: left;
+  padding: 10px 12px;
+}
+
+.quick-open-result:hover,
+.quick-open-result.active {
+  border-color: rgba(238, 108, 77, 0.4);
+  background: rgba(238, 108, 77, 0.14);
+  transform: none;
+}
+
+.quick-open-result-path {
+  display: block;
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.83rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-open-match {
+  background: rgba(238, 108, 77, 0.28);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.quick-open-recent {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(238, 108, 77, 0.18);
+  vertical-align: middle;
+}
+
+.quick-open-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 14px;
+  color: var(--muted);
+}
+
 .hidden {
   display: none !important;
 }

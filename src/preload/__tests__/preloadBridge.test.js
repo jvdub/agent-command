@@ -71,5 +71,30 @@ describe("preload bridge", () => {
       "session:data",
       expect.any(Function),
     );
+
+    const shortcutListener = jest.fn();
+    const unsubscribeQuickOpen =
+      exposed.agentic.shortcuts.onQuickOpen(shortcutListener);
+    expect(on).toHaveBeenCalledWith(
+      "app:shortcut:quick-open",
+      expect.any(Function),
+    );
+    unsubscribeQuickOpen();
+    expect(removeListener).toHaveBeenCalledWith(
+      "app:shortcut:quick-open",
+      expect.any(Function),
+    );
+
+    const unsubscribeCopyShortcut =
+      exposed.agentic.shortcuts.onCopyOrInterrupt(shortcutListener);
+    expect(on).toHaveBeenCalledWith(
+      "app:shortcut:copy-or-interrupt",
+      expect.any(Function),
+    );
+    unsubscribeCopyShortcut();
+    expect(removeListener).toHaveBeenCalledWith(
+      "app:shortcut:copy-or-interrupt",
+      expect.any(Function),
+    );
   });
 });

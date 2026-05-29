@@ -179,4 +179,34 @@ describe("terminalRuntime manager search integration", () => {
       "Open a session before searching",
     );
   });
+
+  test("Ctrl+P in terminal triggers workspace quick-open callback", () => {
+    const openWorkspaceSearch = jest.fn();
+    const manager = createTerminalManager({
+      markSessionInput: jest.fn(),
+      openReferencedFile: jest.fn(),
+      openWorkspaceSearch,
+      scheduleUiRefresh: jest.fn(),
+      setStatus: jest.fn(),
+    });
+
+    mockUiState.activeSessionId = "session-1";
+    const instance = manager.createSessionTerminal("session-1");
+    const keyHandler =
+      instance.terminal.attachCustomKeyEventHandler.mock.calls[0][0];
+
+    const preventDefault = jest.fn();
+    const handled = keyHandler({
+      type: "keydown",
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      key: "p",
+      preventDefault,
+    });
+
+    expect(handled).toBe(false);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceSearch).toHaveBeenCalledTimes(1);
+  });
 });

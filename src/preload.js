@@ -27,6 +27,8 @@ const IPC_CHANNELS = Object.freeze({
     sessionExit: "session:exit",
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
+    shortcutQuickOpen: "app:shortcut:quick-open",
+    shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
 });
 // END AUTO-GENERATED IPC CHANNELS
@@ -73,6 +75,11 @@ const agentic = {
     onChanged: (listener) => on(IPC_CHANNELS.events.sessionsChanged, listener),
     onData: (listener) => on(IPC_CHANNELS.events.sessionData, listener),
     onExit: (listener) => on(IPC_CHANNELS.events.sessionExit, listener),
+  },
+  shortcuts: {
+    onQuickOpen: (listener) => on(IPC_CHANNELS.events.shortcutQuickOpen, listener),
+    onCopyOrInterrupt: (listener) =>
+      on(IPC_CHANNELS.events.shortcutCopyOrInterrupt, listener),
   },
   workspace: {
     openFile: (sessionId, filePath) =>

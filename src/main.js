@@ -3,7 +3,14 @@ const fs = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  shell,
+} = require("electron");
 const pty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -137,6 +144,34 @@ function commandExists(command) {
   return false;
 }
 
+function sanitizeExternalOpenUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) {
+    throw new Error("A URL is required.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Invalid URL.");
+  }
+
+  if (/^https?:$/i.test(parsed.protocol)) {
+    return parsed.toString();
+  }
+
+  if (
+    /^vscode:$/i.test(parsed.protocol) &&
+    parsed.hostname === "command" &&
+    parsed.pathname === "/workbench.action.quickOpen"
+  ) {
+    return parsed.toString();
+  }
+
+  throw new Error("Only http(s) URLs and VS Code quick open are allowed.");
+}
+
 function resolveDefaultCommand() {
   const preferred = ["claude", "copilot", "codex"];
   const found = preferred.find((command) => commandExists(command));
@@ -159,6 +194,24 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    const key = String(input?.key || "").toLowerCase();
+    if (
+      !(input?.control || input?.meta) ||
+      input?.alt ||
+      (key !== "p" && key !== "c")
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    const shortcutChannel =
+      key === "p"
+        ? "app:shortcut:quick-open"
+        : "app:shortcut:copy-or-interrupt";
+    mainWindow.webContents.send(shortcutChannel);
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -1250,6 +1303,10 @@ function startSession(options, cwd) {
 }
 
 app.whenReady().then(() => {
+  // Disable the default app menu so renderer keyboard shortcuts (e.g. Ctrl/Cmd+P)
+  // are not intercepted by built-in menu accelerators like Print.
+  Menu.setApplicationMenu(null);
+
   loadSessionsFromDisk();
   createWindow();
 
@@ -1289,6 +1346,12 @@ ipcMain.handle("app:getContext", async () => ({
   defaultCommand: resolveDefaultCommand(),
   processInspectionSupported: isProcessInspectionSupported(),
 }));
+
+ipcMain.handle("external-link:open", async (_event, payload) => {
+  const url = sanitizeExternalOpenUrl(payload?.url);
+  await shell.openExternal(url);
+  return { ok: true };
+});
 
 ipcMain.handle("session:start", async (_event, options) => {
   if (!options?.command || !options.command.trim()) {
@@ -1410,6 +1473,44 @@ ipcMain.handle("editor:saveFile", async (_event, payload) => {
     ok: true,
     savedAt: Date.now(),
     relativePath: resolved.relativePath,
+  };
+});
+
+ipcMain.handle("workspace:listFiles", async (_event, payload) => {
+  const sessionId = payload?.sessionId;
+  const requestedRoot = payload?.root;
+
+  let root;
+  if (requestedRoot) {
+    root = path.resolve(String(requestedRoot));
+  } else {
+    const session = sessionId ? sessions.get(sessionId) : null;
+    const sessionRoot = session?.cwd;
+
+    if (
+      sessionRoot &&
+      fs.existsSync(sessionRoot) &&
+      fs.statSync(sessionRoot).isDirectory()
+    ) {
+      root = path.resolve(sessionRoot);
+    } else {
+      root = path.resolve(resolveInitialDirectory());
+    }
+  }
+
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    throw new Error("Workspace root not found.");
+  }
+
+  const files = listWorkspaceFiles(root).map((filePath) => ({
+    absolutePath: filePath,
+    relativePath: path.relative(root, filePath) || path.basename(filePath),
+    basename: path.basename(filePath),
+  }));
+
+  return {
+    root,
+    files,
   };
 });
 
