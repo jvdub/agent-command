@@ -40,13 +40,6 @@ export function createAgentTerminal(config) {
     setStatus,
   } = config;
 
-  function isClipboardShortcut(event, key) {
-    const pressedKey = String(event.key || "").toLowerCase();
-    return (
-      (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key
-    );
-  }
-
   async function copyTerminalSelection(terminal) {
     const selection = terminal.getSelection();
     if (!selection) {
@@ -89,7 +82,6 @@ export function createAgentTerminal(config) {
   }
 
   return {
-    isClipboardShortcut,
     copyTerminalSelection,
     pasteIntoTerminal,
     ensureSessionBuffer,

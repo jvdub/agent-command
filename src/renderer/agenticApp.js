@@ -111,6 +111,4 @@ export const agenticApp = Object.freeze({
     subscribe("manualTerminals", "onExit", listener),
   onQuickOpenShortcut: (listener) =>
     subscribe("shortcuts", "onQuickOpen", listener),
-  onCopyOrInterruptShortcut: (listener) =>
-    subscribe("shortcuts", "onCopyOrInterrupt", listener),
 });

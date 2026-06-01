@@ -25,7 +25,6 @@ const IPC_CHANNELS = Object.freeze({
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
     shortcutQuickOpen: "app:shortcut:quick-open",
-    shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
 });
 
@@ -220,7 +219,6 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(listener: (payload: ManualTerminalDataEvent) => void) => () => void} onManualTerminalData
  * @property {(listener: (payload: ManualTerminalExitEvent) => void) => () => void} onManualTerminalExit
  * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onQuickOpenShortcut
- * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onCopyOrInterruptShortcut
  */
 
 function buildOpenWorkspaceFileRequest(sessionId, filePath) {

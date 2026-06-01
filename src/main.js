@@ -21,6 +21,20 @@ const sessions = new Map();
 const manualTerminals = new Map();
 const sessionStoreFile = path.join(app.getPath("userData"), "sessions.json");
 
+function presentWindow(win) {
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+
+  if (win.isMinimized()) {
+    win.restore();
+  }
+
+  win.show();
+  win.focus();
+  win.moveTop();
+}
+
 function getSessionStoreFile() {
   return path.join(app.getPath("userData"), "sessions.json");
 }
@@ -193,29 +207,31 @@ function createWindow() {
     },
   });
 
+  mainWindow.once("ready-to-show", () => {
+    presentWindow(mainWindow);
+  });
+
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 
   mainWindow.webContents.on("before-input-event", (event, input) => {
     const key = String(input?.key || "").toLowerCase();
-    if (
-      !(input?.control || input?.meta) ||
-      input?.alt ||
-      (key !== "p" && key !== "c")
-    ) {
+    if (!(input?.control || input?.meta) || input?.alt || key !== "p") {
       return;
     }
 
     event.preventDefault();
-    const shortcutChannel =
-      key === "p"
-        ? "app:shortcut:quick-open"
-        : "app:shortcut:copy-or-interrupt";
-    mainWindow.webContents.send(shortcutChannel);
+    mainWindow.webContents.send("app:shortcut:quick-open");
   });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
 }
 
 function shellForPlatform() {
@@ -1303,6 +1319,10 @@ function startSession(options, cwd) {
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) {
+    return;
+  }
+
   // Disable the default app menu so renderer keyboard shortcuts (e.g. Ctrl/Cmd+P)
   // are not intercepted by built-in menu accelerators like Print.
   Menu.setApplicationMenu(null);
@@ -1310,10 +1330,22 @@ app.whenReady().then(() => {
   loadSessionsFromDisk();
   createWindow();
 
+  app.on("second-instance", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      presentWindow(mainWindow);
+      return;
+    }
+
+    createWindow();
+  });
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      return;
     }
+
+    presentWindow(BrowserWindow.getAllWindows()[0]);
   });
 });
 

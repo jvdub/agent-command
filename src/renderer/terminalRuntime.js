@@ -17,49 +17,25 @@ import {
   sessionTerminals,
   uiState,
 } from "./state.js";
+import {
+  copyTerminalSelectionToClipboard,
+  getTerminalSelectionText,
+  isShortcutKey,
+  pasteClipboardIntoTerminal,
+  writeTextToClipboard,
+} from "./globalShortcutUtils.js";
 import { normalizeCandidateFilePath } from "./utils.js";
 
-function isClipboardShortcut(event, key) {
-  const pressedKey = String(event.key || "").toLowerCase();
-  return (
-    (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key
-  );
-}
-
 async function copyTerminalSelection(terminal) {
-  const selection = terminal.getSelection();
-  if (!selection) {
-    return false;
-  }
-
-  agenticApp.writeClipboardText(selection);
-  if (navigator?.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(selection);
-    } catch {
-      // Ignore browser clipboard errors when another clipboard path succeeded.
-    }
-  }
-
-  return true;
+  return copyTerminalSelectionToClipboard(terminal, {
+    bridgeWriteText: (value) => agenticApp.writeClipboardText(value),
+  });
 }
 
 async function pasteIntoTerminal(terminal) {
-  let text = await agenticApp.readClipboardText();
-  if (!text && navigator?.clipboard?.readText) {
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      text = "";
-    }
-  }
-
-  if (!text) {
-    return false;
-  }
-
-  terminal.paste(text);
-  return true;
+  return pasteClipboardIntoTerminal(terminal, {
+    bridgeReadText: () => agenticApp.readClipboardText(),
+  });
 }
 
 function createManagerSearchUi({ getActiveTerminalInstance, setStatus }) {
@@ -462,19 +438,13 @@ export function createAppTerminalRuntime({
         return true;
       }
 
-      if (isClipboardShortcut(event, "c") && terminal.hasSelection()) {
-        event.preventDefault();
-        copyTerminalSelection(terminal);
-        return false;
-      }
-
-      if (isClipboardShortcut(event, "v")) {
+      if (isShortcutKey(event, "v")) {
         event.preventDefault();
         pasteIntoTerminal(terminal);
         return false;
       }
 
-      if (isClipboardShortcut(event, "p")) {
+      if (isShortcutKey(event, "p")) {
         event.preventDefault();
         openWorkspaceSearch();
         return false;
@@ -484,13 +454,20 @@ export function createAppTerminalRuntime({
     });
 
     mount.addEventListener("copy", (event) => {
-      const selection = terminal.getSelection();
+      const selection = getTerminalSelectionText(terminal, mount);
       if (!selection) {
         return;
       }
 
-      event.preventDefault();
-      agenticAppApi.writeClipboardText(selection);
+      if (event.clipboardData?.setData) {
+        event.preventDefault();
+        event.clipboardData.setData("text/plain", selection);
+        return;
+      }
+
+      writeTextToClipboard(selection, (value) =>
+        agenticAppApi.writeClipboardText(value),
+      );
     });
 
     mount.addEventListener("paste", (event) => {

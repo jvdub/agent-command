@@ -3,6 +3,14 @@ import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs"
 import { SearchAddon } from "../../node_modules/@xterm/addon-search/lib/addon-search.mjs";
 import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
 import { agenticApp } from "./agenticApp.js";
+import {
+  copyTerminalSelectionToClipboard,
+  getTerminalSelectionText,
+  hasTerminalSelection,
+  isShortcutKey,
+  pasteClipboardIntoTerminal,
+  writeTextToClipboard,
+} from "./globalShortcutUtils.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -1465,40 +1473,107 @@ async function copyEditorSelection() {
     return false;
   }
 
-  await agenticApp.writeClipboardText(text);
-  if (navigator?.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Ignore browser clipboard errors when another clipboard path succeeded.
-    }
-  }
+  await writeTextToClipboard(text, (value) =>
+    agenticApp.writeClipboardText(value),
+  );
 
   setStatus("Copied", editorState.relativePath || "Selection copied");
   return true;
 }
 
-async function handleCopyOrInterruptShortcut() {
-  if (editorState.open) {
-    const copied = await copyEditorSelection();
-    if (!copied) {
-      setStatus("Copy", "Select text to copy");
+function getTerminalShortcutCandidates() {
+  const candidates = [];
+  const seen = new Set();
+
+  const addCandidate = (target) => {
+    if (!target?.terminal || !target?.mount) {
+      return;
     }
-    return;
+
+    const key = `${target.kind || "agent"}:${target.sessionId || ""}:${target.terminalId || ""}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    candidates.push(target);
+  };
+
+  addCandidate(terminalContextTarget);
+  addCandidate(getActiveTerminalInstance());
+  addCandidate(getManualTerminalInstance(activeSessionId, "1"));
+  addCandidate(getManualTerminalInstance(activeSessionId, "2"));
+
+  for (const instance of sessionTerminals.values()) {
+    addCandidate(instance);
   }
 
-  if (!activeSessionId) {
-    return;
+  for (const instance of manualTerminals.values()) {
+    addCandidate(instance);
   }
 
-  const instance = getActiveTerminalInstance();
-  if (instance?.terminal?.hasSelection()) {
-    await copyTerminalSelection(instance.terminal);
-    setStatus("Copied", "Terminal selection");
-    return;
+  return candidates;
+}
+
+function getSelectionOwnerTerminalTarget(candidates) {
+  const selection = window.getSelection?.();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
   }
 
-  await sendInterrupt();
+  const range = selection.getRangeAt(0);
+  return (
+    candidates.find((target) => {
+      const mount = target.mount;
+      return (
+        mount &&
+        (mount.contains(range.startContainer) ||
+          mount.contains(range.endContainer))
+      );
+    }) || null
+  );
+}
+
+function getFocusedTerminalTarget(candidates) {
+  const focused = document.activeElement;
+  if (!focused) {
+    return null;
+  }
+
+  return (
+    candidates.find(
+      (target) => target.mount && target.mount.contains(focused),
+    ) || null
+  );
+}
+
+function getShortcutTerminalTarget() {
+  const candidates = getTerminalShortcutCandidates();
+  if (!candidates.length) {
+    return null;
+  }
+
+  const selectionOwner = getSelectionOwnerTerminalTarget(candidates);
+  if (
+    selectionOwner &&
+    hasTerminalSelection(selectionOwner.terminal, selectionOwner.mount)
+  ) {
+    return selectionOwner;
+  }
+
+  const focused = getFocusedTerminalTarget(candidates);
+  if (focused && hasTerminalSelection(focused.terminal, focused.mount)) {
+    return focused;
+  }
+
+  const selected = candidates.find((target) =>
+    hasTerminalSelection(target.terminal, target.mount),
+  );
+  if (selected) {
+    return selected;
+  }
+
+  return focused || selectionOwner || candidates[0] || null;
 }
 
 function ensureSessionBuffer(sessionId) {
@@ -1804,31 +1879,36 @@ function deriveAttentionStatus(session) {
   };
 }
 
-function isClipboardShortcut(event, key) {
-  const pressedKey = String(event.key || "").toLowerCase();
-  return (
-    (event.ctrlKey || event.metaKey) && !event.altKey && pressedKey === key
-  );
-}
-
-async function copyTerminalSelection(terminal) {
-  const selection = terminal.getSelection();
-  if (!selection) {
-    return false;
+function getContextTargetSelectionText(target) {
+  if (!target) {
+    return "";
   }
 
-  await agenticApp.writeClipboardText(selection);
-  return true;
+  const liveSelection = getTerminalSelectionText(target.terminal, target.mount);
+  if (liveSelection) {
+    target.selectionSnapshot = liveSelection;
+    return liveSelection;
+  }
+
+  return target.selectionSnapshot || "";
+}
+
+async function copyTerminalSelection(
+  terminal,
+  mount = null,
+  fallbackSelection = "",
+) {
+  return copyTerminalSelectionToClipboard(terminal, {
+    mount,
+    fallbackSelection,
+    bridgeWriteText: (value) => agenticApp.writeClipboardText(value),
+  });
 }
 
 async function pasteIntoTerminal(terminal) {
-  const text = await agenticApp.readClipboardText();
-  if (!text) {
-    return false;
-  }
-
-  terminal.paste(text);
-  return true;
+  return pasteClipboardIntoTerminal(terminal, {
+    bridgeReadText: () => agenticApp.readClipboardText(),
+  });
 }
 
 function clearTerminalViewport(terminal) {
@@ -1971,8 +2051,8 @@ function openTerminalContextMenu(event, target) {
   event.preventDefault();
   terminalContextTarget = target;
 
-  const selection = target.terminal.getSelection();
-  terminalContextCopyButton.disabled = !selection;
+  // Keep copy enabled even if selection detection briefly desyncs on right-click.
+  terminalContextCopyButton.disabled = !target;
 
   const menuWidth = 152;
   const menuHeight = 132;
@@ -1982,29 +2062,36 @@ function openTerminalContextMenu(event, target) {
   terminalContextMenu.style.left = `${Math.max(12, left)}px`;
   terminalContextMenu.style.top = `${Math.max(12, top)}px`;
   terminalContextMenu.classList.remove("hidden");
+
+  // Some platforms briefly desync xterm selection state during right-click.
+  window.requestAnimationFrame(() => {
+    if (terminalContextTarget !== target) {
+      return;
+    }
+
+    terminalContextCopyButton.disabled = !target;
+  });
 }
 
 function attachTerminalClipboardHandlers(target) {
   const { terminal, mount } = target;
+
+  const snapshotSelection = () => {
+    target.selectionSnapshot = getTerminalSelectionText(terminal, mount);
+  };
 
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") {
       return true;
     }
 
-    if (isClipboardShortcut(event, "c") && terminal.hasSelection()) {
-      event.preventDefault();
-      copyTerminalSelection(terminal);
-      return false;
-    }
-
-    if (isClipboardShortcut(event, "v")) {
+    if (isShortcutKey(event, "v")) {
       event.preventDefault();
       pasteIntoTerminal(terminal);
       return false;
     }
 
-    if (isClipboardShortcut(event, "p")) {
+    if (isShortcutKey(event, "p")) {
       event.preventDefault();
       openVsCodeQuickOpen();
       return false;
@@ -2014,13 +2101,20 @@ function attachTerminalClipboardHandlers(target) {
   });
 
   mount.addEventListener("copy", (event) => {
-    const selection = terminal.getSelection();
+    const selection = getTerminalSelectionText(terminal, mount);
     if (!selection) {
       return;
     }
 
-    event.preventDefault();
-    agenticApp.writeClipboardText(selection);
+    if (event.clipboardData?.setData) {
+      event.preventDefault();
+      event.clipboardData.setData("text/plain", selection);
+      return;
+    }
+
+    writeTextToClipboard(selection, (value) =>
+      agenticApp.writeClipboardText(value),
+    );
   });
 
   mount.addEventListener("paste", (event) => {
@@ -2035,6 +2129,17 @@ function attachTerminalClipboardHandlers(target) {
 
   mount.addEventListener("contextmenu", (event) => {
     openTerminalContextMenu(event, target);
+  });
+
+  // Preserve selection before right-click context menu can clear it.
+  mount.addEventListener("mousedown", (event) => {
+    if (event.button === 2) {
+      snapshotSelection();
+    }
+  });
+
+  mount.addEventListener("mouseup", () => {
+    snapshotSelection();
   });
 }
 
@@ -2122,7 +2227,10 @@ function createFileLinkProvider(sessionId, terminal) {
 
           const links = [];
           for (const candidate of matches) {
-            const resolved = resolveWorkspaceReference(index, candidate.rawPath);
+            const resolved = resolveWorkspaceReference(
+              index,
+              candidate.rawPath,
+            );
             if (!resolved) {
               continue;
             }
@@ -3014,16 +3122,6 @@ function handleGlobalKeydown(event) {
   }
 
   if (
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "c"
-  ) {
-    event.preventDefault();
-    handleCopyOrInterruptShortcut();
-    return;
-  }
-
-  if (
     !editorState.open &&
     (event.ctrlKey || event.metaKey) &&
     !event.altKey &&
@@ -3070,16 +3168,8 @@ window.addEventListener("agentic:quick-open", () => {
   openVsCodeQuickOpen();
 });
 
-window.addEventListener("agentic:copy-or-interrupt", () => {
-  handleCopyOrInterruptShortcut();
-});
-
 agenticApp.onQuickOpenShortcut(() => {
   openVsCodeQuickOpen();
-});
-
-agenticApp.onCopyOrInterruptShortcut(() => {
-  handleCopyOrInterruptShortcut();
 });
 
 window.addEventListener("keydown", handleGlobalKeydown, true);
@@ -3132,13 +3222,7 @@ if (
       return;
     }
 
-    const index = Number.parseInt(button.dataset.index, 10);
-    if (!Number.isInteger(index) || index < 0) {
-      return;
-    }
-
-    quickOpenState.activeIndex = index;
-    openQuickOpenSelection(index);
+    openQuickOpenSelection(Number(button.dataset.index));
   });
 
   quickOpenCloseButton.addEventListener("click", () => {
@@ -3217,7 +3301,11 @@ fileEditorAutosave.addEventListener("change", () => {
 
 terminalContextCopyButton.addEventListener("click", async () => {
   if (terminalContextTarget) {
-    await copyTerminalSelection(terminalContextTarget.terminal);
+    await copyTerminalSelection(
+      terminalContextTarget.terminal,
+      terminalContextTarget.mount,
+      terminalContextTarget.selectionSnapshot,
+    );
   }
   closeTerminalContextMenu();
 });

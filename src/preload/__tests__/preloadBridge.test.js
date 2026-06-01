@@ -84,17 +84,5 @@ describe("preload bridge", () => {
       "app:shortcut:quick-open",
       expect.any(Function),
     );
-
-    const unsubscribeCopyShortcut =
-      exposed.agentic.shortcuts.onCopyOrInterrupt(shortcutListener);
-    expect(on).toHaveBeenCalledWith(
-      "app:shortcut:copy-or-interrupt",
-      expect.any(Function),
-    );
-    unsubscribeCopyShortcut();
-    expect(removeListener).toHaveBeenCalledWith(
-      "app:shortcut:copy-or-interrupt",
-      expect.any(Function),
-    );
   });
 });
