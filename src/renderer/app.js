@@ -1,16 +1,24 @@
-import { Terminal } from "../../node_modules/@xterm/xterm/lib/xterm.mjs";
-import { FitAddon } from "../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs";
-import { SearchAddon } from "../../node_modules/@xterm/addon-search/lib/addon-search.mjs";
-import { WebLinksAddon } from "../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs";
+import { Terminal } from "./vendor/@xterm/xterm/lib/xterm.mjs";
+import { FitAddon } from "./vendor/@xterm/addon-fit/lib/addon-fit.mjs";
+import { SearchAddon } from "./vendor/@xterm/addon-search/lib/addon-search.mjs";
+import { WebLinksAddon } from "./vendor/@xterm/addon-web-links/lib/addon-web-links.mjs";
 import { agenticApp } from "./agenticApp.js";
+import {
+  bindSessionEvents,
+  createSessionLifecycleHandlers,
+} from "./sessionLifecycle.js";
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
   hasTerminalSelection,
-  isShortcutKey,
   pasteClipboardIntoTerminal,
   writeTextToClipboard,
 } from "./globalShortcutUtils.js";
+import {
+  getMonacoKeybindingForAction,
+  SHORTCUT_ACTIONS,
+  shouldRunShortcut,
+} from "./shortcuts.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -323,6 +331,7 @@ let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
 let openingReferencedFile = false;
+let sessionLifecycleHandlers = null;
 
 const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
 const MONACO_VS_BASE_PATH = "./vendor/monaco-editor/min/vs";
@@ -1029,12 +1038,15 @@ function ensureMonacoEditor() {
       });
 
       // Ensure quick-open works when Monaco has keyboard focus.
-      monacoEditor.addCommand(
-        monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyP,
-        () => {
-          openVsCodeQuickOpen();
-        },
+      const monacoQuickOpenShortcut = getMonacoKeybindingForAction(
+        SHORTCUT_ACTIONS.QUICK_OPEN,
+        monacoApi,
       );
+      if (monacoQuickOpenShortcut !== null) {
+        monacoEditor.addCommand(monacoQuickOpenShortcut, () => {
+          openVsCodeQuickOpen();
+        });
+      }
 
       monacoEditor.onDidChangeModelContent(() => {
         if (suppressEditorChange || !editorState.open) {
@@ -2085,13 +2097,13 @@ function attachTerminalClipboardHandlers(target) {
       return true;
     }
 
-    if (isShortcutKey(event, "v")) {
+    if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_PASTE, event)) {
       event.preventDefault();
       pasteIntoTerminal(terminal);
       return false;
     }
 
-    if (isShortcutKey(event, "p")) {
+    if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
       event.preventDefault();
       openVsCodeQuickOpen();
       return false;
@@ -2719,75 +2731,19 @@ function updateSessions(payload) {
 }
 
 function bindGlobalEvents() {
-  agenticApp.onSessionData(({ sessionId, data }) => {
-    updateInsightFromOutput(sessionId, data);
-    appendSessionBuffer(sessionId, data);
-    ingestFileReferences(sessionId, data);
-
-    const instance = sessionTerminals.get(sessionId);
-    if (instance) {
-      instance.terminal.write(data);
-    }
-
-    if (activeSessionId === sessionId) {
-      renderSessionFileReferences(sessionId);
-    }
-
-    scheduleUiRefresh();
-  });
-
-  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
-    const insight = ensureSessionInsight(sessionId);
-    insight.awaitingPermission = false;
-    insight.awaitingQuestion = false;
-    if (exitCode !== 0) {
-      insight.hasError = true;
-      insight.errorMessage = `Exited with code ${exitCode}`;
-      insight.lastErrorAt = Date.now();
-    }
-
-    const exitLine = `\r\n[session exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
-    appendSessionBuffer(sessionId, exitLine);
-
-    const instance = sessionTerminals.get(sessionId);
-    if (instance) {
-      instance.terminal.write(exitLine);
-    }
-
-    scheduleUiRefresh();
-  });
-
-  agenticApp.onManualTerminalData(({ sessionId, terminalId, data }) => {
-    const key = manualTerminalKey(sessionId, String(terminalId || "1"));
-    manualTerminalBuffers.set(
-      key,
-      `${manualTerminalBuffers.get(key) || ""}${data}`,
-    );
-
-    const instance = manualTerminals.get(key);
-    if (instance) {
-      instance.terminal.write(data);
-    }
-  });
-
-  agenticApp.onManualTerminalExit(
-    ({ sessionId, terminalId, exitCode, signal }) => {
-      const key = manualTerminalKey(sessionId, String(terminalId || "1"));
-      const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
-      manualTerminalBuffers.set(
-        key,
-        `${manualTerminalBuffers.get(key) || ""}${exitLine}`,
-      );
-
-      const instance = manualTerminals.get(key);
-      if (instance) {
-        instance.terminal.write(exitLine);
-      }
-    },
-  );
-
-  agenticApp.onSessionsChanged((payload) => {
-    updateSessions(payload);
+  bindSessionEvents({
+    updateInsightFromOutput,
+    appendSessionBuffer,
+    ingestFileReferences,
+    sessionTerminals,
+    renderSessionFileReferences,
+    getActiveSessionId: () => activeSessionId,
+    scheduleUiRefresh,
+    ensureSessionInsight,
+    manualTerminalKey,
+    manualTerminalBuffers,
+    manualTerminals,
+    updateSessions,
   });
 }
 
@@ -2826,9 +2782,13 @@ async function resizeManualTerminals() {
 }
 
 async function initializeContext() {
-  const context = await agenticApp.getContext();
-  setProcessInspectionSupport(context.processInspectionSupported);
+  if (!sessionLifecycleHandlers) {
+    return;
+  }
 
+  await sessionLifecycleHandlers.initializeContext();
+
+  const context = await agenticApp.getContext();
   const contextDefaultCommand =
     typeof context.defaultCommand === "string"
       ? context.defaultCommand.trim()
@@ -2840,98 +2800,46 @@ async function initializeContext() {
   ) {
     commandInput.value = contextDefaultCommand;
   }
-
-  cwdInput.value = context.cwd;
-  setStatus("Idle", `Default directory ${context.cwd}`);
-
-  const existing = await agenticApp.listSessions();
-  updateSessions(existing.sessions || []);
-
-  const runningCount = (existing.sessions || []).filter(
-    (session) => session.isRunning,
-  ).length;
-  if (runningCount > 0) {
-    setStatus(
-      "Restored",
-      `${runningCount} running session${runningCount === 1 ? "" : "s"} recovered`,
-    );
-  }
 }
 
 async function startSession(event) {
-  event.preventDefault();
-
-  const command = commandInput.value.trim();
-  const label = labelInput?.value?.trim() || "";
-  const args = argsInput.value;
-  const cwd = cwdInput.value.trim();
-
-  if (!command) {
-    setStatus("Error", "Command is required");
+  if (!sessionLifecycleHandlers) {
     return;
   }
 
-  try {
-    const cols = 120;
-    const rows = 36;
-    const result = await agenticApp.startSession({
-      label,
-      command,
-      args,
-      cwd,
-      cols,
-      rows,
-    });
-    const session = result.session;
-
-    ensureSessionBuffer(session.id);
-    ensureSessionInsight(session.id);
-    createSessionTerminal(session.id);
-
-    setStatus("Running", `${getSessionDisplayName(session)} (${session.cwd})`);
-    newSessionPopover.classList.add("hidden");
-    openTerminalView(session.id);
-  } catch (error) {
-    setStatus("Error", error.message || "Unable to start session");
-  }
+  await sessionLifecycleHandlers.startSession(event);
 }
 
 async function stopSession() {
-  if (!activeSessionId) {
+  if (!sessionLifecycleHandlers) {
     return;
   }
 
-  try {
-    await agenticApp.stopSession(activeSessionId);
-    setStatus("Stopped", "Session terminated by user");
-  } catch (error) {
-    setStatus("Error", error.message || "Unable to stop session");
-  }
+  await sessionLifecycleHandlers.stopSession();
 }
 
 async function sendInterrupt() {
-  if (!activeSessionId) {
+  if (!sessionLifecycleHandlers) {
     return;
   }
 
-  await agenticApp.writeToSession(activeSessionId, "\u0003");
-  markSessionInput(activeSessionId);
-  scheduleUiRefresh();
+  await sessionLifecycleHandlers.sendInterrupt();
 }
 
 async function sendManualInterrupt(terminalId) {
-  if (!activeSessionId) {
+  if (!sessionLifecycleHandlers) {
     return;
   }
 
-  await agenticApp.writeToManualTerminal(activeSessionId, "\u0003", terminalId);
+  await sessionLifecycleHandlers.sendManualInterrupt(terminalId);
 }
 
 async function pickDirectory() {
-  const selected = await agenticApp.pickDirectory();
-  if (selected) {
-    cwdInput.value = selected;
+  if (!sessionLifecycleHandlers) {
+    return;
   }
+
+  await sessionLifecycleHandlers.pickDirectory();
 }
 
 function toggleSessionPopover(forceOpen = null) {
@@ -3002,32 +2910,40 @@ function selectSessionFromSidebar(event) {
 }
 
 async function restartSessionFromSidebar(sessionId) {
-  try {
-    const result = await agenticApp.restartSession(sessionId);
-    const session = result.session;
-
-    ensureSessionBuffer(session.id);
-    ensureSessionInsight(session.id);
-    createSessionTerminal(session.id);
-
-    setStatus("Running", `${getSessionDisplayName(session)} (${session.cwd})`);
-    openTerminalView(session.id);
-  } catch (error) {
-    setStatus("Error", error.message || "Unable to restart session");
+  if (!sessionLifecycleHandlers) {
+    return;
   }
+
+  await sessionLifecycleHandlers.restartSessionFromSidebar(sessionId);
 }
 
 async function removeSessionFromSidebar(sessionId) {
-  try {
-    await agenticApp.removeSession(sessionId);
-    setStatus("Removed", "Session deleted");
-    if (activeSessionId === sessionId) {
-      showEmptyView(false);
-    }
-  } catch (error) {
-    setStatus("Error", error.message || "Unable to remove session");
+  if (!sessionLifecycleHandlers) {
+    return;
   }
+
+  await sessionLifecycleHandlers.removeSessionFromSidebar(sessionId);
 }
+
+sessionLifecycleHandlers = createSessionLifecycleHandlers({
+  setProcessInspectionSupport,
+  cwdInput,
+  setStatus,
+  updateSessions,
+  labelInput,
+  commandInput,
+  argsInput,
+  ensureSessionBuffer,
+  ensureSessionInsight,
+  createSessionTerminal,
+  getSessionDisplayName,
+  closeSessionPopover: () => newSessionPopover.classList.add("hidden"),
+  openTerminalView,
+  getActiveSessionId: () => activeSessionId,
+  markSessionInput,
+  scheduleUiRefresh,
+  showEmptyView,
+});
 
 sessionTabsList.addEventListener("click", (event) => {
   const target = event.target;
@@ -3111,40 +3027,34 @@ document.addEventListener("click", (event) => {
 });
 
 function handleGlobalKeydown(event) {
-  if (
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "p"
-  ) {
+  if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
     event.preventDefault();
     openVsCodeQuickOpen();
     return;
   }
 
   if (
-    !editorState.open &&
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    String(event.key || "").toLowerCase() === "f"
+    shouldRunShortcut(SHORTCUT_ACTIONS.FIND_IN_SESSION, event, {
+      editorOpen: editorState.open,
+      activeSessionId,
+    })
   ) {
-    if (activeSessionId) {
-      event.preventDefault();
-      openAgentSearch();
-    }
+    event.preventDefault();
+    openAgentSearch();
     return;
   }
 
   if (
-    editorState.open &&
-    (event.key === "s" || event.key === "S") &&
-    (event.ctrlKey || event.metaKey)
+    shouldRunShortcut(SHORTCUT_ACTIONS.SAVE_EDITOR, event, {
+      editorOpen: editorState.open,
+    })
   ) {
     event.preventDefault();
     saveOpenEditorFile("Saved");
     return;
   }
 
-  if (event.key === "Escape") {
+  if (shouldRunShortcut(SHORTCUT_ACTIONS.ESCAPE, event)) {
     if (quickOpenState.open) {
       closeQuickOpen();
       return;

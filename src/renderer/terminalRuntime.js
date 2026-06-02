@@ -20,10 +20,13 @@ import {
 import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
-  isShortcutKey,
   pasteClipboardIntoTerminal,
   writeTextToClipboard,
 } from "./globalShortcutUtils.js";
+import {
+  SHORTCUT_ACTIONS,
+  shouldRunShortcut,
+} from "./shortcuts.js";
 import { normalizeCandidateFilePath } from "./utils.js";
 
 async function copyTerminalSelection(terminal) {
@@ -438,13 +441,13 @@ export function createAppTerminalRuntime({
         return true;
       }
 
-      if (isShortcutKey(event, "v")) {
+      if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_PASTE, event)) {
         event.preventDefault();
         pasteIntoTerminal(terminal);
         return false;
       }
 
-      if (isShortcutKey(event, "p")) {
+      if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
         event.preventDefault();
         openWorkspaceSearch();
         return false;
