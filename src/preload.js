@@ -136,7 +136,10 @@ const agentic = {
         return;
       }
 
-      await ipcRenderer.invoke(IPC_CHANNELS.invoke.writeClipboardText, resolved);
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.invoke.writeClipboardText,
+        resolved,
+      );
     },
   },
 };

@@ -2210,6 +2210,34 @@ function attachTerminalClipboardHandlers(target) {
       return true;
     }
 
+    if (isShortcutKey(event, "c")) {
+      event.preventDefault();
+      copyTerminalSelection(
+        terminal,
+        mount,
+        getContextTargetSelectionText(target),
+      )
+        .then((copied) => {
+          if (copied) {
+            setStatus("Copied", "Terminal selection");
+            return;
+          }
+
+          if (target.kind === "manual") {
+            return sendManualInterrupt(target.terminalId || "1");
+          }
+
+          return sendInterrupt();
+        })
+        .catch((error) => {
+          setStatus(
+            "Error",
+            error?.message || "Unable to process Ctrl+C shortcut",
+          );
+        });
+      return false;
+    }
+
     if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_PASTE, event)) {
       event.preventDefault();
       pasteIntoTerminal(terminal);

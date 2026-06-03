@@ -1,5 +1,7 @@
 const { createIpcHandlerRegistry } = require("./handlerRegistry");
-const { registerHandlers: registerAppHandlers } = require("./registerAppIpcHandlers");
+const {
+  registerHandlers: registerAppHandlers,
+} = require("./registerAppIpcHandlers");
 const {
   registerHandlers: registerSessionHandlers,
 } = require("./registerSessionIpcHandlers");

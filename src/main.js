@@ -11,7 +11,10 @@ const {
 } = require("electron");
 
 const { IPC_CHANNELS } = require("./shared/ipcContract");
-const { resolveInitialDirectory, shellForPlatform } = require("./main/platform");
+const {
+  resolveInitialDirectory,
+  shellForPlatform,
+} = require("./main/platform");
 const { createServiceRegistry } = require("./main/serviceRegistry");
 const { registerAllServices } = require("./main/services");
 const { registerIpcHandlers } = require("./main/ipc/registerIpcHandlers");
@@ -45,16 +48,6 @@ function attachQuickOpenShortcutForwarding(mainWindow) {
 
     event.preventDefault();
     mainWindow.webContents.send(IPC_CHANNELS.events.shortcutQuickOpen);
-  });
-
-  mainWindow.webContents.on("before-input-event", (event, input) => {
-    const key = String(input?.key || "").toLowerCase();
-    if (!(input?.control || input?.meta) || input?.alt || key !== "c") {
-      return;
-    }
-
-    event.preventDefault();
-    mainWindow.webContents.send(IPC_CHANNELS.events.shortcutCopyOrInterrupt);
   });
 }
 
