@@ -13,6 +13,7 @@ const {
 function registerIpcHandlers({
   ipcMain,
   dialog,
+  clipboard,
   shell,
   resolveInitialDirectory,
   shellForPlatform,
@@ -24,6 +25,7 @@ function registerIpcHandlers({
   const registry = createIpcHandlerRegistry(ipcMain, {
     ipcMain,
     dialog,
+    clipboard,
     shell,
     resolveInitialDirectory,
     shellForPlatform,

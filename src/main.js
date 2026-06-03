@@ -3,6 +3,7 @@ const pty = require("node-pty");
 const {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -45,6 +46,16 @@ function attachQuickOpenShortcutForwarding(mainWindow) {
     event.preventDefault();
     mainWindow.webContents.send(IPC_CHANNELS.events.shortcutQuickOpen);
   });
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    const key = String(input?.key || "").toLowerCase();
+    if (!(input?.control || input?.meta) || input?.alt || key !== "c") {
+      return;
+    }
+
+    event.preventDefault();
+    mainWindow.webContents.send(IPC_CHANNELS.events.shortcutCopyOrInterrupt);
+  });
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -83,6 +94,7 @@ const {
 const ipcRegistry = registerIpcHandlers({
   ipcMain,
   dialog,
+  clipboard,
   shell,
   resolveInitialDirectory,
   shellForPlatform,

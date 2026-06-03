@@ -20,6 +20,8 @@ const IPC_CHANNELS = Object.freeze({
     writeToManualTerminal: "manual-terminal:write",
     resizeManualTerminal: "manual-terminal:resize",
     openExternalUrl: "external-link:open",
+    readClipboardText: "clipboard:read-text",
+    writeClipboardText: "clipboard:write-text",
   }),
   events: Object.freeze({
     sessionsChanged: "sessions:changed",
@@ -28,6 +30,7 @@ const IPC_CHANNELS = Object.freeze({
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
     shortcutQuickOpen: "app:shortcut:quick-open",
+    shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
 });
 // END AUTO-GENERATED IPC CHANNELS
@@ -78,6 +81,8 @@ const agentic = {
   shortcuts: {
     onQuickOpen: (listener) =>
       on(IPC_CHANNELS.events.shortcutQuickOpen, listener),
+    onCopyOrInterrupt: (listener) =>
+      on(IPC_CHANNELS.events.shortcutCopyOrInterrupt, listener),
   },
   workspace: {
     openFile: (sessionId, filePath) =>
@@ -117,8 +122,22 @@ const agentic = {
     onExit: (listener) => on(IPC_CHANNELS.events.manualTerminalExit, listener),
   },
   clipboard: {
-    readText: () => clipboard.readText(),
-    writeText: (value) => clipboard.writeText(value || ""),
+    readText: async () => {
+      if (clipboard && typeof clipboard.readText === "function") {
+        return clipboard.readText();
+      }
+
+      return ipcRenderer.invoke(IPC_CHANNELS.invoke.readClipboardText);
+    },
+    writeText: async (value) => {
+      const resolved = value || "";
+      if (clipboard && typeof clipboard.writeText === "function") {
+        clipboard.writeText(resolved);
+        return;
+      }
+
+      await ipcRenderer.invoke(IPC_CHANNELS.invoke.writeClipboardText, resolved);
+    },
   },
 };
 

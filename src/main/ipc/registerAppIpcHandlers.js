@@ -31,6 +31,7 @@ function sanitizeExternalOpenUrl(rawUrl) {
 
 function registerHandlers(registry, services) {
   const {
+    clipboard,
     dialog,
     shell,
     resolveInitialDirectory,
@@ -68,6 +69,19 @@ function registerHandlers(registry, services) {
     handler: async (_event, payload) => {
       const url = sanitizeExternalOpenUrl(payload?.url);
       await shell.openExternal(url);
+      return buildOkResponse(true);
+    },
+  });
+
+  registry.register("app", IPC_CHANNELS.invoke.readClipboardText, {
+    handler: async () => {
+      return clipboard.readText() || "";
+    },
+  });
+
+  registry.register("app", IPC_CHANNELS.invoke.writeClipboardText, {
+    handler: async (_event, value) => {
+      clipboard.writeText(String(value || ""));
       return buildOkResponse(true);
     },
   });

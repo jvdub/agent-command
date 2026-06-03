@@ -80,23 +80,23 @@ export const agenticApp = Object.freeze({
   resizeManualTerminal: (sessionId, size, terminalId = "1") =>
     call("manualTerminals", "resize", sessionId, size, terminalId),
   openExternalUrl: (url) => call("app", "openExternalUrl", url),
-  readClipboardText: () => {
+  readClipboardText: async () => {
     try {
       const clipboardSection = requireSection("clipboard");
       if (typeof clipboardSection.readText !== "function") {
         return "";
       }
 
-      return clipboardSection.readText();
+      return (await clipboardSection.readText()) || "";
     } catch {
       return "";
     }
   },
-  writeClipboardText: (value) => {
+  writeClipboardText: async (value) => {
     try {
       const clipboardSection = requireSection("clipboard");
       if (typeof clipboardSection.writeText === "function") {
-        clipboardSection.writeText(value);
+        await clipboardSection.writeText(value);
       }
     } catch {
       // Ignore clipboard writes when bridge is unavailable.
@@ -111,4 +111,6 @@ export const agenticApp = Object.freeze({
     subscribe("manualTerminals", "onExit", listener),
   onQuickOpenShortcut: (listener) =>
     subscribe("shortcuts", "onQuickOpen", listener),
+  onCopyOrInterruptShortcut: (listener) =>
+    subscribe("shortcuts", "onCopyOrInterrupt", listener),
 });

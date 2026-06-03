@@ -59,8 +59,8 @@ describe("preload bridge", () => {
       rows: 36,
     });
 
-    expect(exposed.agentic.clipboard.readText()).toBe("clip");
-    exposed.agentic.clipboard.writeText("new-value");
+    await expect(exposed.agentic.clipboard.readText()).resolves.toBe("clip");
+    await exposed.agentic.clipboard.writeText("new-value");
     expect(writeText).toHaveBeenCalledWith("new-value");
 
     const listener = jest.fn();
@@ -82,6 +82,19 @@ describe("preload bridge", () => {
     unsubscribeQuickOpen();
     expect(removeListener).toHaveBeenCalledWith(
       "app:shortcut:quick-open",
+      expect.any(Function),
+    );
+
+    const copyShortcutListener = jest.fn();
+    const unsubscribeCopyOrInterrupt =
+      exposed.agentic.shortcuts.onCopyOrInterrupt(copyShortcutListener);
+    expect(on).toHaveBeenCalledWith(
+      "app:shortcut:copy-or-interrupt",
+      expect.any(Function),
+    );
+    unsubscribeCopyOrInterrupt();
+    expect(removeListener).toHaveBeenCalledWith(
+      "app:shortcut:copy-or-interrupt",
       expect.any(Function),
     );
   });

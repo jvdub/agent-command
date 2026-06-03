@@ -71,6 +71,10 @@ describe("registerIpcHandlers", () => {
           filePaths: [],
         })),
       },
+      clipboard: {
+        readText: jest.fn(() => ""),
+        writeText: jest.fn(() => {}),
+      },
       shell: { openExternal: jest.fn(async () => {}) },
       resolveInitialDirectory: jest.fn(() => "/repo"),
       shellForPlatform: jest.fn(() => "/bin/bash"),

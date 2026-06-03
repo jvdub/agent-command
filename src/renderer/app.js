@@ -8,6 +8,7 @@ import {
   createSessionLifecycleHandlers,
 } from "./sessionLifecycle.js";
 import {
+  isShortcutKey,
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
   hasTerminalSelection,
@@ -112,6 +113,7 @@ const AUTOSAVE_DELAY_MS = 1000;
 const ATTENTION_STREAM_MAX_BUFFER = 8192;
 const QUICK_OPEN_RECENTS_KEY = "agentic-command-quick-open-recents";
 const QUICK_OPEN_RECENTS_LIMIT = 40;
+const COPY_SHORTCUT_DEBOUNCE_MS = 50;
 // Matches file paths in terminal output, supporting both POSIX and Windows formats:
 // - Windows absolute: C:\path\to\file.js, D:\project\src\main.ts
 // - Windows UNC: \\server\share\file.js
@@ -332,6 +334,7 @@ let monacoLoaderPromise = null;
 let editorModel = null;
 let openingReferencedFile = false;
 let sessionLifecycleHandlers = null;
+let lastCopyOrInterruptShortcutAt = 0;
 
 const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
 const MONACO_VS_BASE_PATH = "./vendor/monaco-editor/min/vs";
@@ -1491,6 +1494,116 @@ async function copyEditorSelection() {
 
   setStatus("Copied", editorState.relativePath || "Selection copied");
   return true;
+}
+
+function getFocusedEditableSelectionText() {
+  const focused = document.activeElement;
+  if (!focused) {
+    return "";
+  }
+
+  if (focused instanceof HTMLTextAreaElement) {
+    const start = focused.selectionStart;
+    const end = focused.selectionEnd;
+    if (Number.isInteger(start) && Number.isInteger(end) && end > start) {
+      return focused.value.slice(start, end);
+    }
+    return "";
+  }
+
+  if (focused instanceof HTMLInputElement) {
+    const disallowedTypes = new Set([
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "hidden",
+      "image",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ]);
+    if (disallowedTypes.has(String(focused.type || "").toLowerCase())) {
+      return "";
+    }
+
+    const start = focused.selectionStart;
+    const end = focused.selectionEnd;
+    if (Number.isInteger(start) && Number.isInteger(end) && end > start) {
+      return focused.value.slice(start, end);
+    }
+    return "";
+  }
+
+  if (focused.isContentEditable) {
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount === 0) {
+      return "";
+    }
+
+    const text = String(selection);
+    if (!text) {
+      return "";
+    }
+
+    const range = selection.getRangeAt(0);
+    const startInside = focused.contains(range.startContainer);
+    const endInside = focused.contains(range.endContainer);
+    return startInside || endInside ? text : "";
+  }
+
+  return "";
+}
+
+async function runCopyOrInterruptShortcut() {
+  if (await copyEditorSelection()) {
+    return true;
+  }
+
+  const focusedSelection = getFocusedEditableSelectionText();
+  if (focusedSelection) {
+    await writeTextToClipboard(focusedSelection, (value) =>
+      agenticApp.writeClipboardText(value),
+    );
+    setStatus("Copied", "Selection copied");
+    return true;
+  }
+
+  const target = getShortcutTerminalTarget();
+  if (!target) {
+    return false;
+  }
+
+  const copied = await copyTerminalSelection(
+    target.terminal,
+    target.mount,
+    getContextTargetSelectionText(target),
+  );
+  if (copied) {
+    setStatus("Copied", "Terminal selection");
+    return true;
+  }
+
+  if (target.kind === "manual") {
+    await sendManualInterrupt(target.terminalId || "1");
+    return true;
+  }
+
+  await sendInterrupt();
+  return true;
+}
+
+function triggerCopyOrInterruptShortcut() {
+  const now = Date.now();
+  if (now - lastCopyOrInterruptShortcutAt < COPY_SHORTCUT_DEBOUNCE_MS) {
+    return;
+  }
+
+  lastCopyOrInterruptShortcutAt = now;
+  runCopyOrInterruptShortcut().catch((error) => {
+    setStatus("Error", error?.message || "Unable to process Ctrl+C shortcut");
+  });
 }
 
 function getTerminalShortcutCandidates() {
@@ -3027,6 +3140,12 @@ document.addEventListener("click", (event) => {
 });
 
 function handleGlobalKeydown(event) {
+  if (isShortcutKey(event, "c")) {
+    event.preventDefault();
+    triggerCopyOrInterruptShortcut();
+    return;
+  }
+
   if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
     event.preventDefault();
     openVsCodeQuickOpen();
@@ -3080,6 +3199,10 @@ window.addEventListener("agentic:quick-open", () => {
 
 agenticApp.onQuickOpenShortcut(() => {
   openVsCodeQuickOpen();
+});
+
+agenticApp.onCopyOrInterruptShortcut(() => {
+  triggerCopyOrInterruptShortcut();
 });
 
 window.addEventListener("keydown", handleGlobalKeydown, true);

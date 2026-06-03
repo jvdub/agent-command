@@ -17,6 +17,8 @@ const IPC_CHANNELS = Object.freeze({
     writeToManualTerminal: "manual-terminal:write",
     resizeManualTerminal: "manual-terminal:resize",
     openExternalUrl: "external-link:open",
+    readClipboardText: "clipboard:read-text",
+    writeClipboardText: "clipboard:write-text",
   }),
   events: Object.freeze({
     sessionsChanged: "sessions:changed",
@@ -25,6 +27,7 @@ const IPC_CHANNELS = Object.freeze({
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
     shortcutQuickOpen: "app:shortcut:quick-open",
+    shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
 });
 
@@ -211,14 +214,15 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(sessionId: string, input: string, terminalId?: string) => Promise<OkResponse>} writeToManualTerminal
  * @property {(sessionId: string, size: { cols: number, rows: number }, terminalId?: string) => Promise<OkResponse>} resizeManualTerminal
  * @property {(url: string) => Promise<OkResponse>} openExternalUrl
- * @property {() => string} readClipboardText
- * @property {(value: string) => void} writeClipboardText
+ * @property {() => Promise<string>} readClipboardText
+ * @property {(value: string) => Promise<void>} writeClipboardText
  * @property {(listener: (payload: SessionSummary[]) => void) => () => void} onSessionsChanged
  * @property {(listener: (payload: SessionDataEvent) => void) => () => void} onSessionData
  * @property {(listener: (payload: SessionExitEvent) => void) => () => void} onSessionExit
  * @property {(listener: (payload: ManualTerminalDataEvent) => void) => () => void} onManualTerminalData
  * @property {(listener: (payload: ManualTerminalExitEvent) => void) => () => void} onManualTerminalExit
  * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onQuickOpenShortcut
+ * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onCopyOrInterruptShortcut
  */
 
 function buildOpenWorkspaceFileRequest(sessionId, filePath) {
