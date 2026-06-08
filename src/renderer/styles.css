@@ -237,11 +237,6 @@ textarea {
 }
 
 .launch-popover {
-  position: absolute;
-  top: 64px;
-  left: 16px;
-  right: 16px;
-  z-index: 20;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--panel-strong);

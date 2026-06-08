@@ -34,7 +34,7 @@ The app now uses a session manager model instead of a single global PTY.
 
 ## Current target
 
-This workspace does expose the Copilot CLI as `copilot`, and running it with no arguments starts the normal interactive session. The command field stays editable so you can swap in a different agent later, but the default target is now the real Copilot entrypoint.
+The default command target is `claude`, which starts a normal interactive Claude CLI session when available in your shell. The command field stays editable so you can swap in a different agent later.
 
 ## Run
 
@@ -49,24 +49,24 @@ To prefill the app with a startup directory, pass it as an argument:
 npm start -- /absolute/path/to/project
 ```
 
-## Copilot examples
+## Claude examples
 
 Start a normal interactive session:
 
 ```bash
-copilot
+claude
 ```
 
 Resume the latest session:
 
 ```bash
-copilot --continue
+claude --continue
 ```
 
 Start interactively and send the first prompt immediately:
 
 ```bash
-copilot -i "Audit this repo and suggest the smallest fix"
+claude -i "Audit this repo and suggest the smallest fix"
 ```
 
 ## Notes
