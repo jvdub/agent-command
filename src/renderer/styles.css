@@ -24,6 +24,7 @@
   --surface-hover: rgba(255, 255, 255, 0.08);
   --surface-active: rgba(255, 255, 255, 0.12);
   --field-bg: rgba(0, 0, 0, 0.22);
+  --select-option-bg: #111218;
   --text: #f5f2e8;
   --muted: #aaa39a;
   --accent: #ee6c4d;
@@ -59,6 +60,7 @@
   --surface-hover: rgba(50, 43, 36, 0.1);
   --surface-active: rgba(50, 43, 36, 0.16);
   --field-bg: rgba(255, 255, 255, 0.82);
+  --select-option-bg: #ffffff;
   --text: #25211d;
   --muted: #706860;
   --accent: #c64f32;
@@ -435,6 +437,11 @@ select {
   border-radius: 16px;
   padding: 12px 14px;
   background: var(--field-bg);
+  color: var(--text);
+}
+
+select option {
+  background: var(--select-option-bg);
   color: var(--text);
 }
 
