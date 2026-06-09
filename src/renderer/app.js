@@ -20,6 +20,7 @@ import {
   SHORTCUT_ACTIONS,
   shouldRunShortcut,
 } from "./shortcuts.js";
+import { createPopoverDismissalController } from "./popoverDismissal.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -3036,6 +3037,10 @@ newSessionButton.addEventListener("click", () => toggleSessionPopover());
 openLauncherEmptyButton.addEventListener("click", () =>
   toggleSessionPopover(true),
 );
+const sessionPopoverDismissal = createPopoverDismissalController({
+  popover: newSessionPopover,
+  ignoredElements: [newSessionButton, openLauncherEmptyButton],
+});
 
 function selectSessionFromSidebar(event) {
   const target = event.target;
@@ -3143,6 +3148,10 @@ agentFileLinksList.addEventListener("click", async (event) => {
   }
 });
 
+document.addEventListener("pointerdown", (event) => {
+  sessionPopoverDismissal.handlePointerDown(event);
+});
+
 document.addEventListener("click", (event) => {
   if (
     !terminalContextMenu.classList.contains("hidden") &&
@@ -3151,20 +3160,9 @@ document.addEventListener("click", (event) => {
     closeTerminalContextMenu();
   }
 
-  if (newSessionPopover.classList.contains("hidden")) {
-    return;
+  if (sessionPopoverDismissal.shouldDismiss(event)) {
+    newSessionPopover.classList.add("hidden");
   }
-
-  const target = event.target;
-  if (
-    newSessionPopover.contains(target) ||
-    newSessionButton.contains(target) ||
-    openLauncherEmptyButton.contains(target)
-  ) {
-    return;
-  }
-
-  newSessionPopover.classList.add("hidden");
 });
 
 function handleGlobalKeydown(event) {
