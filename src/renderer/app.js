@@ -123,7 +123,7 @@ const COPY_SHORTCUT_DEBOUNCE_MS = 50;
 // - POSIX relative: ./file.js, ../file.js, dir/file.js
 // - Home: ~/file.js
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s("'`])((?:[A-Z]:\\|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
+  /(^|[\s("'`])((?:[A-Za-z]:[\\\/]|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
@@ -559,6 +559,10 @@ function normalizeFileLookupKey(pathValue) {
   normalized = normalized.replace(/^\.\//, "");
   if (normalized.startsWith("a/") || normalized.startsWith("b/")) {
     normalized = normalized.slice(2);
+  }
+
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")) {
+    normalized = normalized.toLowerCase();
   }
 
   return normalized;

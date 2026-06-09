@@ -32,6 +32,10 @@ function normalizeLookupKey(pathValue) {
     normalized = normalized.slice(2);
   }
 
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")) {
+    normalized = normalized.toLowerCase();
+  }
+
   return normalized;
 }
 

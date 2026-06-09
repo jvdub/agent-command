@@ -35,6 +35,7 @@ let mockManualTerminals = new Map();
 let mockSessionBuffers = new Map();
 let mockManualTerminalBuffers = new Map();
 let lastSearchResultsCallback = null;
+let mockTerminalLine = null;
 
 jest.mock("../dom.js", () => ({
   get elements() {
@@ -89,7 +90,7 @@ jest.mock("../vendor/@xterm/xterm/lib/xterm.mjs", () => ({
     rows: 24,
     buffer: {
       active: {
-        getLine: jest.fn(() => null),
+        getLine: jest.fn(() => mockTerminalLine),
       },
     },
   })),
@@ -131,6 +132,7 @@ describe("terminalRuntime manager search integration", () => {
     mockSessionBuffers = new Map();
     mockManualTerminalBuffers = new Map();
     lastSearchResultsCallback = null;
+    mockTerminalLine = null;
     jest.clearAllMocks();
   });
 
@@ -227,5 +229,37 @@ describe("terminalRuntime manager search integration", () => {
     const secondManualTerminal = Terminal.mock.results[1].value;
     expect(firstManualTerminal.registerLinkProvider).toHaveBeenCalledTimes(1);
     expect(secondManualTerminal.registerLinkProvider).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["C:\\repo\\src\\main.js:12", "C:\\repo\\src\\main.js"],
+    ["C:/repo/src/main.js:12", "C:/repo/src/main.js"],
+  ])("opens Windows terminal file links: %s", (terminalText, expectedPath) => {
+    const openReferencedFile = jest.fn();
+    const manager = createTerminalManager({
+      markSessionInput: jest.fn(),
+      openReferencedFile,
+      scheduleUiRefresh: jest.fn(),
+      setStatus: jest.fn(),
+    });
+
+    mockTerminalLine = {
+      translateToString: jest.fn(() => terminalText),
+    };
+    const instance = manager.createSessionTerminal("session-1");
+    const provider =
+      instance.terminal.registerLinkProvider.mock.calls[0][0];
+    const callback = jest.fn();
+
+    provider.provideLinks(1, callback);
+
+    const [links] = callback.mock.calls[0];
+    expect(links).toHaveLength(1);
+    links[0].activate();
+    expect(openReferencedFile).toHaveBeenCalledWith(
+      "session-1",
+      expectedPath,
+      12,
+    );
   });
 });
