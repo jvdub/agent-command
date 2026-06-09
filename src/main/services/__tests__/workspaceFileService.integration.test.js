@@ -117,4 +117,36 @@ describe("workspaceFileService integration", () => {
     await fs.promises.rm(workspace, { recursive: true, force: true });
     jest.useRealTimers();
   });
+
+  test("opens files when the hot-reload watcher is unavailable", async () => {
+    const workspace = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "agentic-command-workspace-"),
+    );
+    const filePath = path.join(workspace, "main.js");
+    await fs.promises.writeFile(filePath, "content", "utf-8");
+
+    const service = createWorkspaceFileService({
+      sessions: new Map([
+        ["session-1", { id: "session-1", cwd: workspace }],
+      ]),
+      dialog: {},
+      getMainWindow: jest.fn(),
+      resolveInitialDirectory: () => workspace,
+      watch: jest.fn(() => {
+        const error = new Error("watch access denied");
+        error.code = "EPERM";
+        throw error;
+      }),
+    });
+
+    await expect(
+      service.openEditorFile("session-1", "main.js"),
+    ).resolves.toEqual({
+      absolutePath: filePath,
+      relativePath: "main.js",
+      content: "content",
+    });
+
+    await fs.promises.rm(workspace, { recursive: true, force: true });
+  });
 });

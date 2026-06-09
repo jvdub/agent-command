@@ -399,20 +399,25 @@ function createWorkspaceFileService({
       }, EDITOR_FILE_CHANGE_DEBOUNCE_MS);
     };
 
-    editorFileWatcher = watch(
-      path.dirname(watchedFile.absolutePath),
-      { persistent: false },
-      (_eventType, filename) => {
-        if (
-          filename &&
-          String(filename) !== path.basename(watchedFile.absolutePath)
-        ) {
-          return;
-        }
+    try {
+      editorFileWatcher = watch(
+        path.dirname(watchedFile.absolutePath),
+        { persistent: false },
+        (_eventType, filename) => {
+          if (
+            filename &&
+            String(filename) !== path.basename(watchedFile.absolutePath)
+          ) {
+            return;
+          }
 
-        scheduleChange();
-      },
-    );
+          scheduleChange();
+        },
+      );
+    } catch {
+      watchedEditorFile = null;
+      return;
+    }
 
     editorFileWatcher.on?.("error", stopWatchingEditorFile);
   }
