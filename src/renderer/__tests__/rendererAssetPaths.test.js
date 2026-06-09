@@ -10,6 +10,10 @@ describe("renderer asset paths", () => {
 
     expect(html).toContain("./vendor/@xterm/xterm/css/xterm.css");
     expect(html).toContain("./vendor/monaco-editor/min/vs/loader.js");
+    expect(html).toContain('id="theme-select"');
+    expect(html).toContain('<option value="system">System default</option>');
+    expect(html).toContain('<option value="light">Light</option>');
+    expect(html).toContain('<option value="dark">Dark</option>');
     expect(html).not.toContain("../../node_modules/");
   });
 });

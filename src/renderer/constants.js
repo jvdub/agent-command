@@ -108,6 +108,7 @@ export const TERMINAL_OPTIONS = {
   fontFamily: "IBM Plex Mono, Cascadia Code, monospace",
   fontSize: 13,
   lineHeight: 1.3,
+  minimumContrastRatio: 4.5,
   theme: {
     background: "#12151c",
     foreground: "#f5f2e8",

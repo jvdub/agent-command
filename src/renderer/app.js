@@ -22,6 +22,10 @@ import {
 } from "./shortcuts.js";
 import { createPopoverDismissalController } from "./popoverDismissal.js";
 import { FILE_REFERENCE_PATTERN } from "./constants.js";
+import {
+  createThemeManager,
+  getTerminalTheme,
+} from "./themeManager.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -107,6 +111,7 @@ const quickOpenInput = document.querySelector("#quick-open-input");
 const quickOpenMeta = document.querySelector("#quick-open-meta");
 const quickOpenResults = document.querySelector("#quick-open-results");
 const quickOpenCloseButton = document.querySelector("#quick-open-close");
+const themeSelect = document.querySelector("#theme-select");
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
@@ -275,21 +280,8 @@ const TERMINAL_OPTIONS = {
   fontFamily: "IBM Plex Mono, Cascadia Code, monospace",
   fontSize: 13,
   lineHeight: 1.3,
-  theme: {
-    background: "#12151c",
-    foreground: "#f5f2e8",
-    cursor: "#ee6c4d",
-    selectionBackground: "rgba(238, 108, 77, 0.25)",
-    black: "#101217",
-    brightBlack: "#5f6675",
-    red: "#f47d6b",
-    green: "#8ccf7e",
-    yellow: "#f3be7c",
-    blue: "#78b8e6",
-    magenta: "#d68fd6",
-    cyan: "#65cbd0",
-    white: "#f5f2e8",
-  },
+  minimumContrastRatio: 4.5,
+  theme: getTerminalTheme("dark"),
 };
 
 const TERMINAL_SEARCH_OPTIONS = {
@@ -329,6 +321,7 @@ let editorModel = null;
 let openingReferencedFile = false;
 let sessionLifecycleHandlers = null;
 let lastCopyOrInterruptShortcutAt = 0;
+let activeTerminalTheme = getTerminalTheme("dark");
 
 const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
 const MONACO_VS_BASE_PATH = "./vendor/monaco-editor/min/vs";
@@ -1051,7 +1044,10 @@ function ensureMonacoEditor() {
         automaticLayout: true,
         minimap: { enabled: true },
         fontSize: 13,
-        theme: "vs-dark",
+        theme:
+          document.documentElement.dataset.theme === "light"
+            ? "vs"
+            : "vs-dark",
       });
 
       // Ensure quick-open works when Monaco has keyboard focus.
@@ -2488,7 +2484,10 @@ function createSessionTerminal(sessionId) {
   mount.dataset.sessionId = sessionId;
   terminalContainer.append(mount);
 
-  const terminal = new Terminal(TERMINAL_OPTIONS);
+  const terminal = new Terminal({
+    ...TERMINAL_OPTIONS,
+    theme: activeTerminalTheme,
+  });
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon({ highlightLimit: 2000 });
   const webLinksAddon = createWebLinksAddon({
@@ -2603,7 +2602,10 @@ function createManualTerminal(sessionId, terminalId) {
   mount.dataset.terminalId = terminalId;
   container.append(mount);
 
-  const terminal = new Terminal(TERMINAL_OPTIONS);
+  const terminal = new Terminal({
+    ...TERMINAL_OPTIONS,
+    theme: activeTerminalTheme,
+  });
   const fitAddon = new FitAddon();
   const webLinksAddon = createWebLinksAddon({
     sessionId,
@@ -3457,6 +3459,20 @@ terminalContextClearButton.addEventListener("click", async () => {
 
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
+const themeManager = createThemeManager({
+  selectElement: themeSelect,
+  onThemeApplied: ({ terminalTheme, monacoTheme }) => {
+    activeTerminalTheme = terminalTheme;
+    for (const instance of [
+      ...sessionTerminals.values(),
+      ...manualTerminals.values(),
+    ]) {
+      instance.terminal.options.theme = terminalTheme;
+    }
+    monacoApi?.editor.setTheme(monacoTheme);
+  },
+});
+themeManager.initialize();
 quickOpenState.recentPaths = loadQuickOpenRecents();
 editorState.autosave =
   window.localStorage.getItem("agentic-command-editor-autosave") === "1";
