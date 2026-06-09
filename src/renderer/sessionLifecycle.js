@@ -104,6 +104,7 @@ export function createSessionLifecycleHandlers({
   markSessionInput,
   scheduleUiRefresh,
   showEmptyView,
+  setSessionRestartPending,
 }) {
   return {
     async initializeContext() {
@@ -213,6 +214,12 @@ export function createSessionLifecycleHandlers({
     },
 
     async restartSessionFromSidebar(sessionId) {
+      if (!setSessionRestartPending(sessionId, true)) {
+        return;
+      }
+
+      setStatus("Restarting", "Restarting session...");
+
       try {
         const result = await agenticApp.restartSession(sessionId);
         const session = result.session;
@@ -228,6 +235,8 @@ export function createSessionLifecycleHandlers({
         await openTerminalView(session.id);
       } catch (error) {
         setStatus("Error", error.message || "Unable to restart session");
+      } finally {
+        setSessionRestartPending(sessionId, false);
       }
     },
 

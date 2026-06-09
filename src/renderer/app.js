@@ -312,6 +312,7 @@ const manualTerminals = new Map();
 const manualTerminalBuffers = new Map();
 const sessionProcesses = new Map();
 const sessionFileReferences = new Map();
+const restartingSessionIds = new Set();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -382,6 +383,21 @@ function setProcessInspectionSupport(supported) {
 function setStatus(label, meta) {
   sessionStatus.textContent = label;
   sessionMeta.textContent = meta;
+}
+
+function setSessionRestartPending(sessionId, pending) {
+  if (pending && restartingSessionIds.has(sessionId)) {
+    return false;
+  }
+
+  if (pending) {
+    restartingSessionIds.add(sessionId);
+  } else {
+    restartingSessionIds.delete(sessionId);
+  }
+
+  renderSessionTabs();
+  return true;
 }
 
 function formatCommand(session) {
@@ -2733,8 +2749,9 @@ function renderSessionTabs() {
           : "";
 
       if (!session.isRunning) {
+        const isRestarting = restartingSessionIds.has(session.id);
         return `
-          <div class="session-tab-group ${isActive ? "active" : ""}">
+          <div class="session-tab-group ${isActive ? "active" : ""} ${isRestarting ? "pending" : ""}">
             <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
               <div class="session-tab-top">
                 <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
@@ -2743,8 +2760,8 @@ function renderSessionTabs() {
               <p class="session-tab-attention">${attention.label}</p>
             </button>
             <div class="session-tab-actions">
-              <button type="button" class="session-action-restart" data-session-id="${session.id}" title="Restart session">Restart</button>
-              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session">Remove</button>
+              <button type="button" class="session-action-restart ${isRestarting ? "pending" : ""}" data-session-id="${session.id}" title="${isRestarting ? "Restarting session" : "Restart session"}" ${isRestarting ? 'disabled aria-busy="true"' : ""}>${isRestarting ? "Restarting..." : "Restart"}</button>
+              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session" ${isRestarting ? "disabled" : ""}>Remove</button>
             </div>
           </div>
         `;
@@ -2876,6 +2893,7 @@ function updateSessions(payload) {
       sessionFileReferences.delete(existingId);
       pendingSessionFileReferences.delete(existingId);
       workspaceFileIndexBySession.delete(existingId);
+      restartingSessionIds.delete(existingId);
       const pendingTimer = pendingSessionFileResolveTimers.get(existingId);
       if (pendingTimer) {
         window.clearTimeout(pendingTimer);
@@ -3138,6 +3156,7 @@ sessionLifecycleHandlers = createSessionLifecycleHandlers({
   markSessionInput,
   scheduleUiRefresh,
   showEmptyView,
+  setSessionRestartPending,
 });
 
 sessionTabsList.addEventListener("click", (event) => {
