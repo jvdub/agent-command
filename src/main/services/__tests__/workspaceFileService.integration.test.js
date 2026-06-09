@@ -7,6 +7,43 @@ const { IPC_CHANNELS } = require("../../../shared/ipcContract");
 const { createWorkspaceFileService } = require("../workspaceFileService");
 
 describe("workspaceFileService integration", () => {
+  test("opens terminal-style paths with line and column suffixes", async () => {
+    const workspace = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "agentic-command-workspace-"),
+    );
+    const sourceDirectory = path.join(workspace, "src folder");
+    const filePath = path.join(sourceDirectory, "main.js");
+    await fs.promises.mkdir(sourceDirectory);
+    await fs.promises.writeFile(filePath, "content", "utf-8");
+
+    const watcher = {
+      close: jest.fn(),
+      on: jest.fn(),
+    };
+    const service = createWorkspaceFileService({
+      sessions: new Map([
+        ["session-1", { id: "session-1", cwd: workspace }],
+      ]),
+      dialog: {},
+      getMainWindow: jest.fn(),
+      resolveInitialDirectory: () => workspace,
+      watch: jest.fn(() => watcher),
+    });
+
+    await expect(
+      service.openEditorFile("session-1", `${filePath}:12:4`),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        absolutePath: filePath,
+        relativePath: path.join("src folder", "main.js"),
+        content: "content",
+      }),
+    );
+
+    service.stopWatchingEditorFile();
+    await fs.promises.rm(workspace, { recursive: true, force: true });
+  });
+
   test("publishes updated content when the open editor file changes", async () => {
     jest.useFakeTimers();
 

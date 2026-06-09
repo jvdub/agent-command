@@ -322,7 +322,8 @@ export function createTerminalManager({
             continue;
           }
 
-          const lineNumber = match[2] ? Number(match[2]) : null;
+          const lineNumber =
+            match[2] || match[3] ? Number(match[2] || match[3]) : null;
           const startColumn = match.index + 1;
           const endColumn = match.index + match[0].length;
           if (endColumn < startColumn) {

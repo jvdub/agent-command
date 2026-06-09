@@ -48,6 +48,7 @@ function createWorkspaceFileService({
 
   function sanitizeEditorRequestedPath(value) {
     let sanitized = String(value || "").trim();
+    let isUncPath = /^\\\\/.test(sanitized);
 
     if (/^(file|vscode):\/\//i.test(sanitized)) {
       try {
@@ -57,7 +58,9 @@ function createWorkspaceFileService({
 
         const fileUrl = new URL(sanitized);
         if (fileUrl.protocol === "file:") {
-          sanitized = decodeURIComponent(fileUrl.pathname || "");
+          const pathname = decodeURIComponent(fileUrl.pathname || "");
+          sanitized = fileUrl.host ? `//${fileUrl.host}${pathname}` : pathname;
+          isUncPath = /^\/{2}[^/]/.test(sanitized);
 
           if (/^\/[A-Za-z]:\//.test(sanitized)) {
             sanitized = sanitized.slice(1);
@@ -80,6 +83,9 @@ function createWorkspaceFileService({
     }
 
     sanitized = sanitized.replace(/\\+/g, "/");
+    if (isUncPath && !sanitized.startsWith("//")) {
+      sanitized = `/${sanitized}`;
+    }
 
     return sanitized;
   }

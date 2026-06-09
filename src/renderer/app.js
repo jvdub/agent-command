@@ -21,6 +21,7 @@ import {
   shouldRunShortcut,
 } from "./shortcuts.js";
 import { createPopoverDismissalController } from "./popoverDismissal.js";
+import { FILE_REFERENCE_PATTERN } from "./constants.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -115,15 +116,6 @@ const ATTENTION_STREAM_MAX_BUFFER = 8192;
 const QUICK_OPEN_RECENTS_KEY = "agentic-command-quick-open-recents";
 const QUICK_OPEN_RECENTS_LIMIT = 40;
 const COPY_SHORTCUT_DEBOUNCE_MS = 50;
-// Matches file paths in terminal output, supporting both POSIX and Windows formats:
-// - Windows absolute: C:\path\to\file.js, D:\project\src\main.ts
-// - Windows UNC: \\server\share\file.js
-// - Windows relative: .\file.js, ..\dir\file.js, dir\file.js
-// - POSIX absolute: /path/to/file.js
-// - POSIX relative: ./file.js, ../file.js, dir/file.js
-// - Home: ~/file.js
-const FILE_REFERENCE_PATTERN =
-  /(^|[\s("'`])((?:[A-Za-z]:[\\\/]|\\\\[A-Za-z0-9._\-]+\\|\.{1,2}[\\\/]|~\/|\/)?(?:[A-Za-z0-9._\-]+[\\\/])*[A-Za-z0-9._\-]+\.(?:[cm]?[jt]sx?|json|md|css|scss|html?|py|java|go|rs|sh|yml|yaml|toml|xml))(?:[:#](\d+))?/g;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
@@ -736,14 +728,14 @@ function collectFileReferences(rawChunk) {
   let match;
 
   while ((match = FILE_REFERENCE_PATTERN.exec(plainText)) !== null) {
-    const normalized = normalizeCandidateFilePath(match[2]);
+    const normalized = normalizeCandidateFilePath(match[1]);
     if (!normalized) {
       continue;
     }
 
     refs.push({
       filePath: normalized,
-      line: match[3] ? Number(match[3]) : null,
+      line: match[2] || match[3] ? Number(match[2] || match[3]) : null,
     });
   }
 
@@ -2385,12 +2377,13 @@ function createFileLinkProvider(sessionId, terminal) {
       let match;
 
       while ((match = matcher.exec(text)) !== null) {
-        const rawPath = normalizeCandidateFilePath(match[2]);
+        const rawPath = normalizeCandidateFilePath(match[1]);
         if (!rawPath || rawPath.includes("://")) {
           continue;
         }
 
-        const lineNumber = match[3] ? Number(match[3]) : null;
+        const lineNumber =
+          match[2] || match[3] ? Number(match[2] || match[3]) : null;
         const startColumn = match.index + 1;
         const endColumn = match.index + match[0].length;
         if (endColumn < startColumn) {

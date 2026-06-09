@@ -234,6 +234,14 @@ describe("terminalRuntime manager search integration", () => {
   test.each([
     ["C:\\repo\\src\\main.js:12", "C:\\repo\\src\\main.js"],
     ["C:/repo/src/main.js:12", "C:/repo/src/main.js"],
+    [
+      "C:\\Users\\Jane Doe\\repo\\src\\main.js:12:4",
+      "C:\\Users\\Jane Doe\\repo\\src\\main.js",
+    ],
+    [
+      "C:\\Users\\Jane Doe\\repo\\src\\main.js(12,4)",
+      "C:\\Users\\Jane Doe\\repo\\src\\main.js",
+    ],
   ])("opens Windows terminal file links: %s", (terminalText, expectedPath) => {
     const openReferencedFile = jest.fn();
     const manager = createTerminalManager({

@@ -206,7 +206,7 @@ function collectFileReferences(rawChunk) {
 
     refs.push({
       filePath: normalized,
-      line: match[2] ? Number(match[2]) : null,
+      line: match[2] || match[3] ? Number(match[2] || match[3]) : null,
     });
   }
 
