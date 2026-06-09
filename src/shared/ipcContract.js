@@ -26,6 +26,7 @@ const IPC_CHANNELS = Object.freeze({
     sessionExit: "session:exit",
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
+    workspaceFileChanged: "workspace:file-changed",
     shortcutQuickOpen: "app:shortcut:quick-open",
     shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
@@ -119,6 +120,15 @@ const IPC_CHANNELS = Object.freeze({
  * @property {string} sessionId
  * @property {string} filePath
  * @property {string} content
+ */
+
+/**
+ * @typedef {object} WorkspaceFileChangedEvent
+ * @property {string} sessionId
+ * @property {string} absolutePath
+ * @property {string} relativePath
+ * @property {string} [content]
+ * @property {boolean} [deleted]
  */
 
 /**
@@ -221,6 +231,7 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(listener: (payload: SessionExitEvent) => void) => () => void} onSessionExit
  * @property {(listener: (payload: ManualTerminalDataEvent) => void) => () => void} onManualTerminalData
  * @property {(listener: (payload: ManualTerminalExitEvent) => void) => () => void} onManualTerminalExit
+ * @property {(listener: (payload: WorkspaceFileChangedEvent) => void) => () => void} onWorkspaceFileChanged
  * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onQuickOpenShortcut
  * @property {(listener: (payload: ShortcutEvent) => void) => () => void} onCopyOrInterruptShortcut
  */

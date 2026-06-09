@@ -115,6 +115,7 @@ jest.mock("../vendor/@xterm/addon-web-links/lib/addon-web-links.mjs", () => ({
 }));
 
 import { SearchAddon } from "../vendor/@xterm/addon-search/lib/addon-search.mjs";
+import { Terminal } from "../vendor/@xterm/xterm/lib/xterm.mjs";
 import { createTerminalManager } from "../terminalRuntime.js";
 
 describe("terminalRuntime manager search integration", () => {
@@ -208,5 +209,23 @@ describe("terminalRuntime manager search integration", () => {
     expect(handled).toBe(false);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(openWorkspaceSearch).toHaveBeenCalledTimes(1);
+  });
+
+  test("registers file link providers on both manual terminals", async () => {
+    const manager = createTerminalManager({
+      markSessionInput: jest.fn(),
+      openReferencedFile: jest.fn(),
+      scheduleUiRefresh: jest.fn(),
+      setStatus: jest.fn(),
+    });
+
+    mockUiState.activeSessionId = "session-1";
+    await manager.showManualTerminal("session-1", "1");
+    await manager.showManualTerminal("session-1", "2");
+
+    const firstManualTerminal = Terminal.mock.results[0].value;
+    const secondManualTerminal = Terminal.mock.results[1].value;
+    expect(firstManualTerminal.registerLinkProvider).toHaveBeenCalledTimes(1);
+    expect(secondManualTerminal.registerLinkProvider).toHaveBeenCalledTimes(1);
   });
 });

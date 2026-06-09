@@ -368,6 +368,11 @@ export function createTerminalManager({
         createFileLinkProvider(sessionId, terminal),
       );
     },
+    onManualTerminalCreated: ({ sessionId, terminal }) => {
+      terminal.registerLinkProvider(
+        createFileLinkProvider(sessionId, terminal),
+      );
+    },
   });
 
   managerSearchUi.bindEvents();
@@ -428,6 +433,7 @@ export function createAppTerminalRuntime({
   manualTerminalSubtitle1,
   manualTerminalSubtitle2,
   onSessionTerminalCreated,
+  onManualTerminalCreated,
 }) {
   function runtimeManualTerminalKey(sessionId, terminalId) {
     return `${sessionId}:${terminalId}`;
@@ -639,6 +645,11 @@ export function createAppTerminalRuntime({
       kind: "manual",
       initialized: false,
     };
+
+    if (typeof onManualTerminalCreated === "function") {
+      onManualTerminalCreated({ sessionId, terminalId, terminal, instance });
+    }
+
     attachTerminalClipboardHandlers(instance);
 
     terminal.onData((data) => {

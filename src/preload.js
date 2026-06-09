@@ -29,6 +29,7 @@ const IPC_CHANNELS = Object.freeze({
     sessionExit: "session:exit",
     manualTerminalData: "manual-terminal:data",
     manualTerminalExit: "manual-terminal:exit",
+    workspaceFileChanged: "workspace:file-changed",
     shortcutQuickOpen: "app:shortcut:quick-open",
     shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
   }),
@@ -98,6 +99,8 @@ const agentic = {
       }),
     listFiles: (payload) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.listWorkspaceFiles, payload),
+    onFileChanged: (listener) =>
+      on(IPC_CHANNELS.events.workspaceFileChanged, listener),
   },
   manualTerminals: {
     ensure: (sessionId, terminalId = "1") =>

@@ -47,6 +47,19 @@ describe("preload bridge", () => {
       filePath: "src/main.js",
     });
 
+    const fileChangedListener = jest.fn();
+    const unsubscribeFileChanged =
+      exposed.agentic.workspace.onFileChanged(fileChangedListener);
+    expect(on).toHaveBeenCalledWith(
+      "workspace:file-changed",
+      expect.any(Function),
+    );
+    unsubscribeFileChanged();
+    expect(removeListener).toHaveBeenCalledWith(
+      "workspace:file-changed",
+      expect.any(Function),
+    );
+
     await exposed.agentic.manualTerminals.resize(
       "session-1",
       { cols: 120, rows: 36 },

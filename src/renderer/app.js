@@ -347,6 +347,7 @@ let editorState = {
   open: false,
   sessionId: null,
   filePath: "",
+  absolutePath: "",
   relativePath: "",
   dirty: false,
   autosave: false,
@@ -1152,6 +1153,38 @@ async function saveOpenEditorFile(successLabel = "Saved") {
   }
 }
 
+function applyOpenEditorFileChange(file) {
+  if (
+    !editorState.open ||
+    !editorModel ||
+    file?.sessionId !== editorState.sessionId ||
+    file?.absolutePath !== editorState.absolutePath
+  ) {
+    return;
+  }
+
+  if (file.deleted) {
+    setEditorStatus(`File removed: ${editorState.relativePath}`);
+    return;
+  }
+
+  if (
+    typeof file.content !== "string" ||
+    editorModel.getValue() === file.content
+  ) {
+    return;
+  }
+
+  suppressEditorChange = true;
+  try {
+    editorModel.setValue(file.content);
+    editorState.dirty = false;
+    setEditorStatus(`Reloaded ${editorState.relativePath}`);
+  } finally {
+    suppressEditorChange = false;
+  }
+}
+
 async function openReferencedFile(sessionId, filePath, lineNumber = null) {
   openingReferencedFile = true;
 
@@ -1186,6 +1219,7 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
     editorState.open = true;
     editorState.sessionId = sessionId;
     editorState.filePath = filePath;
+    editorState.absolutePath = file.absolutePath;
     editorState.relativePath = file.relativePath;
     editorState.dirty = false;
 
@@ -2548,6 +2582,7 @@ function createManualTerminal(sessionId, terminalId) {
   terminal.loadAddon(fitAddon);
   terminal.loadAddon(webLinksAddon);
   terminal.open(mount);
+  terminal.registerLinkProvider(createFileLinkProvider(sessionId, terminal));
   const instance = {
     terminal,
     fitAddon,
@@ -3229,6 +3264,10 @@ agenticApp.onQuickOpenShortcut(() => {
 
 agenticApp.onCopyOrInterruptShortcut(() => {
   triggerCopyOrInterruptShortcut();
+});
+
+agenticApp.onWorkspaceFileChanged((file) => {
+  applyOpenEditorFileChange(file);
 });
 
 window.addEventListener("keydown", handleGlobalKeydown, true);

@@ -1,16 +1,38 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { IPC_CHANNELS } = require("../../shared/ipcContract");
 const { access, mkdir, readdir, readFile, stat, writeFile } = fs.promises;
 
 const MAX_EDITOR_FILE_BYTES = 1024 * 1024 * 2;
+const EDITOR_FILE_CHANGE_DEBOUNCE_MS = 75;
 
 function createWorkspaceFileService({
   sessions,
   dialog,
   getMainWindow,
   resolveInitialDirectory,
+  sendToRenderer = () => {},
+  watch = fs.watch,
 }) {
+  let editorFileWatcher = null;
+  let editorFileChangeTimer = null;
+  let watchedEditorFile = null;
+
+  function stopWatchingEditorFile() {
+    if (editorFileChangeTimer) {
+      clearTimeout(editorFileChangeTimer);
+      editorFileChangeTimer = null;
+    }
+
+    if (editorFileWatcher) {
+      editorFileWatcher.close();
+      editorFileWatcher = null;
+    }
+
+    watchedEditorFile = null;
+  }
+
   function getSessionByIdOrThrow(sessionId) {
     if (!sessionId) {
       throw new Error("A session ID is required.");
@@ -327,6 +349,68 @@ function createWorkspaceFileService({
     }
   }
 
+  function watchEditorFile(sessionId, resolved) {
+    stopWatchingEditorFile();
+
+    const watchedFile = {
+      absolutePath: resolved.absolutePath,
+      relativePath: resolved.relativePath,
+      sessionId,
+    };
+    watchedEditorFile = watchedFile;
+
+    const scheduleChange = () => {
+      if (editorFileChangeTimer) {
+        clearTimeout(editorFileChangeTimer);
+      }
+
+      editorFileChangeTimer = setTimeout(async () => {
+        editorFileChangeTimer = null;
+
+        if (watchedEditorFile !== watchedFile) {
+          return;
+        }
+
+        try {
+          await assertEditableTextFile(watchedFile.absolutePath);
+          const content = await readFile(watchedFile.absolutePath, "utf-8");
+          if (watchedEditorFile !== watchedFile) {
+            return;
+          }
+
+          sendToRenderer(IPC_CHANNELS.events.workspaceFileChanged, {
+            ...watchedFile,
+            content,
+          });
+        } catch {
+          if (watchedEditorFile === watchedFile) {
+            sendToRenderer(IPC_CHANNELS.events.workspaceFileChanged, {
+              ...watchedFile,
+              deleted: true,
+            });
+          }
+        }
+      }, EDITOR_FILE_CHANGE_DEBOUNCE_MS);
+    };
+
+    editorFileWatcher = watch(
+      path.dirname(watchedFile.absolutePath),
+      { persistent: false },
+      (_eventType, filename) => {
+        if (
+          filename &&
+          String(filename) !== path.basename(watchedFile.absolutePath)
+        ) {
+          return;
+        }
+
+        scheduleChange();
+      },
+    );
+
+    editorFileWatcher.on?.("error", stopWatchingEditorFile);
+  }
+
   async function ensureWorkingDirectory(requestedPath) {
     const cwd =
       requestedPath && requestedPath.trim()
@@ -365,11 +449,13 @@ function createWorkspaceFileService({
   async function openEditorFile(sessionId, filePath) {
     const resolved = await ensureSessionWorkspacePath(sessionId, filePath);
     await assertEditableTextFile(resolved.absolutePath);
+    const content = await readFile(resolved.absolutePath, "utf-8");
+    watchEditorFile(sessionId, resolved);
 
     return {
       absolutePath: resolved.absolutePath,
       relativePath: resolved.relativePath,
-      content: await readFile(resolved.absolutePath, "utf-8"),
+      content,
     };
   }
 
@@ -406,6 +492,7 @@ function createWorkspaceFileService({
     listWorkspaceFilesForRoot,
     openEditorFile,
     saveEditorFile,
+    stopWatchingEditorFile,
   };
 }
 

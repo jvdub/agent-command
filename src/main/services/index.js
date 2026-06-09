@@ -109,6 +109,7 @@ function registerAllServices(registry) {
         dialog,
         getMainWindow: () => ensureWindowManager({ BrowserWindow, path }).getMainWindow(),
         resolveInitialDirectory,
+        sendToRenderer: ensureWindowManager({ BrowserWindow, path }).sendToRenderer,
       }),
     [],
   );
