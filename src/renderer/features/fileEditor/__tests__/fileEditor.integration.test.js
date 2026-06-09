@@ -17,6 +17,7 @@ describe("fileEditor integration", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(console, "error").mockImplementation(() => {});
 
     ({ stateManager } = createDefaultState());
     dispatcher = createCommandDispatcher();
@@ -118,7 +119,16 @@ describe("fileEditor integration", () => {
       fileEditor.openReferencedFile("session-err", "bad/path.txt"),
     ).rejects.toThrow("boom");
 
-    expect(elements.fileEditorStatus.textContent).toBe("boom");
-    expect(setStatus).toHaveBeenCalledWith("Error", "boom");
+    const message =
+      "Unable to open bad/path.txt while reading the workspace file: boom";
+    expect(elements.fileEditorStatus.textContent).toBe(message);
+    expect(setStatus).toHaveBeenCalledWith("Error", message);
+    expect(console.error).toHaveBeenCalledWith(
+      message,
+      expect.objectContaining({
+        filePath: "bad/path.txt",
+        sessionId: "session-err",
+      }),
+    );
   });
 });

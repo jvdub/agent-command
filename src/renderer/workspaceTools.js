@@ -418,10 +418,14 @@ export function createWorkspaceTools({
   }
 
   async function openReferencedFile(sessionId, filePath, lineNumber = null) {
+    let openStage = "reading the workspace file";
+
     try {
       const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
+      openStage = "loading the workspace editor";
       await ensureMonacoEditor(saveOpenEditorFile);
 
+      openStage = "creating the editor model";
       editorRuntime.suppressEditorChange = true;
 
       if (editorRuntime.editorModel) {
@@ -460,7 +464,21 @@ export function createWorkspaceTools({
       setEditorStatus(`Opened ${file.relativePath}`);
       editorRuntime.monacoEditor.focus();
     } catch (error) {
-      setStatus("Error", error.message || "Unable to open referenced file");
+      const detail = error?.message || String(error || "Unknown error");
+      const message = `Unable to open ${filePath} while ${openStage}: ${detail}`;
+      console.error(message, {
+        error,
+        filePath,
+        lineNumber,
+        openStage,
+        sessionId,
+      });
+      elements.fileEditorPath.textContent = filePath;
+      elements.fileDrawer.classList.remove("hidden");
+      elements.fileEditorPanel.classList.remove("hidden");
+      elements.fileEditorEmpty.classList.add("hidden");
+      setEditorStatus(message);
+      setStatus("Error", message);
     } finally {
       editorRuntime.suppressEditorChange = false;
     }

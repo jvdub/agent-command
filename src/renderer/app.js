@@ -909,8 +909,8 @@ function openFileDrawer() {
   fileDrawer.classList.remove("hidden");
 
   // Warm Monaco in the background so the first file click opens faster.
-  ensureMonacoEditor().catch(() => {
-    // Ignore preload failures here; openReferencedFile will surface user-facing errors.
+  ensureMonacoEditor().catch((error) => {
+    console.warn("Unable to preload the workspace editor.", error);
   });
 }
 
@@ -1183,12 +1183,15 @@ function applyOpenEditorFileChange(file) {
 
 async function openReferencedFile(sessionId, filePath, lineNumber = null) {
   openingReferencedFile = true;
+  let openStage = "reading the workspace file";
 
   try {
     setEditorStatus(`Opening ${filePath}...`);
     const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
+    openStage = "loading the workspace editor";
     await ensureMonacoEditor();
 
+    openStage = "creating the editor model";
     suppressEditorChange = true;
 
     if (editorModel) {
@@ -1222,7 +1225,21 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
     setEditorStatus(`Opened ${file.relativePath}`);
     monacoEditor.focus();
   } catch (error) {
-    setStatus("Error", error.message || "Unable to open referenced file");
+    const detail = error?.message || String(error || "Unknown error");
+    const message = `Unable to open ${filePath} while ${openStage}: ${detail}`;
+    console.error(message, {
+      error,
+      filePath,
+      lineNumber,
+      openStage,
+      sessionId,
+    });
+    fileEditorPath.textContent = filePath;
+    fileDrawer.classList.remove("hidden");
+    fileEditorPanel.classList.remove("hidden");
+    fileEditorEmpty.classList.add("hidden");
+    setEditorStatus(message);
+    setStatus("Error", message);
   } finally {
     suppressEditorChange = false;
     openingReferencedFile = false;

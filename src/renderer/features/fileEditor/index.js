@@ -105,7 +105,14 @@ export function createFileEditor(config) {
 
       return { file, lineNumber };
     } catch (error) {
-      const message = error?.message || "Unable to open referenced file";
+      const detail = error?.message || String(error || "Unknown error");
+      const message = `Unable to open ${filePath} while reading the workspace file: ${detail}`;
+      console.error(message, {
+        error,
+        filePath,
+        lineNumber,
+        sessionId,
+      });
       if (typeof setStatus === "function") {
         setStatus("Error", message);
       }
