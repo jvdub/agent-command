@@ -67,6 +67,8 @@ export const agenticApp = Object.freeze({
   saveWorkspaceFile: (sessionId, filePath, content) =>
     call("workspace", "saveFile", sessionId, filePath, content),
   listWorkspaceFiles: (payload) => call("workspace", "listFiles", payload),
+  listWorkspaceChanges: (sessionId) =>
+    call("workspace", "listChanges", sessionId),
   writeToSession: (sessionId, input) =>
     call("sessions", "write", sessionId, input),
   resizeSession: (sessionId, size) =>

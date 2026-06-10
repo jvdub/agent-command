@@ -776,8 +776,8 @@ button:disabled {
 }
 
 .right-pane {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: minmax(140px, 32%) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
   min-width: 0;
@@ -786,9 +786,103 @@ button:disabled {
 }
 
 .manual-pane {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.modified-files-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modified-files-header {
+  align-items: center;
+}
+
+.modified-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+}
+
+.modified-file-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.modified-file-button:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.07);
+  transform: none;
+}
+
+.modified-file-status {
+  flex: 0 0 24px;
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 0.72rem;
+}
+
+.modified-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.manual-terminal-tabs {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.manual-terminal-tab {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.manual-terminal-tab:hover,
+.manual-terminal-tab.active {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  transform: none;
+}
+
+.terminal-tab-add {
+  min-width: 34px;
+  padding: 6px 10px;
+  font-size: 1.1rem;
+}
+
+.manual-terminal-subtitle {
+  padding: 7px 12px 0;
 }
 
 .file-drawer {
@@ -906,6 +1000,23 @@ button:disabled {
 .file-editor-surface {
   flex: 1;
   min-height: 240px;
+  position: relative;
+  overflow: hidden;
+}
+
+.file-editor-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
 }
 
 .workspace-tabs {

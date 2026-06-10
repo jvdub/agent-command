@@ -1,11 +1,14 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const { IPC_CHANNELS } = require("../../shared/ipcContract");
 const { access, mkdir, readdir, readFile, stat, writeFile } = fs.promises;
 
 const MAX_EDITOR_FILE_BYTES = 1024 * 1024 * 2;
 const EDITOR_FILE_CHANGE_DEBOUNCE_MS = 75;
+const execFileAsync = promisify(execFile);
 
 function createWorkspaceFileService({
   sessions,
@@ -485,6 +488,44 @@ function createWorkspaceFileService({
     };
   }
 
+  async function listWorkspaceChanges(sessionId) {
+    const session = getSessionByIdOrThrow(sessionId);
+
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        [
+          "-c",
+          "core.quotepath=false",
+          "status",
+          "--porcelain=v1",
+          "--untracked-files=all",
+        ],
+        {
+          cwd: session.cwd,
+          windowsHide: true,
+          maxBuffer: 1024 * 1024 * 4,
+        },
+      );
+
+      const files = String(stdout || "")
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+          const status = line.slice(0, 2);
+          const rawPath = line.slice(3);
+          const filePath = rawPath.includes(" -> ")
+            ? rawPath.split(" -> ").pop()
+            : rawPath;
+          return { status, filePath };
+        });
+
+      return { files, supported: true };
+    } catch {
+      return { files: [], supported: false };
+    }
+  }
+
   async function saveEditorFile(sessionId, filePath, content) {
     const resolved = await ensureSessionWorkspacePath(sessionId, filePath);
     await assertEditableTextFile(resolved.absolutePath);
@@ -501,6 +542,7 @@ function createWorkspaceFileService({
   return {
     ensureWorkingDirectory,
     listWorkspaceFilesForRoot,
+    listWorkspaceChanges,
     openEditorFile,
     saveEditorFile,
     stopWatchingEditorFile,

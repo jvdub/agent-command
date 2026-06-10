@@ -13,6 +13,7 @@ const IPC_CHANNELS = Object.freeze({
     openWorkspaceFile: "editor:openFile",
     saveWorkspaceFile: "editor:saveFile",
     listWorkspaceFiles: "workspace:listFiles",
+    listWorkspaceChanges: "workspace:listChanges",
     writeToSession: "session:write",
     resizeSession: "session:resize",
     getSessionProcesses: "session:processes",
@@ -99,6 +100,10 @@ const agentic = {
       }),
     listFiles: (payload) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.listWorkspaceFiles, payload),
+    listChanges: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.listWorkspaceChanges, {
+        sessionId,
+      }),
     onFileChanged: (listener) =>
       on(IPC_CHANNELS.events.workspaceFileChanged, listener),
   },

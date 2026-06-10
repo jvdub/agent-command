@@ -47,6 +47,11 @@ describe("preload bridge", () => {
       filePath: "src/main.js",
     });
 
+    await exposed.agentic.workspace.listChanges("session-1");
+    expect(invoke).toHaveBeenCalledWith("workspace:listChanges", {
+      sessionId: "session-1",
+    });
+
     const fileChangedListener = jest.fn();
     const unsubscribeFileChanged =
       exposed.agentic.workspace.onFileChanged(fileChangedListener);

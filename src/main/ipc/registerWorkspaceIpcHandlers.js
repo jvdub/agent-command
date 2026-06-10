@@ -27,6 +27,11 @@ function registerHandlers(registry, services) {
       ),
   });
 
+  registry.register("workspace", IPC_CHANNELS.invoke.listWorkspaceChanges, {
+    handler: async (_event, payload) =>
+      await workspaceFileService.listWorkspaceChanges(payload?.sessionId),
+  });
+
   registry.register("workspace", IPC_CHANNELS.invoke.saveWorkspaceFile, {
     handler: async (_event, payload) => {
       const sessionId = payload?.sessionId;

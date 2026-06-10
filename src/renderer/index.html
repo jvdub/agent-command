@@ -160,44 +160,48 @@
           </section>
 
           <section id="right-pane" class="right-pane">
-            <section id="manual-pane-1" class="workspace-pane manual-pane">
-              <div class="panel-header terminal-header">
+            <section class="workspace-pane modified-files-pane">
+              <div class="panel-header compact modified-files-header">
                 <div>
-                  <p class="eyebrow">Workspace Shell</p>
-                  <h2 id="manual-terminal-title-1">Terminal 1</h2>
-                  <p id="manual-terminal-subtitle-1" class="status-meta"></p>
+                  <p class="eyebrow">Agent Changes</p>
+                  <h2>Modified Files</h2>
                 </div>
+                <p id="modified-files-meta" class="status-meta">Checking...</p>
               </div>
-              <div id="manual-terminal-1" class="terminal"></div>
-              <div class="manual-pane-actions">
-                <button
-                  type="button"
-                  id="manual-send-interrupt-1"
-                  class="secondary"
-                >
-                  Ctrl+C
-                </button>
+              <div id="modified-files-list" class="modified-files-list">
+                <p class="status-meta">No modified files.</p>
               </div>
             </section>
 
-            <section id="manual-pane-2" class="workspace-pane manual-pane">
-              <div class="panel-header terminal-header">
-                <div>
-                  <p class="eyebrow">Workspace Shell</p>
-                  <h2 id="manual-terminal-title-2">Terminal 2</h2>
-                  <p id="manual-terminal-subtitle-2" class="status-meta"></p>
+            <section id="manual-pane" class="workspace-pane manual-pane">
+              <div class="manual-terminal-toolbar">
+                <div
+                  id="manual-terminal-tabs"
+                  class="manual-terminal-tabs"
+                  role="tablist"
+                  aria-label="Workspace terminals"
+                ></div>
+                <div class="button-row">
+                  <button
+                    type="button"
+                    id="add-manual-terminal"
+                    class="secondary terminal-tab-add"
+                    aria-label="Open fresh terminal"
+                    title="Open fresh terminal"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    id="manual-send-interrupt"
+                    class="secondary"
+                  >
+                    Ctrl+C
+                  </button>
                 </div>
               </div>
-              <div id="manual-terminal-2" class="terminal"></div>
-              <div class="manual-pane-actions">
-                <button
-                  type="button"
-                  id="manual-send-interrupt-2"
-                  class="secondary"
-                >
-                  Ctrl+C
-                </button>
-              </div>
+              <p id="manual-terminal-subtitle" class="status-meta manual-terminal-subtitle"></p>
+              <div id="manual-terminal" class="terminal"></div>
             </section>
 
             <section id="file-drawer" class="file-drawer hidden">
@@ -254,7 +258,13 @@
                     Open a referenced file to edit.
                   </p>
                 </div>
-                <div id="file-editor-surface" class="file-editor-surface"></div>
+                <div id="file-editor-surface" class="file-editor-surface">
+                  <pre
+                    id="file-editor-preview"
+                    class="file-editor-preview hidden"
+                    aria-label="File content preview"
+                  ></pre>
+                </div>
               </section>
             </section>
           </section>

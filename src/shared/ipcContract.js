@@ -10,6 +10,7 @@ const IPC_CHANNELS = Object.freeze({
     openWorkspaceFile: "editor:openFile",
     saveWorkspaceFile: "editor:saveFile",
     listWorkspaceFiles: "workspace:listFiles",
+    listWorkspaceChanges: "workspace:listChanges",
     writeToSession: "session:write",
     resizeSession: "session:resize",
     getSessionProcesses: "session:processes",
@@ -217,6 +218,7 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(sessionId: string, filePath: string) => Promise<unknown>} openWorkspaceFile
  * @property {(sessionId: string, filePath: string, content: string) => Promise<unknown>} saveWorkspaceFile
  * @property {(payload: WorkspaceListFilesRequest) => Promise<unknown>} listWorkspaceFiles
+ * @property {(sessionId: string) => Promise<unknown>} listWorkspaceChanges
  * @property {(sessionId: string, input: string) => Promise<OkResponse>} writeToSession
  * @property {(sessionId: string, size: { cols: number, rows: number }) => Promise<OkResponse>} resizeSession
  * @property {(sessionId: string) => Promise<SessionProcessesResponse>} getSessionProcesses
