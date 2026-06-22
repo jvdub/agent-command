@@ -110,7 +110,6 @@ select {
   padding: 24px;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
-  backdrop-filter: blur(24px);
   overflow-y: auto;
 }
 
@@ -131,7 +130,6 @@ select {
   padding: 16px;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
-  backdrop-filter: blur(24px);
   overflow: hidden;
 }
 

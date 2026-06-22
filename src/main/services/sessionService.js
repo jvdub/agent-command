@@ -3,6 +3,7 @@ const {
   buildSessionDataEvent,
   buildSessionExitEvent,
 } = require("../../shared/ipcContract");
+const { appendBoundedBuffer } = require("./boundedBuffer");
 
 function createSessionService({
   sessions,
@@ -90,7 +91,10 @@ function createSessionService({
       ptyProcess.onData((data) => {
         const session = sessions.get(id);
         if (session) {
-          session.outputBuffer += data;
+          session.outputBuffer = appendBoundedBuffer(
+            session.outputBuffer,
+            data,
+          );
         }
 
         sendToRenderer(

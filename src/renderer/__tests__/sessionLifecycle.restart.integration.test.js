@@ -3,7 +3,9 @@ import { createSessionLifecycleHandlers } from "../sessionLifecycle";
 
 jest.mock("../agenticApp", () => ({
   agenticApp: {
+    listSessions: jest.fn(),
     restartSession: jest.fn(),
+    startSession: jest.fn(),
   },
 }));
 
@@ -34,6 +36,34 @@ describe("session lifecycle restart feedback", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    agenticApp.listSessions.mockResolvedValue({ sessions: [] });
+  });
+
+  test("synchronizes session state before opening a newly started session", async () => {
+    const session = {
+      id: "session-1",
+      cwd: "C:\\repo",
+      label: "Test session",
+    };
+    agenticApp.startSession.mockResolvedValue({ session });
+    agenticApp.listSessions.mockResolvedValue({ sessions: [session] });
+    const updateSessions = jest.fn();
+    const openTerminalView = jest.fn();
+    const commandInput = document.createElement("input");
+    commandInput.value = "copilot";
+    const handlers = createHandlers({
+      commandInput,
+      updateSessions,
+      openTerminalView,
+    });
+
+    await handlers.startSession({ preventDefault: jest.fn() });
+
+    expect(updateSessions).toHaveBeenCalledWith([session]);
+    expect(openTerminalView).toHaveBeenCalledWith(session.id);
+    expect(updateSessions.mock.invocationCallOrder[0]).toBeLessThan(
+      openTerminalView.mock.invocationCallOrder[0],
+    );
   });
 
   test("shows pending feedback before waiting for restart", async () => {

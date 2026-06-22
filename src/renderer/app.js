@@ -28,6 +28,10 @@ import {
   getTerminalTheme,
 } from "./themeManager.js";
 import { renderHtmlIfChanged } from "./renderHtmlIfChanged.js";
+import {
+  appendBoundedBuffer,
+  boundTerminalBuffer,
+} from "./boundedBuffer.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -113,6 +117,8 @@ const themeSelect = document.querySelector("#theme-select");
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
+const WORKSPACE_CHANGES_REFRESH_INTERVAL_MS = 3000;
+const WINDOW_RESIZE_DEBOUNCE_MS = 120;
 const FILE_REFERENCE_LIMIT = 24;
 const AUTOSAVE_DELAY_MS = 1000;
 const ATTENTION_STREAM_MAX_BUFFER = 8192;
@@ -304,6 +310,9 @@ const manualTerminalTabsBySession = new Map();
 const activeManualTerminalBySession = new Map();
 const sessionProcesses = new Map();
 const sessionFileReferences = new Map();
+const workspaceChangesRefreshBySession = new Map();
+const lastSessionTerminalSize = new Map();
+const lastManualTerminalSize = new Map();
 const restartingSessionIds = new Set();
 const capabilities = {
   processInspectionSupported: true,
@@ -312,6 +321,7 @@ const capabilities = {
 let activeSessionId = null;
 let refreshScheduled = false;
 let refreshTimeoutId = null;
+let windowResizeTimeoutId = null;
 let isProcessPanelOpen = false;
 let terminalContextTarget = null;
 let monacoEditor = null;
@@ -862,14 +872,14 @@ async function resolveSessionFileReferences(sessionId) {
 function renderSessionFileReferences(sessionId) {
   if (!sessionId) {
     agentFileLinks.classList.add("hidden");
-    agentFileLinksList.innerHTML = "";
+    renderHtmlIfChanged(agentFileLinksList, "");
     return;
   }
 
   const refs = sessionFileReferences.get(sessionId) || [];
   if (refs.length === 0) {
     agentFileLinks.classList.add("hidden");
-    agentFileLinksList.innerHTML = "";
+    renderHtmlIfChanged(agentFileLinksList, "");
     return;
   }
 
@@ -888,32 +898,46 @@ function renderSessionFileReferences(sessionId) {
     })
     .join("");
 
-  agentFileLinksList.innerHTML = chips;
+  renderHtmlIfChanged(agentFileLinksList, chips);
   agentFileLinks.classList.remove("hidden");
 }
 
-async function refreshModifiedFiles(sessionId) {
+async function refreshModifiedFiles(sessionId, { force = false } = {}) {
   if (!sessionId || !modifiedFilesList || !modifiedFilesMeta) {
     return;
   }
 
-  try {
-    const result = await agenticApp.listWorkspaceChanges(sessionId);
-    if (activeSessionId !== sessionId) {
-      return;
-    }
+  const now = Date.now();
+  const existing = workspaceChangesRefreshBySession.get(sessionId);
+  if (existing?.promise) {
+    return existing.promise;
+  }
 
-    const files = Array.isArray(result?.files) ? result.files : [];
-    modifiedFilesMeta.textContent = result?.supported === false
-      ? "Unavailable"
-      : `${files.length} changed`;
-    renderHtmlIfChanged(
-      modifiedFilesList,
-      files.length === 0
-        ? '<p class="status-meta">No modified files.</p>'
-        : files
-            .map(
-              ({ status, filePath }) => `
+  if (
+    !force &&
+    existing?.completedAt &&
+    now - existing.completedAt < WORKSPACE_CHANGES_REFRESH_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  const promise = (async () => {
+    try {
+      const result = await agenticApp.listWorkspaceChanges(sessionId);
+      if (activeSessionId !== sessionId) {
+        return;
+      }
+
+      const files = Array.isArray(result?.files) ? result.files : [];
+      modifiedFilesMeta.textContent =
+        result?.supported === false ? "Unavailable" : `${files.length} changed`;
+      renderHtmlIfChanged(
+        modifiedFilesList,
+        files.length === 0
+          ? '<p class="status-meta">No modified files.</p>'
+          : files
+              .map(
+                ({ status, filePath }) => `
                 <button
                   type="button"
                   class="modified-file-button"
@@ -924,18 +948,34 @@ async function refreshModifiedFiles(sessionId) {
                   <span class="modified-file-path">${escapeHtml(filePath)}</span>
                 </button>
               `,
-            )
-            .join(""),
-    );
-  } catch {
-    if (activeSessionId === sessionId) {
-      modifiedFilesMeta.textContent = "Unavailable";
-      renderHtmlIfChanged(
-        modifiedFilesList,
-        '<p class="status-meta">Unable to read workspace changes.</p>',
+              )
+              .join(""),
       );
+    } catch {
+      if (activeSessionId === sessionId) {
+        modifiedFilesMeta.textContent = "Unavailable";
+        renderHtmlIfChanged(
+          modifiedFilesList,
+          '<p class="status-meta">Unable to read workspace changes.</p>',
+        );
+      }
+    } finally {
+      const current = workspaceChangesRefreshBySession.get(sessionId);
+      if (current?.promise === promise) {
+        workspaceChangesRefreshBySession.set(sessionId, {
+          promise: null,
+          completedAt: Date.now(),
+        });
+      }
     }
-  }
+  })();
+
+  workspaceChangesRefreshBySession.set(sessionId, {
+    promise,
+    completedAt: existing?.completedAt || 0,
+  });
+
+  return promise;
 }
 
 function extensionForPath(filePath) {
@@ -1867,7 +1907,10 @@ function ensureSessionBuffer(sessionId) {
 
 function appendSessionBuffer(sessionId, chunk) {
   ensureSessionBuffer(sessionId);
-  sessionBuffers.set(sessionId, `${sessionBuffers.get(sessionId)}${chunk}`);
+  sessionBuffers.set(
+    sessionId,
+    appendBoundedBuffer(sessionBuffers.get(sessionId), chunk),
+  );
 }
 
 function ensureSessionInsight(sessionId) {
@@ -2842,7 +2885,6 @@ function refreshVisibleUi() {
   renderTerminalHeader(active);
   updateManualTerminalSubtitle(active);
   renderManualTerminalTabs(active.id);
-  void refreshModifiedFiles(active.id);
   setTerminalActionsEnabled(active);
   renderProcessDetails(active.id);
   renderSessionFileReferences(active.id);
@@ -3042,7 +3084,7 @@ async function openTerminalView(sessionId) {
   const activeManualTerminalId = getActiveManualTerminalId(sessionId);
   await showManualTerminal(sessionId, activeManualTerminalId);
   await resizeManualTerminal(activeManualTerminalId);
-  await refreshModifiedFiles(sessionId);
+  await refreshModifiedFiles(sessionId, { force: true });
 }
 
 function updateSessions(payload) {
@@ -3054,6 +3096,8 @@ function updateSessions(payload) {
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
       sessionFileReferences.delete(existingId);
+      workspaceChangesRefreshBySession.delete(existingId);
+      lastSessionTerminalSize.delete(existingId);
       pendingSessionFileReferences.delete(existingId);
       workspaceFileIndexBySession.delete(existingId);
       manualTerminalTabsBySession.delete(existingId);
@@ -3067,6 +3111,7 @@ function updateSessions(payload) {
       for (const key of Array.from(manualTerminalBuffers.keys())) {
         if (key.startsWith(`${existingId}:`)) {
           manualTerminalBuffers.delete(key);
+          lastManualTerminalSize.delete(key);
         }
       }
       for (const [key, instance] of manualTerminals.entries()) {
@@ -3088,7 +3133,9 @@ function updateSessions(payload) {
       typeof session.outputBuffer === "string" ? session.outputBuffer : null;
     sessionBuffers.set(
       session.id,
-      incomingBuffer !== null ? incomingBuffer : priorBuffer,
+      boundTerminalBuffer(
+        incomingBuffer !== null ? incomingBuffer : priorBuffer,
+      ),
     );
     rehydrateInsightFromBuffer(session);
   }
@@ -3128,10 +3175,24 @@ async function resizeSession() {
   }
 
   instance.fitAddon.fit();
-  await agenticApp.resizeSession(activeSessionId, {
+  const size = {
     cols: instance.terminal.cols,
     rows: instance.terminal.rows,
-  });
+  };
+  const sizeKey = `${size.cols}x${size.rows}`;
+  if (lastSessionTerminalSize.get(activeSessionId) === sizeKey) {
+    return;
+  }
+
+  lastSessionTerminalSize.set(activeSessionId, sizeKey);
+  try {
+    await agenticApp.resizeSession(activeSessionId, size);
+  } catch (error) {
+    if (lastSessionTerminalSize.get(activeSessionId) === sizeKey) {
+      lastSessionTerminalSize.delete(activeSessionId);
+    }
+    throw error;
+  }
 }
 
 async function resizeManualTerminal(terminalId) {
@@ -3141,14 +3202,29 @@ async function resizeManualTerminal(terminalId) {
   }
 
   instance.fitAddon.fit();
-  await agenticApp.resizeManualTerminal(
-    activeSessionId,
-    {
-      cols: instance.terminal.cols,
-      rows: instance.terminal.rows,
-    },
-    terminalId,
-  );
+  const size = {
+    cols: instance.terminal.cols,
+    rows: instance.terminal.rows,
+  };
+  const terminalKey = manualTerminalKey(activeSessionId, terminalId);
+  const sizeKey = `${size.cols}x${size.rows}`;
+  if (lastManualTerminalSize.get(terminalKey) === sizeKey) {
+    return;
+  }
+
+  lastManualTerminalSize.set(terminalKey, sizeKey);
+  try {
+    await agenticApp.resizeManualTerminal(
+      activeSessionId,
+      size,
+      terminalId,
+    );
+  } catch (error) {
+    if (lastManualTerminalSize.get(terminalKey) === sizeKey) {
+      lastManualTerminalSize.delete(terminalKey);
+    }
+    throw error;
+  }
 }
 
 async function resizeManualTerminals() {
@@ -3247,8 +3323,18 @@ function toggleProcessPanel() {
 }
 
 window.addEventListener("resize", () => {
-  resizeSession();
-  resizeManualTerminals();
+  if (windowResizeTimeoutId) {
+    window.clearTimeout(windowResizeTimeoutId);
+  }
+
+  windowResizeTimeoutId = window.setTimeout(() => {
+    windowResizeTimeoutId = null;
+    void Promise.all([resizeSession(), resizeManualTerminals()]).catch(
+      (error) => {
+        console.error("Unable to resize terminal after window resize", error);
+      },
+    );
+  }, WINDOW_RESIZE_DEBOUNCE_MS);
 });
 
 sessionForm.addEventListener("submit", startSession);
@@ -3677,6 +3763,12 @@ initializeContext().catch((error) => {
 setInterval(() => {
   refreshVisibleUi();
 }, 3000);
+
+setInterval(() => {
+  if (activeSessionId) {
+    void refreshModifiedFiles(activeSessionId);
+  }
+}, WORKSPACE_CHANGES_REFRESH_INTERVAL_MS);
 
 async function pollSessionProcesses() {
   if (typeof agenticApp.getSessionProcesses !== "function") {

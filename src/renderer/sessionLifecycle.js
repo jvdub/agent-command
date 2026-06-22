@@ -1,4 +1,5 @@
 import { agenticApp } from "./agenticApp.js";
+import { appendBoundedBuffer } from "./boundedBuffer.js";
 
 export function bindSessionEvents({
   updateInsightFromOutput,
@@ -56,7 +57,7 @@ export function bindSessionEvents({
     const key = manualTerminalKey(sessionId, String(terminalId || "1"));
     manualTerminalBuffers.set(
       key,
-      `${manualTerminalBuffers.get(key) || ""}${data}`,
+      appendBoundedBuffer(manualTerminalBuffers.get(key), data),
     );
 
     const instance = manualTerminals.get(key);
@@ -71,7 +72,7 @@ export function bindSessionEvents({
       const exitLine = `\r\n[terminal exited: ${exitCode}${signal ? `, signal ${signal}` : ""}]\r\n`;
       manualTerminalBuffers.set(
         key,
-        `${manualTerminalBuffers.get(key) || ""}${exitLine}`,
+        appendBoundedBuffer(manualTerminalBuffers.get(key), exitLine),
       );
 
       const instance = manualTerminals.get(key);
@@ -153,6 +154,9 @@ export function createSessionLifecycleHandlers({
         });
         const session = result.session;
 
+        const latestSessions = await agenticApp.listSessions();
+        updateSessions(latestSessions.sessions || [session]);
+
         ensureSessionBuffer(session.id);
         ensureSessionInsight(session.id);
         createSessionTerminal(session.id);
@@ -223,6 +227,9 @@ export function createSessionLifecycleHandlers({
       try {
         const result = await agenticApp.restartSession(sessionId);
         const session = result.session;
+
+        const latestSessions = await agenticApp.listSessions();
+        updateSessions(latestSessions.sessions || [session]);
 
         ensureSessionBuffer(session.id);
         ensureSessionInsight(session.id);

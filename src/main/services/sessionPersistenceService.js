@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { boundTerminalBuffer } = require("./boundedBuffer");
 
 function createSessionPersistenceService({ app, sessions }) {
   function getSessionStoreFile() {
@@ -34,7 +35,7 @@ function createSessionPersistenceService({ app, sessions }) {
           cwd: sessionData.cwd,
           command: sessionData.command,
           args: sessionData.args || [],
-          outputBuffer: sessionData.outputBuffer || "",
+          outputBuffer: boundTerminalBuffer(sessionData.outputBuffer),
           createdAt: sessionData.createdAt,
           isRunning: false,
           endedAt: sessionData.endedAt || null,
@@ -57,7 +58,7 @@ function createSessionPersistenceService({ app, sessions }) {
         cwd: session.cwd,
         command: session.command,
         args: session.args,
-        outputBuffer: session.outputBuffer,
+        outputBuffer: boundTerminalBuffer(session.outputBuffer),
         createdAt: session.createdAt,
         isRunning: session.isRunning,
         endedAt: session.endedAt,

@@ -3,6 +3,7 @@ const {
   buildManualTerminalDataEvent,
   buildManualTerminalExitEvent,
 } = require("../../shared/ipcContract");
+const { appendBoundedBuffer } = require("./boundedBuffer");
 
 function createManualTerminalService({
   pty,
@@ -60,7 +61,10 @@ function createManualTerminalService({
           return;
         }
 
-        existing.outputBuffer += data;
+        existing.outputBuffer = appendBoundedBuffer(
+          existing.outputBuffer,
+          data,
+        );
         sendToRenderer(
           IPC_CHANNELS.events.manualTerminalData,
           buildManualTerminalDataEvent(session.id, terminalId, data),

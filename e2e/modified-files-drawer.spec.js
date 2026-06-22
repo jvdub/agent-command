@@ -5,24 +5,29 @@ const { test, expect, _electron: electron } = require("@playwright/test");
 test("clicking a modified file opens visible content in the file drawer", async ({
 }, testInfo) => {
   const rootDir = path.resolve(__dirname, "..");
+  const fixtureRelativePath = `e2e/modified-file-fixture-${testInfo.workerIndex}.txt`;
+  const fixturePath = path.join(rootDir, ...fixtureRelativePath.split("/"));
+  const fixtureContent = "modified file drawer fixture";
+  fs.writeFileSync(fixturePath, fixtureContent, "utf8");
   const appDataDir = testInfo.outputPath("appdata");
   fs.mkdirSync(appDataDir, { recursive: true });
-  const electronApp = await electron.launch({
-    args: [
-      "--disable-gpu",
-      "--no-sandbox",
-      `--user-data-dir=${appDataDir}`,
-      rootDir,
-    ],
-    cwd: rootDir,
-    env: {
-      ...process.env,
-      APPDATA: appDataDir,
-      LOCALAPPDATA: appDataDir,
-    },
-  });
+  let electronApp = null;
 
   try {
+    electronApp = await electron.launch({
+      args: [
+        "--disable-gpu",
+        "--no-sandbox",
+        `--user-data-dir=${appDataDir}`,
+        rootDir,
+      ],
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        APPDATA: appDataDir,
+        LOCALAPPDATA: appDataDir,
+      },
+    });
     const window = await electronApp.firstWindow();
     await window.waitForLoadState("domcontentloaded");
     await window
@@ -39,25 +44,26 @@ test("clicking a modified file opens visible content in the file drawer", async 
     await expect(window.locator("#terminal-view")).toBeVisible();
 
     const modifiedFile = window.locator(
-      '.modified-file-button[data-file-path="src/renderer/index.html"]',
+      `.modified-file-button[data-file-path="${fixtureRelativePath}"]`,
     );
-    await expect(modifiedFile).toBeVisible();
+    await expect(modifiedFile).toBeVisible({ timeout: 10_000 });
     await modifiedFile.click();
 
     await expect(window.locator("#file-drawer")).toBeVisible({
       timeout: 20_000,
     });
     await expect(window.locator("#file-editor-path")).toHaveText(
-      /src[\\/]renderer[\\/]index\.html/,
+      /e2e[\\/]modified-file-fixture-\d+\.txt/,
     );
     const visibleFileContent = window.locator(
       "#file-editor-surface .monaco-editor:visible, #file-editor-preview:visible",
     );
     await expect(visibleFileContent).toBeVisible();
-    await expect(visibleFileContent).toContainText("<!doctype html>");
+    await expect(visibleFileContent).toContainText(fixtureContent);
 
     await window.getByRole("button", { name: "Stop" }).click();
   } finally {
-    await electronApp.close();
+    await electronApp?.close();
+    fs.rmSync(fixturePath, { force: true });
   }
 });
