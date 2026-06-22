@@ -13,6 +13,7 @@ import {
   getTerminalSelectionText,
   hasTerminalSelection,
   pasteClipboardIntoTerminal,
+  preserveTerminalSelection,
   writeTextToClipboard,
 } from "./globalShortcutUtils.js";
 import {
@@ -2359,8 +2360,10 @@ function attachTerminalClipboardHandlers(target) {
   const { terminal, mount } = target;
 
   const snapshotSelection = () => {
-    target.selectionSnapshot = getTerminalSelectionText(terminal, mount);
+    preserveTerminalSelection(target, terminal, mount);
   };
+
+  terminal.onSelectionChange(snapshotSelection);
 
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") {
@@ -2446,10 +2449,6 @@ function attachTerminalClipboardHandlers(target) {
     if (event.button === 2) {
       snapshotSelection();
     }
-  });
-
-  mount.addEventListener("mouseup", () => {
-    snapshotSelection();
   });
 }
 

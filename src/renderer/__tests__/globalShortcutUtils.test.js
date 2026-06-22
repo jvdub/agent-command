@@ -2,6 +2,7 @@ import {
   copyTerminalSelectionToClipboard,
   isShortcutKey,
   pasteClipboardIntoTerminal,
+  preserveTerminalSelection,
   writeTextToClipboard,
 } from "../globalShortcutUtils.js";
 
@@ -32,6 +33,20 @@ describe("shared shortcut helpers", () => {
 
     expect(copied).toBe(true);
     expect(bridgeWriteText).toHaveBeenCalledWith("selected text");
+  });
+
+  test("preserveTerminalSelection does not erase a valid snapshot", () => {
+    const target = {};
+    const terminal = {
+      getSelection: jest
+        .fn()
+        .mockReturnValueOnce("selected text")
+        .mockReturnValueOnce(""),
+    };
+
+    expect(preserveTerminalSelection(target, terminal)).toBe("selected text");
+    expect(preserveTerminalSelection(target, terminal)).toBe("selected text");
+    expect(target.selectionSnapshot).toBe("selected text");
   });
 
   test("pasteClipboardIntoTerminal falls back to bridge read", async () => {

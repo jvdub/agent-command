@@ -44,6 +44,19 @@ export function hasTerminalSelection(terminal, mount = null) {
   return Boolean(getTerminalSelectionText(terminal, mount));
 }
 
+export function preserveTerminalSelection(
+  target,
+  terminal,
+  mount = null,
+) {
+  const selection = getTerminalSelectionText(terminal, mount);
+  if (selection) {
+    target.selectionSnapshot = selection;
+  }
+
+  return target.selectionSnapshot || "";
+}
+
 function writeTextViaExecCommand(value) {
   if (!document?.body || typeof document.execCommand !== "function") {
     return false;
