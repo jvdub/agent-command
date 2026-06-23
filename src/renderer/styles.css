@@ -912,35 +912,129 @@ button:disabled {
 }
 
 .agent-file-links-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 140px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
-.agent-file-chip {
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font-size: 0.76rem;
+.agent-file-tree,
+.agent-file-tree-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-file-tree-folder-row,
+.agent-file-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px 4px calc(8px + var(--file-tree-depth) * 16px);
+}
+
+.agent-file-tree-folder-row {
+  color: var(--muted);
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 6px 10px;
-  max-width: 100%;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.agent-file-tree-folder-row::-webkit-details-marker {
+  display: none;
+}
+
+.agent-file-entry {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.77rem;
+  text-align: left;
+}
+
+.agent-file-tree-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-file-chip:hover {
-  background: rgba(255, 255, 255, 0.12);
+.agent-file-entry:hover {
+  border-color: var(--border);
+  background: var(--surface-active);
   transform: none;
 }
 
-.agent-file-chip.loading {
+.agent-file-entry.loading {
   opacity: 0.72;
   cursor: progress;
+}
+
+.agent-file-tree-chevron {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transform: rotate(0deg);
+  transition: transform 100ms ease;
+}
+
+.agent-file-tree-folder details[open] > .agent-file-tree-folder-row .agent-file-tree-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-file-tree-folder-icon,
+.agent-file-tree-file-icon {
+  position: relative;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 12px;
+}
+
+.agent-file-tree-folder-icon {
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.82;
+}
+
+.agent-file-tree-folder-icon::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 1px;
+  width: 6px;
+  height: 3px;
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 2px 2px 0 0;
+}
+
+.agent-file-tree-file-icon {
+  height: 15px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  opacity: 0.8;
+}
+
+.agent-file-tree-file-icon::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 6px;
+  border-top: 1px solid var(--muted);
+  box-shadow: 0 3px 0 var(--muted), 0 6px 0 var(--muted);
+}
+
+.agent-file-tree-line {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .file-editor-empty {
@@ -1298,14 +1392,12 @@ button:disabled {
   background: var(--surface);
 }
 
-.session-tab-actions button,
-.agent-file-chip {
+.session-tab-actions button {
   border-color: var(--border-strong);
-  background: var(--surface);
 }
 
 .session-tab-actions button:hover,
-.agent-file-chip:hover,
+.agent-file-entry:hover,
 .terminal-context-action:hover {
   background: var(--surface-active);
 }

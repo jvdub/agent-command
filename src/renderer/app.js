@@ -28,6 +28,7 @@ import {
   getTerminalTheme,
 } from "./themeManager.js";
 import { renderHtmlIfChanged } from "./renderHtmlIfChanged.js";
+import { renderReferencedFileTree } from "./referencedFileTree.js";
 import {
   appendBoundedBuffer,
   boundTerminalBuffer,
@@ -883,22 +884,7 @@ function renderSessionFileReferences(sessionId) {
     return;
   }
 
-  const chips = refs
-    .map((ref) => {
-      const suffix = Number.isInteger(ref.line) ? `:${ref.line}` : "";
-      return `
-        <button
-          type="button"
-          class="agent-file-chip"
-          data-file-path="${escapeHtml(ref.filePath)}"
-          data-file-line="${Number.isInteger(ref.line) ? ref.line : ""}"
-          title="Open ${escapeHtml(ref.filePath)}"
-        >${escapeHtml(ref.filePath)}${suffix}</button>
-      `;
-    })
-    .join("");
-
-  renderHtmlIfChanged(agentFileLinksList, chips);
+  renderHtmlIfChanged(agentFileLinksList, renderReferencedFileTree(refs));
   agentFileLinks.classList.remove("hidden");
 }
 
@@ -3474,8 +3460,8 @@ agentFileLinksList.addEventListener("click", async (event) => {
     return;
   }
 
-  const chip = target.closest(".agent-file-chip");
-  if (!chip?.dataset.filePath || !activeSessionId) {
+  const entry = target.closest(".agent-file-entry");
+  if (!entry?.dataset.filePath || !activeSessionId) {
     return;
   }
 
@@ -3483,15 +3469,17 @@ agentFileLinksList.addEventListener("click", async (event) => {
     return;
   }
 
-  const fileLine = chip.dataset.fileLine ? Number(chip.dataset.fileLine) : null;
-  chip.disabled = true;
-  chip.classList.add("loading");
+  const fileLine = entry.dataset.fileLine
+    ? Number(entry.dataset.fileLine)
+    : null;
+  entry.disabled = true;
+  entry.classList.add("loading");
 
   try {
-    await openReferencedFile(activeSessionId, chip.dataset.filePath, fileLine);
+    await openReferencedFile(activeSessionId, entry.dataset.filePath, fileLine);
   } finally {
-    chip.disabled = false;
-    chip.classList.remove("loading");
+    entry.disabled = false;
+    entry.classList.remove("loading");
   }
 });
 

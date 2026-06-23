@@ -2,8 +2,8 @@ import { FILE_REFERENCE_LIMIT, FILE_REFERENCE_PATTERN } from "./constants.js";
 import { agenticApp } from "./agenticApp.js";
 import { elements } from "./dom.js";
 import { sessionFileReferences, sessions, workspaceFilesCache } from "./state.js";
+import { renderReferencedFileTree } from "./referencedFileTree.js";
 import {
-  escapeHtml,
   normalizeCandidateFilePath,
   normalizeReferencePathForSession,
   pathBasename,
@@ -334,31 +334,7 @@ export function renderSessionFileReferences(sessionId) {
     return;
   }
 
-  const basenameCounts = refs.reduce((counts, ref) => {
-    const basename = pathBasename(ref.filePath);
-    counts.set(basename, (counts.get(basename) || 0) + 1);
-    return counts;
-  }, new Map());
-
-  const chips = refs
-    .map((ref) => {
-      const suffix = Number.isInteger(ref.line) ? `:${ref.line}` : "";
-      const basename = pathBasename(ref.filePath);
-      const showFullPath = (basenameCounts.get(basename) || 0) > 1;
-      const label = showFullPath ? ref.filePath : basename;
-      return `
-        <button
-          type="button"
-          class="agent-file-chip"
-          data-file-path="${escapeHtml(ref.filePath)}"
-          data-file-line="${Number.isInteger(ref.line) ? ref.line : ""}"
-          title="Open ${escapeHtml(ref.filePath)}"
-        >${escapeHtml(label)}${suffix}</button>
-      `;
-    })
-    .join("");
-
-  elements.agentFileLinksList.innerHTML = chips;
+  elements.agentFileLinksList.innerHTML = renderReferencedFileTree(refs);
   elements.agentFileLinks.classList.remove("hidden");
 }
 
