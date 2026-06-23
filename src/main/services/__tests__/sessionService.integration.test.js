@@ -90,7 +90,11 @@ describe("sessionService integration", () => {
 
     expect(sendToRenderer).toHaveBeenCalledWith(
       IPC_CHANNELS.events.sessionExit,
-      expect.objectContaining({ sessionId: session.id, exitCode: 0 }),
+      expect.objectContaining({
+        sessionId: session.id,
+        exitCode: 0,
+        stoppedByUser: true,
+      }),
     );
     expect(stopManualTerminalBySessionId).toHaveBeenCalledWith(session.id);
   });

@@ -324,11 +324,12 @@ function buildSessionDataEvent(sessionId, data) {
   return { sessionId, data };
 }
 
-function buildSessionExitEvent(sessionId, exitCode, signal) {
+function buildSessionExitEvent(sessionId, exitCode, signal, stoppedByUser = false) {
   return {
     sessionId,
     exitCode,
     signal: signal || null,
+    stoppedByUser: Boolean(stoppedByUser),
   };
 }
 

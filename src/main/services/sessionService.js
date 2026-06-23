@@ -52,6 +52,7 @@ function createSessionService({
       return false;
     }
 
+    session.stopRequested = true;
     session.ptyProcess.kill();
     return true;
   }
@@ -118,7 +119,12 @@ function createSessionService({
 
         sendToRenderer(
           IPC_CHANNELS.events.sessionExit,
-          buildSessionExitEvent(id, event.exitCode, event.signal),
+          buildSessionExitEvent(
+            id,
+            event.exitCode,
+            event.signal,
+            session.stopRequested,
+          ),
         );
 
         session.dispose();
@@ -141,6 +147,7 @@ function createSessionService({
       endedAt: null,
       exitCode: null,
       signal: null,
+      stopRequested: false,
       dispose() {
         while (cleanup.length) {
           const handler = cleanup.pop();

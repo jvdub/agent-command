@@ -33,11 +33,11 @@ export function bindSessionEvents({
     scheduleUiRefresh();
   });
 
-  agenticApp.onSessionExit(({ sessionId, exitCode, signal }) => {
+  agenticApp.onSessionExit(({ sessionId, exitCode, signal, stoppedByUser }) => {
     const insight = ensureSessionInsight(sessionId);
     insight.awaitingPermission = false;
     insight.awaitingQuestion = false;
-    if (exitCode !== 0) {
+    if (exitCode !== 0 && !stoppedByUser) {
       insight.hasError = true;
       insight.errorMessage = `Exited with code ${exitCode}`;
       insight.lastErrorAt = Date.now();
@@ -53,8 +53,8 @@ export function bindSessionEvents({
 
     if (getActiveSessionId() === sessionId) {
       setStatus(
-        exitCode === 0 ? "Stopped" : "Error",
-        exitCode === 0
+        exitCode === 0 || stoppedByUser ? "Stopped" : "Error",
+        exitCode === 0 || stoppedByUser
           ? "Session exited"
           : `Session exited with code ${exitCode}; check the terminal output`,
       );

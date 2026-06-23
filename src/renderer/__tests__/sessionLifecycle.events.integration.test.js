@@ -42,4 +42,39 @@ describe("session lifecycle events", () => {
       "Session exited with code 1; check the terminal output",
     );
   });
+
+  test("treats an intentional stop as stopped even when Windows returns code 1", () => {
+    let onExit;
+    agenticApp.onSessionExit.mockImplementation((listener) => {
+      onExit = listener;
+    });
+    const setStatus = jest.fn();
+    const insight = {};
+
+    bindSessionEvents({
+      updateInsightFromOutput: jest.fn(),
+      appendSessionBuffer: jest.fn(),
+      ingestFileReferences: jest.fn(),
+      sessionTerminals: new Map(),
+      renderSessionFileReferences: jest.fn(),
+      getActiveSessionId: () => "session-1",
+      scheduleUiRefresh: jest.fn(),
+      ensureSessionInsight: () => insight,
+      manualTerminalKey: jest.fn(),
+      manualTerminalBuffers: new Map(),
+      manualTerminals: new Map(),
+      updateSessions: jest.fn(),
+      setStatus,
+    });
+
+    onExit({
+      sessionId: "session-1",
+      exitCode: 1,
+      signal: null,
+      stoppedByUser: true,
+    });
+
+    expect(setStatus).toHaveBeenCalledWith("Stopped", "Session exited");
+    expect(insight.hasError).not.toBe(true);
+  });
 });
