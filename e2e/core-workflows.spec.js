@@ -164,3 +164,24 @@ test("removing a stopped session clears it from persisted history", async ({}, t
     await secondLaunch.electronApp.close();
   }
 });
+
+test("switching sessions keeps focus on the selected sidebar session", async ({}, testInfo) => {
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "First focus session" });
+    await startShellSession(window, { label: "Second focus session" });
+
+    const firstSession = window
+      .locator(".session-tab")
+      .filter({ hasText: "First focus session" });
+    await firstSession.click();
+
+    await expect(firstSession).toBeFocused();
+    await expect(window.locator("#terminal-title")).toHaveText(
+      "First focus session",
+    );
+  } finally {
+    await electronApp.close();
+  }
+});

@@ -2679,7 +2679,7 @@ function createSessionTerminal(sessionId) {
   return instance;
 }
 
-function showSessionTerminal(sessionId) {
+function showSessionTerminal(sessionId, { focusTerminal = true } = {}) {
   for (const [id, instance] of sessionTerminals.entries()) {
     instance.mount.classList.toggle("hidden", id !== sessionId);
   }
@@ -2687,7 +2687,9 @@ function showSessionTerminal(sessionId) {
   const instance = createSessionTerminal(sessionId);
   instance.mount.classList.remove("hidden");
   instance.fitAddon.fit();
-  instance.terminal.focus();
+  if (focusTerminal) {
+    instance.terminal.focus();
+  }
   return instance;
 }
 
@@ -2835,7 +2837,11 @@ async function ensureManualTerminal(sessionId, terminalId) {
   return instance;
 }
 
-async function showManualTerminal(sessionId, terminalId) {
+async function showManualTerminal(
+  sessionId,
+  terminalId,
+  { focusTerminal = true } = {},
+) {
   for (const instance of manualTerminals.values()) {
     const isVisible =
       instance.sessionId === sessionId && instance.terminalId === terminalId;
@@ -2845,7 +2851,9 @@ async function showManualTerminal(sessionId, terminalId) {
   const instance = await ensureManualTerminal(sessionId, terminalId);
   instance.mount.classList.remove("hidden");
   instance.fitAddon.fit();
-  instance.terminal.focus();
+  if (focusTerminal) {
+    instance.terminal.focus();
+  }
   return instance;
 }
 
@@ -3039,7 +3047,10 @@ function renderProcessDetails(sessionId) {
     .join("");
 }
 
-async function openTerminalView(sessionId) {
+async function openTerminalView(
+  sessionId,
+  { focusTarget = "terminal" } = {},
+) {
   if (editorState.open && activeSessionId && activeSessionId !== sessionId) {
     const closed = closeFileEditorModal();
     if (!closed) {
@@ -3067,12 +3078,23 @@ async function openTerminalView(sessionId) {
   renderManualTerminalTabs(sessionId);
   setTerminalActionsEnabled(session);
   renderProcessDetails(sessionId);
-  showSessionTerminal(sessionId);
+  showSessionTerminal(sessionId, { focusTerminal: false });
   await resizeSession();
   const activeManualTerminalId = getActiveManualTerminalId(sessionId);
-  await showManualTerminal(sessionId, activeManualTerminalId);
+  await showManualTerminal(sessionId, activeManualTerminalId, {
+    focusTerminal: false,
+  });
   await resizeManualTerminal(activeManualTerminalId);
   await refreshModifiedFiles(sessionId, { force: true });
+
+  if (focusTarget === "session") {
+    sessionTabsList
+      .querySelector(`.session-tab[data-session-id="${CSS.escape(sessionId)}"]`)
+      ?.focus();
+    return;
+  }
+
+  getActiveTerminalInstance()?.terminal.focus();
 }
 
 function updateSessions(payload) {
@@ -3386,7 +3408,7 @@ function selectSessionFromSidebar(event) {
   const tab = target.closest(".session-tab");
   if (tab?.dataset.sessionId) {
     event.preventDefault();
-    openTerminalView(tab.dataset.sessionId);
+    openTerminalView(tab.dataset.sessionId, { focusTarget: "session" });
   }
 }
 
