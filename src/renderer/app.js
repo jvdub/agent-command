@@ -916,7 +916,9 @@ async function refreshModifiedFiles(sessionId, { force = false } = {}) {
 
       const files = Array.isArray(result?.files) ? result.files : [];
       modifiedFilesMeta.textContent =
-        result?.supported === false ? "Unavailable" : `${files.length} changed`;
+        result?.supported === false
+          ? "Unavailable"
+          : `${files.length} ${files.length === 1 ? "change" : "changes"}`;
       renderHtmlIfChanged(
         modifiedFilesList,
         files.length === 0
@@ -3151,6 +3153,7 @@ function bindGlobalEvents() {
     manualTerminalBuffers,
     manualTerminals,
     updateSessions,
+    setStatus,
   });
 }
 

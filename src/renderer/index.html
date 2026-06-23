@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    />
     <title>Agentic Command</title>
     <link
       rel="stylesheet"
@@ -208,7 +212,7 @@
               <header class="file-drawer-header">
                 <div>
                   <p class="eyebrow">Workspace Editor</p>
-                  <h2>File Viewer</h2>
+                  <h2>File Editor</h2>
                 </div>
                 <button type="button" id="file-editor-close" class="secondary">
                   Close

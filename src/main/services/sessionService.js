@@ -218,7 +218,15 @@ function createSessionService({
       return { ok: false };
     }
 
-    session.ptyProcess.resize(cols, rows);
+    try {
+      session.ptyProcess.resize(cols, rows);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/pty that has already exited/i.test(message)) {
+        return { ok: false };
+      }
+      throw error;
+    }
     return { ok: true };
   }
 

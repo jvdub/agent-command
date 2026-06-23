@@ -67,9 +67,10 @@ function registerAllServices(registry) {
   registry.register(
     "sessionPersistenceService",
     "Session Persistence Service",
-    ({ app }) =>
+    ({ app, safeStorage }) =>
       createSessionPersistenceService({
         app,
+        safeStorage,
         sessions,
       }),
     [],

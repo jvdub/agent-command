@@ -1,0 +1,166 @@
+const fs = require("fs");
+const path = require("path");
+const { test, expect } = require("@playwright/test");
+const {
+  launchElectronApp,
+  startShellSession,
+  writeTerminalCommand,
+} = require("./helpers/electronApp");
+
+test("agent and manual terminals accept interactive shell input", async ({}, testInfo) => {
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "Terminal roundtrip" });
+    await writeTerminalCommand(
+      window,
+      "#terminal",
+      "echo AGENT_TERMINAL_E2E",
+      "AGENT_TERMINAL_E2E",
+    );
+
+    await window.locator("#add-manual-terminal").click();
+    await writeTerminalCommand(
+      window,
+      "#manual-terminal",
+      "echo MANUAL_TERMINAL_E2E",
+      "MANUAL_TERMINAL_E2E",
+    );
+
+    await window.getByRole("button", { name: "Stop" }).click();
+    await expect(window.locator("#session-status")).toHaveText("Stopped");
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("quick open loads a workspace file and theme choices remain selectable", async ({}, testInfo) => {
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "Workspace tools" });
+    await window.keyboard.press("Control+p");
+    await expect(window.locator("#quick-open-overlay")).toBeVisible();
+    await window.locator("#quick-open-input").fill("README.md");
+    await window.locator(".quick-open-result").first().click();
+    await expect(window.locator("#file-drawer")).toBeVisible();
+    await expect(window.locator("#file-editor-path")).toHaveText("README.md");
+
+    for (const mode of ["light", "dark", "system"]) {
+      await window.locator("#theme-select").selectOption(mode);
+      await expect(window.locator("#theme-select")).toHaveValue(mode);
+    }
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("stopped sessions restart and their metadata survives relaunch", async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const firstLaunch = await launchElectronApp(testInfo, "persistent-appdata");
+
+  try {
+    await startShellSession(firstLaunch.window, { label: "Persistent session" });
+    await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
+    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
+    await firstLaunch.window.locator(".session-action-restart").first().click();
+    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Running");
+    await writeTerminalCommand(
+      firstLaunch.window,
+      "#terminal",
+      "echo PERSISTED_TERMINAL_HISTORY",
+      "PERSISTED_TERMINAL_HISTORY",
+    );
+    await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
+    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
+  } finally {
+    await firstLaunch.electronApp.close();
+  }
+
+  const secondLaunch = await launchElectronApp(testInfo, "persistent-appdata");
+  try {
+    const restoredSession = secondLaunch.window.locator(".session-tab").first();
+    await expect(restoredSession).toContainText("Persistent session");
+    await restoredSession.click();
+    await expect(secondLaunch.window.locator("#terminal")).toContainText(
+      "PERSISTED_TERMINAL_HISTORY",
+    );
+  } finally {
+    await secondLaunch.electronApp.close();
+  }
+});
+
+test("failed commands report the process exit instead of a resize race", async ({}, testInfo) => {
+  test.skip(process.platform !== "win32", "This command-not-found path targets Windows cmd.exe.");
+  const { electronApp, rootDir, window } = await launchElectronApp(testInfo);
+
+  try {
+    await window.getByRole("button", { name: "Create session" }).click();
+    await window.locator("#command").fill("definitely-not-a-real-command-e2e");
+    await window.locator("#args").fill("");
+    await window.locator("#cwd").fill(rootDir);
+    await window.getByRole("button", { name: "Start Session" }).click();
+
+    await expect(window.locator("#session-status")).toHaveText("Error");
+    await expect(window.locator("#session-meta")).toContainText(
+      "Session exited with code 1",
+    );
+    await expect(window.locator("#session-meta")).not.toContainText(
+      "Cannot resize a pty",
+    );
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("workspace files can be edited and saved from the drawer", async ({}, testInfo) => {
+  const fixtureName = `editable-fixture-${testInfo.workerIndex}.txt`;
+  const fixturePath = path.join(__dirname, fixtureName);
+  fs.writeFileSync(fixturePath, "before edit", "utf8");
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "File editor" });
+    await window.keyboard.press("Control+p");
+    await window.locator("#quick-open-input").fill(fixtureName);
+    await window.locator(".quick-open-result").first().click();
+    await expect(window.locator("#file-editor-path")).toContainText(fixtureName);
+
+    const editorInput = window.locator(
+      "#file-editor-surface .monaco-editor textarea.inputarea",
+    );
+    await editorInput.waitFor({ state: "attached" });
+    await editorInput.evaluate((element) => element.focus());
+    await window.keyboard.press("Control+a");
+    await window.keyboard.type("after edit");
+    await window.locator("#file-editor-save").click();
+    await expect.poll(() => fs.readFileSync(fixturePath, "utf8")).toBe("after edit");
+  } finally {
+    await electronApp.close();
+    fs.rmSync(fixturePath, { force: true });
+  }
+});
+
+test("removing a stopped session clears it from persisted history", async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const firstLaunch = await launchElectronApp(testInfo, "removed-session-appdata");
+
+  try {
+    await startShellSession(firstLaunch.window, { label: "Remove me" });
+    await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
+    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
+    await firstLaunch.window.locator(".session-action-remove").first().click();
+    await expect(firstLaunch.window.locator("#session-tabs-list")).toContainText("No sessions");
+  } finally {
+    await firstLaunch.electronApp.close();
+  }
+
+  const secondLaunch = await launchElectronApp(testInfo, "removed-session-appdata");
+  try {
+    await expect(secondLaunch.window.locator("#session-tabs-list")).toContainText(
+      "No sessions",
+    );
+  } finally {
+    await secondLaunch.electronApp.close();
+  }
+});

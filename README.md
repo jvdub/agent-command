@@ -7,10 +7,11 @@ Desktop wrapper for interactive agent CLIs running inside a real pseudo-terminal
 - Starts an agent command in a chosen working directory.
 - Supports multiple concurrent sessions, each with its own PTY process.
 - Preserves interactive terminal behavior through `node-pty`, including prompts, permission requests, and follow-up questions.
-- Keeps a persistent left sidebar for launching new sessions and viewing launcher status.
-- Uses the main workspace area as a command center to show session cards.
-- Opens a per-session raw terminal in the main workspace when you click a card, with an inline back arrow in the terminal header to return to command center cards.
-- Surfaces per-session attention states in cards so you can quickly triage which agents need input.
+- Keeps a persistent left sidebar for launching, switching, restarting, and removing sessions.
+- Opens the selected agent terminal beside workspace changes and manual shell terminals.
+- Supports quick-open workspace navigation, modified-file inspection, and in-app file editing.
+- Surfaces per-session attention states so you can quickly triage which agents need input.
+- Supports system, light, and dark appearance modes.
 
 ## Multi-session architecture
 
@@ -26,11 +27,10 @@ The app now uses a session manager model instead of a single global PTY.
   - Exposes a multi-session IPC API (`listSessions`, `startSession`, `stopSession(sessionId)`, `writeToSession(sessionId, input)`, `resizeSession(sessionId, size)`).
   - Exposes event subscriptions for session stream and session list changes.
 - Renderer (`src/renderer/app.js` + `src/renderer/index.html`):
-  - Implements a persistent sidebar plus a main-area view switcher.
+  - Implements a persistent sidebar plus a split terminal and workspace view.
   - Stores session metadata and output buffers per `sessionId`.
   - Derives attention states from PTY output heuristics: permission prompts, question prompts, idle sessions, and errors.
-  - Clicking a card switches the main area into terminal detail for that session.
-  - Back arrow returns the main area to command-center cards without tearing down running sessions.
+  - Clicking a session tab switches the active terminal without tearing down running sessions.
 
 ## Current target
 
@@ -73,7 +73,20 @@ claude -i "Audit this repo and suggest the smallest fix"
 
 - The wrapped command runs as if you started it in that directory in a terminal.
 - On Linux, Electron needs a display server. In headless environments you will need something like Xvfb to launch the desktop window.
-- Session cards remain visible after exit so you can inspect terminal output and exit status.
+- Session tabs remain visible after exit so you can inspect terminal output and exit status.
+- Session metadata is stored in Electron's per-user application-data directory.
+- Terminal history is encrypted with Electron's OS-backed safe storage before it is written to disk. If protected storage is unavailable, terminal output is not persisted.
+- Removing a stopped session also removes its stored history.
+
+## Quality checks
+
+```bash
+npm run check
+npm test -- --runInBand
+npm run test:e2e
+```
+
+The Electron end-to-end suite covers session launch and terminal I/O, manual terminals, quick-open, modified files, themes, restart and restore behavior, and command failure handling.
 
 ## Architecture Docs
 

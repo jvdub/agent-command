@@ -7,6 +7,7 @@ const {
   dialog,
   ipcMain,
   Menu,
+  safeStorage,
   shell,
 } = require("electron");
 
@@ -63,6 +64,7 @@ const serviceRegistry = createServiceRegistry({
   ipcMain,
   path,
   pty,
+  safeStorage,
   shell,
 });
 

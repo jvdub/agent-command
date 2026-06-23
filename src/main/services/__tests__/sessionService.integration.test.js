@@ -94,4 +94,39 @@ describe("sessionService integration", () => {
     );
     expect(stopManualTerminalBySessionId).toHaveBeenCalledWith(session.id);
   });
+
+  test("ignores the expected resize race after a PTY exits", () => {
+    const sessions = new Map([
+      [
+        "session-1",
+        {
+          id: "session-1",
+          isRunning: true,
+          ptyProcess: {
+            resize: jest.fn(() => {
+              throw new Error("Cannot resize a pty that has already exited");
+            }),
+          },
+        },
+      ],
+    ]);
+
+    const service = createSessionService({
+      sessions,
+      pty: {},
+      sendToRenderer: jest.fn(),
+      buildPtyEnv: jest.fn(),
+      splitArgs: jest.fn(),
+      spawnSessionPty: jest.fn(),
+      persistenceService: {
+        saveSessionsToDisk: jest.fn(),
+        deleteSessionFromDisk: jest.fn(),
+      },
+      manualTerminalService: {
+        stopManualTerminalBySessionId: jest.fn(),
+      },
+    });
+
+    expect(service.resizeSession("session-1", 120, 36)).toEqual({ ok: false });
+  });
 });

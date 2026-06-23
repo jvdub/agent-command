@@ -1,0 +1,2 @@
+# Third-party generated bundles may contain upstream trailing whitespace.
+src/renderer/vendor/** whitespace=-trailing-space

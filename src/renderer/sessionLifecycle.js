@@ -14,6 +14,7 @@ export function bindSessionEvents({
   manualTerminalBuffers,
   manualTerminals,
   updateSessions,
+  setStatus,
 }) {
   agenticApp.onSessionData(({ sessionId, data }) => {
     updateInsightFromOutput(sessionId, data);
@@ -48,6 +49,15 @@ export function bindSessionEvents({
     const instance = sessionTerminals.get(sessionId);
     if (instance) {
       instance.terminal.write(exitLine);
+    }
+
+    if (getActiveSessionId() === sessionId) {
+      setStatus(
+        exitCode === 0 ? "Stopped" : "Error",
+        exitCode === 0
+          ? "Session exited"
+          : `Session exited with code ${exitCode}; check the terminal output`,
+      );
     }
 
     scheduleUiRefresh();

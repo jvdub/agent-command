@@ -2,7 +2,59 @@ const fs = require("fs");
 const path = require("path");
 const { boundTerminalBuffer } = require("./boundedBuffer");
 
-function createSessionPersistenceService({ app, sessions }) {
+const ENCRYPTED_OUTPUT_ENCODING = "electron-safe-storage-v1";
+
+function createSessionPersistenceService({ app, safeStorage, sessions }) {
+  function canProtectOutput() {
+    try {
+      return Boolean(safeStorage?.isEncryptionAvailable?.());
+    } catch {
+      return false;
+    }
+  }
+
+  function protectOutputBuffer(value) {
+    const output = boundTerminalBuffer(value);
+    if (!output || !canProtectOutput()) {
+      return null;
+    }
+
+    try {
+      return {
+        encoding: ENCRYPTED_OUTPUT_ENCODING,
+        data: safeStorage.encryptString(output).toString("base64"),
+      };
+    } catch (error) {
+      console.warn("Terminal history could not be protected and was not persisted:", error);
+      return null;
+    }
+  }
+
+  function restoreOutputBuffer(value) {
+    // Migrate legacy plaintext session files on their next save.
+    if (typeof value === "string") {
+      return boundTerminalBuffer(value);
+    }
+
+    if (
+      !value ||
+      value.encoding !== ENCRYPTED_OUTPUT_ENCODING ||
+      typeof value.data !== "string" ||
+      !canProtectOutput()
+    ) {
+      return "";
+    }
+
+    try {
+      return boundTerminalBuffer(
+        safeStorage.decryptString(Buffer.from(value.data, "base64")),
+      );
+    } catch (error) {
+      console.warn("Protected terminal history could not be restored:", error);
+      return "";
+    }
+  }
+
   function getSessionStoreFile() {
     return path.join(app.getPath("userData"), "sessions.json");
   }
@@ -27,7 +79,11 @@ function createSessionPersistenceService({ app, sessions }) {
         return;
       }
 
+      let shouldMigrateLegacyOutput = false;
       for (const sessionData of stored) {
+        if (typeof sessionData.outputBuffer === "string") {
+          shouldMigrateLegacyOutput = true;
+        }
         sessions.set(sessionData.id, {
           id: sessionData.id,
           ptyProcess: null,
@@ -35,7 +91,7 @@ function createSessionPersistenceService({ app, sessions }) {
           cwd: sessionData.cwd,
           command: sessionData.command,
           args: sessionData.args || [],
-          outputBuffer: boundTerminalBuffer(sessionData.outputBuffer),
+          outputBuffer: restoreOutputBuffer(sessionData.outputBuffer),
           createdAt: sessionData.createdAt,
           isRunning: false,
           endedAt: sessionData.endedAt || null,
@@ -43,6 +99,10 @@ function createSessionPersistenceService({ app, sessions }) {
           signal: sessionData.signal || null,
           dispose() {},
         });
+      }
+
+      if (shouldMigrateLegacyOutput) {
+        saveSessionsToDisk();
       }
     } catch (error) {
       console.error("Failed to load sessions from disk:", error);
@@ -58,7 +118,7 @@ function createSessionPersistenceService({ app, sessions }) {
         cwd: session.cwd,
         command: session.command,
         args: session.args,
-        outputBuffer: boundTerminalBuffer(session.outputBuffer),
+        outputBuffer: protectOutputBuffer(session.outputBuffer),
         createdAt: session.createdAt,
         isRunning: session.isRunning,
         endedAt: session.endedAt,
@@ -89,5 +149,6 @@ function createSessionPersistenceService({ app, sessions }) {
 }
 
 module.exports = {
+  ENCRYPTED_OUTPUT_ENCODING,
   createSessionPersistenceService,
 };
