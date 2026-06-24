@@ -33,6 +33,7 @@ import {
   appendBoundedBuffer,
   boundTerminalBuffer,
 } from "./boundedBuffer.js";
+import { createToastNotifier } from "./toastNotifications.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -58,8 +59,8 @@ const toggleProcessPanelButton = document.querySelector(
 );
 const agentPane = document.querySelector("#agent-pane");
 const rightPane = document.querySelector("#right-pane");
-const sessionStatus = document.querySelector("#session-status");
-const sessionMeta = document.querySelector("#session-meta");
+const toastRegion = document.querySelector("#toast-region");
+const toastNotifier = createToastNotifier({ container: toastRegion });
 const sessionTabsList = document.querySelector("#session-tabs-list");
 const terminalTitle = document.querySelector("#terminal-title");
 const terminalSubtitle = document.querySelector("#terminal-subtitle");
@@ -394,8 +395,7 @@ function setProcessInspectionSupport(supported) {
 }
 
 function setStatus(label, meta) {
-  sessionStatus.textContent = label;
-  sessionMeta.textContent = meta;
+  toastNotifier.notify(label, meta);
 }
 
 function setSessionRestartPending(sessionId, pending) {

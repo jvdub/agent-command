@@ -106,14 +106,6 @@
 
         <div id="session-tabs-list" class="session-tabs-list"></div>
 
-        <div class="status-card compact-status" role="status" aria-live="polite">
-          <p class="status-label">Launcher Status</p>
-          <p id="session-status" class="status-value">Idle</p>
-          <p id="session-meta" class="status-meta">
-            Use + to create a session.
-          </p>
-        </div>
-
         <div class="sidebar-tools" aria-label="Application tools">
           <button type="button" id="copy-diagnostics" class="secondary">
             Copy diagnostics
@@ -294,6 +286,14 @@
         </section>
       </main>
     </div>
+
+    <div
+      id="toast-region"
+      class="toast-region"
+      aria-label="Notifications"
+      aria-live="polite"
+      aria-relevant="additions"
+    ></div>
 
     <div id="terminal-context-menu" class="terminal-context-menu hidden">
       <button

@@ -49,7 +49,7 @@ test("agent and manual terminals accept interactive shell input", async ({}, tes
     );
 
     await window.getByRole("button", { name: "Stop" }).click();
-    await expect(window.locator("#session-status")).toHaveText("Stopped");
+    await expect(window.locator(".session-tab.stopped-tab")).toBeVisible();
   } finally {
     await electronApp.close();
   }
@@ -101,9 +101,10 @@ test("stopped sessions restart and their metadata survives relaunch", async ({},
       "SIZE_BEFORE_RESTART",
     );
     await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
-    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
     await firstLaunch.window.locator(".session-action-restart").first().click();
-    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Running");
+    await expect(firstLaunch.window.locator("#terminal-subtitle")).toContainText(
+      "Running",
+    );
     const sizeAfterRestart = await reportTerminalSize(
       firstLaunch.window,
       "SIZE_AFTER_RESTART",
@@ -116,7 +117,6 @@ test("stopped sessions restart and their metadata survives relaunch", async ({},
       "PERSISTED_TERMINAL_HISTORY",
     );
     await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
-    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
     await expect(firstLaunch.window.locator(".session-tab.stopped-tab")).toBeVisible();
   } finally {
     await firstLaunch.electronApp.close();
@@ -154,11 +154,12 @@ test("failed commands report the process exit instead of a resize race", async (
     await window.locator("#cwd").fill(rootDir);
     await window.getByRole("button", { name: "Start Session" }).click();
 
-    await expect(window.locator("#session-status")).toHaveText("Error");
-    await expect(window.locator("#session-meta")).toContainText(
+    const errorToast = window.locator(".toast-error");
+    await expect(errorToast).toContainText("Error");
+    await expect(errorToast).toContainText(
       `Session exited with code ${isWindows ? 1 : 7}`,
     );
-    await expect(window.locator("#session-meta")).not.toContainText(
+    await expect(errorToast).not.toContainText(
       "Cannot resize a pty",
     );
   } finally {
@@ -201,7 +202,7 @@ test("removing a stopped session clears it from persisted history", async ({}, t
   try {
     await startShellSession(firstLaunch.window, { label: "Remove me" });
     await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
-    await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
+    await expect(firstLaunch.window.locator(".session-tab.stopped-tab")).toBeVisible();
     await firstLaunch.window.locator(".session-action-remove").first().click();
     await expect(firstLaunch.window.locator("#session-tabs-list")).toContainText("No sessions");
   } finally {
@@ -300,7 +301,7 @@ test("operational tools expose CLI readiness, diagnostics, and history clearing"
   try {
     await startShellSession(window, { label: "History to clear" });
     await window.getByRole("button", { name: "Stop" }).click();
-    await expect(window.locator("#session-status")).toHaveText("Stopped");
+    await expect(window.locator(".session-tab.stopped-tab")).toBeVisible();
 
     await window.getByRole("button", { name: "Create session" }).click();
     await window.locator("#command").fill("definitely-not-installed-agent-cli");
@@ -309,14 +310,16 @@ test("operational tools expose CLI readiness, diagnostics, and history clearing"
     );
 
     await window.locator("#copy-diagnostics").click();
-    await expect(window.locator("#session-status")).toHaveText("Copied");
+    await expect(
+      window.locator(".toast").filter({ hasText: "Copied" }),
+    ).toContainText("Application diagnostics copied to clipboard");
 
     window.once("dialog", (dialog) => dialog.accept());
     await window.locator("#clear-history").click();
     await expect(window.locator("#session-tabs-list")).toContainText("No sessions");
-    await expect(window.locator("#session-status")).toHaveText(
-      "History cleared",
-    );
+    await expect(
+      window.locator(".toast").filter({ hasText: "History cleared" }),
+    ).toBeVisible();
   } finally {
     await electronApp.close();
   }

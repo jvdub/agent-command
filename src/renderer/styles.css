@@ -399,13 +399,6 @@ select {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.compact-status {
-  margin-top: auto;
-  box-shadow: none;
-  border-radius: 14px;
-  padding: 12px;
-}
-
 .field-help {
   color: var(--muted);
   font-size: 0.72rem;
@@ -435,6 +428,89 @@ select {
 .sidebar-tools .danger-action {
   grid-column: 1 / -1;
   color: var(--danger);
+}
+
+.toast-region {
+  position: fixed;
+  z-index: 1000;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid var(--border-strong);
+  border-left-width: 4px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  padding: 12px 12px 12px 14px;
+  pointer-events: auto;
+  animation: toast-in 160ms ease-out;
+}
+
+.toast-success {
+  border-left-color: var(--ok);
+}
+
+.toast-warning {
+  border-left-color: var(--warn);
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+
+.toast-title,
+.toast-message {
+  margin: 0;
+}
+
+.toast-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.toast-message {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.toast-dismiss:hover {
+  background: var(--surface-active);
+  color: var(--text);
+  transform: none;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .appearance-setting {
@@ -496,7 +572,6 @@ h2 {
 
 .launch-panel,
 .session-overview,
-.status-card,
 .terminal-panel,
 .session-form {
   border: 1px solid var(--border);
@@ -506,8 +581,7 @@ h2 {
 }
 
 .launch-panel,
-.session-overview,
-.status-card {
+.session-overview {
   padding: 18px;
 }
 
@@ -622,17 +696,6 @@ button:disabled {
 
 .panel-header.compact {
   padding: 0;
-}
-
-.status-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.status-value {
-  font-size: 1.25rem;
-  font-weight: 700;
 }
 
 .status-meta {
@@ -1584,6 +1647,12 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  .toast-region {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+
   .path-row,
   .button-row,
   .panel-header {
@@ -1608,5 +1677,11 @@ button:disabled {
   .workspace-tab {
     width: 100%;
     text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
   }
 }
