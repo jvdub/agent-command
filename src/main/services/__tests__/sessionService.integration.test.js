@@ -4,7 +4,12 @@ const { IPC_CHANNELS } = require("../../../shared/ipcContract");
 const { createSessionService } = require("../sessionService");
 
 describe("sessionService integration", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test("start, write, and stop session roundtrip", () => {
+    jest.useFakeTimers();
     const sessions = new Map();
     const sendToRenderer = jest.fn();
     const saveSessionsToDisk = jest.fn();
@@ -71,7 +76,13 @@ describe("sessionService integration", () => {
     );
     expect(saveSessionsToDisk).toHaveBeenCalled();
 
-    onDataHandler("hello from pty");
+    onDataHandler("hello ");
+    onDataHandler("from pty");
+    expect(sendToRenderer).not.toHaveBeenCalledWith(
+      IPC_CHANNELS.events.sessionData,
+      expect.anything(),
+    );
+    jest.advanceTimersByTime(16);
     expect(sendToRenderer).toHaveBeenCalledWith(
       IPC_CHANNELS.events.sessionData,
       expect.objectContaining({
@@ -79,14 +90,27 @@ describe("sessionService integration", () => {
         data: "hello from pty",
       }),
     );
+    expect(
+      sendToRenderer.mock.calls.filter(
+        ([channel]) => channel === IPC_CHANNELS.events.sessionData,
+      ),
+    ).toHaveLength(1);
 
     const writeResult = service.writeToSession(session.id, "pwd\r");
     expect(writeResult).toEqual({ ok: true });
     expect(fakePtyProcess.write).toHaveBeenCalledWith("pwd\r");
 
+    onDataHandler("tail before exit");
     const stopped = service.stopSessionById(session.id);
     expect(stopped).toBe(true);
     expect(fakePtyProcess.kill).toHaveBeenCalled();
+    expect(sendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.events.sessionData,
+      expect.objectContaining({
+        sessionId: session.id,
+        data: "tail before exit",
+      }),
+    );
 
     expect(sendToRenderer).toHaveBeenCalledWith(
       IPC_CHANNELS.events.sessionExit,

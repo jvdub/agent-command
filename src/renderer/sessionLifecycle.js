@@ -6,7 +6,6 @@ export function bindSessionEvents({
   appendSessionBuffer,
   ingestFileReferences,
   sessionTerminals,
-  renderSessionFileReferences,
   getActiveSessionId,
   scheduleUiRefresh,
   ensureSessionInsight,
@@ -24,10 +23,6 @@ export function bindSessionEvents({
     const instance = sessionTerminals.get(sessionId);
     if (instance) {
       instance.terminal.write(data);
-    }
-
-    if (getActiveSessionId() === sessionId) {
-      renderSessionFileReferences(sessionId);
     }
 
     scheduleUiRefresh();

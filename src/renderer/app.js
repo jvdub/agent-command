@@ -3056,7 +3056,6 @@ function renderProcessDetails(sessionId) {
 
 async function openTerminalView(
   sessionId,
-  { focusTarget = "terminal" } = {},
 ) {
   if (editorState.open && activeSessionId && activeSessionId !== sessionId) {
     const closed = closeFileEditorModal();
@@ -3085,7 +3084,11 @@ async function openTerminalView(
   renderManualTerminalTabs(sessionId);
   setTerminalActionsEnabled(session);
   renderProcessDetails(sessionId);
-  showSessionTerminal(sessionId, { focusTerminal: false });
+  const agentTerminal = showSessionTerminal(sessionId, {
+    focusTerminal: false,
+  });
+  agentTerminal.terminal.focus();
+
   await resizeSession();
   const activeManualTerminalId = getActiveManualTerminalId(sessionId);
   await showManualTerminal(sessionId, activeManualTerminalId, {
@@ -3093,15 +3096,6 @@ async function openTerminalView(
   });
   await resizeManualTerminal(activeManualTerminalId);
   await refreshModifiedFiles(sessionId, { force: true });
-
-  if (focusTarget === "session") {
-    sessionTabsList
-      .querySelector(`.session-tab[data-session-id="${CSS.escape(sessionId)}"]`)
-      ?.focus();
-    return;
-  }
-
-  getActiveTerminalInstance()?.terminal.focus();
 }
 
 function updateSessions(payload) {
@@ -3174,7 +3168,6 @@ function bindGlobalEvents() {
     appendSessionBuffer,
     ingestFileReferences,
     sessionTerminals,
-    renderSessionFileReferences,
     getActiveSessionId: () => activeSessionId,
     scheduleUiRefresh,
     ensureSessionInsight,
@@ -3513,7 +3506,7 @@ function selectSessionFromSidebar(event) {
   const tab = target.closest(".session-tab");
   if (tab?.dataset.sessionId) {
     event.preventDefault();
-    openTerminalView(tab.dataset.sessionId, { focusTarget: "session" });
+    openTerminalView(tab.dataset.sessionId);
   }
 }
 

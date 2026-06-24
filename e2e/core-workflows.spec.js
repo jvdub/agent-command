@@ -87,6 +87,7 @@ test("stopped sessions restart and their metadata survives relaunch", async ({},
     );
     await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
     await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
+    await expect(firstLaunch.window.locator(".session-tab.stopped-tab")).toBeVisible();
   } finally {
     await firstLaunch.electronApp.close();
   }
@@ -187,7 +188,7 @@ test("removing a stopped session clears it from persisted history", async ({}, t
   }
 });
 
-test("switching sessions keeps focus on the selected sidebar session", async ({}, testInfo) => {
+test("switching sessions focuses input on the selected agent terminal", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(testInfo);
 
   try {
@@ -199,10 +200,19 @@ test("switching sessions keeps focus on the selected sidebar session", async ({}
       .filter({ hasText: "First focus session" });
     await firstSession.click();
 
-    await expect(firstSession).toBeFocused();
     await expect(window.locator("#terminal-title")).toHaveText(
       "First focus session",
     );
+    const selectedTerminalInput = window.locator(
+      "#terminal .terminal-instance:not(.hidden) .xterm-helper-textarea",
+    );
+    await expect(selectedTerminalInput).toBeFocused();
+
+    await window.keyboard.type("echo SELECTED_SESSION_INPUT_E2E");
+    await window.keyboard.press("Enter");
+    await expect(
+      window.locator("#terminal .terminal-instance:not(.hidden)"),
+    ).toContainText("SELECTED_SESSION_INPUT_E2E");
   } finally {
     await electronApp.close();
   }

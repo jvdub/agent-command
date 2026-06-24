@@ -5,6 +5,8 @@ const {
 } = require("../../shared/ipcContract");
 const { appendBoundedBuffer } = require("./boundedBuffer");
 
+const OUTPUT_FLUSH_INTERVAL_MS = 16;
+
 function createSessionService({
   sessions,
   pty,
@@ -44,6 +46,47 @@ function createSessionService({
 
   function publishSessionsChanged() {
     sendToRenderer(IPC_CHANNELS.events.sessionsChanged, listSessions());
+  }
+
+  function flushSessionOutput(sessionId) {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    if (session.outputFlushTimer) {
+      clearTimeout(session.outputFlushTimer);
+      session.outputFlushTimer = null;
+    }
+
+    if (session.pendingOutputChunks.length === 0) {
+      return;
+    }
+
+    const data = session.pendingOutputChunks.join("");
+    session.pendingOutputChunks.length = 0;
+    session.outputBuffer = appendBoundedBuffer(session.outputBuffer, data);
+    sendToRenderer(
+      IPC_CHANNELS.events.sessionData,
+      buildSessionDataEvent(sessionId, data),
+    );
+  }
+
+  function queueSessionOutput(sessionId, data) {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    session.pendingOutputChunks.push(data);
+    if (session.outputFlushTimer) {
+      return;
+    }
+
+    session.outputFlushTimer = setTimeout(
+      () => flushSessionOutput(sessionId),
+      OUTPUT_FLUSH_INTERVAL_MS,
+    );
   }
 
   function stopSessionById(sessionId) {
@@ -96,18 +139,7 @@ function createSessionService({
 
     cleanup.push(
       ptyProcess.onData((data) => {
-        const session = sessions.get(id);
-        if (session) {
-          session.outputBuffer = appendBoundedBuffer(
-            session.outputBuffer,
-            data,
-          );
-        }
-
-        sendToRenderer(
-          IPC_CHANNELS.events.sessionData,
-          buildSessionDataEvent(id, data),
-        );
+        queueSessionOutput(id, data);
       }),
     );
 
@@ -118,6 +150,7 @@ function createSessionService({
           return;
         }
 
+        flushSessionOutput(id);
         session.isRunning = false;
         session.endedAt = Date.now();
         session.exitCode = event.exitCode;
@@ -160,7 +193,13 @@ function createSessionService({
       exitCode: null,
       signal: null,
       stopRequested: false,
+      pendingOutputChunks: [],
+      outputFlushTimer: null,
       dispose() {
+        if (this.outputFlushTimer) {
+          clearTimeout(this.outputFlushTimer);
+          this.outputFlushTimer = null;
+        }
         while (cleanup.length) {
           const handler = cleanup.pop();
           if (typeof handler === "function") {
