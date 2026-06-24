@@ -96,6 +96,24 @@ describe("session lifecycle restart feedback", () => {
     );
   });
 
+  test("forces a fresh PTY resize after restart", async () => {
+    const session = {
+      id: "session-1",
+      cwd: "C:\\repo",
+      label: "Test session",
+    };
+    agenticApp.restartSession.mockResolvedValue({ session });
+    agenticApp.listSessions.mockResolvedValue({ sessions: [session] });
+    const openTerminalView = jest.fn();
+    const handlers = createHandlers({ openTerminalView });
+
+    await handlers.restartSessionFromSidebar(session.id);
+
+    expect(openTerminalView).toHaveBeenCalledWith(session.id, {
+      forceResize: true,
+    });
+  });
+
   test("ignores duplicate restart requests while one is pending", async () => {
     const setSessionRestartPending = jest.fn(() => false);
     const handlers = createHandlers({ setSessionRestartPending });

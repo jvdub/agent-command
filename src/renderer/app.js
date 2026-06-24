@@ -3056,6 +3056,7 @@ function renderProcessDetails(sessionId) {
 
 async function openTerminalView(
   sessionId,
+  { forceResize = false } = {},
 ) {
   if (editorState.open && activeSessionId && activeSessionId !== sessionId) {
     const closed = closeFileEditorModal();
@@ -3089,7 +3090,7 @@ async function openTerminalView(
   });
   agentTerminal.terminal.focus();
 
-  await resizeSession();
+  await resizeSession({ force: forceResize });
   const activeManualTerminalId = getActiveManualTerminalId(sessionId);
   await showManualTerminal(sessionId, activeManualTerminalId, {
     focusTerminal: false,
@@ -3179,7 +3180,7 @@ function bindGlobalEvents() {
   });
 }
 
-async function resizeSession() {
+async function resizeSession({ force = false } = {}) {
   const instance = getActiveTerminalInstance();
   if (!activeSessionId || !instance) {
     return;
@@ -3191,7 +3192,7 @@ async function resizeSession() {
     rows: instance.terminal.rows,
   };
   const sizeKey = `${size.cols}x${size.rows}`;
-  if (lastSessionTerminalSize.get(activeSessionId) === sizeKey) {
+  if (!force && lastSessionTerminalSize.get(activeSessionId) === sizeKey) {
     return;
   }
 

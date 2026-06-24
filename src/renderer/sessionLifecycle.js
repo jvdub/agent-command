@@ -244,7 +244,7 @@ export function createSessionLifecycleHandlers({
           "Running",
           `${getSessionDisplayName(session)} (${session.cwd})`,
         );
-        await openTerminalView(session.id);
+        await openTerminalView(session.id, { forceResize: true });
       } catch (error) {
         setStatus("Error", error.message || "Unable to restart session");
       } finally {

@@ -7,6 +7,27 @@ const {
   writeTerminalCommand,
 } = require("./helpers/electronApp");
 
+async function reportTerminalSize(window, label) {
+  await writeTerminalCommand(
+    window,
+    "#terminal",
+    `node -e "console.log('${label}='+process.stdout.columns+'x'+process.stdout.rows)"`,
+    `${label}=`,
+  );
+
+  let reportedSize = "";
+  await expect
+    .poll(async () => {
+      const terminalText = await window.locator("#terminal").textContent();
+      reportedSize =
+        terminalText?.match(new RegExp(`${label}=(\\d+x\\d+)`))?.[1] || "";
+      return reportedSize;
+    })
+    .toMatch(/^\d+x\d+$/);
+
+  return reportedSize;
+}
+
 test("agent and manual terminals accept interactive shell input", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(testInfo);
 
@@ -75,10 +96,19 @@ test("stopped sessions restart and their metadata survives relaunch", async ({},
 
   try {
     await startShellSession(firstLaunch.window, { label: "Persistent session" });
+    const sizeBeforeRestart = await reportTerminalSize(
+      firstLaunch.window,
+      "SIZE_BEFORE_RESTART",
+    );
     await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
     await expect(firstLaunch.window.locator("#session-status")).toHaveText("Stopped");
     await firstLaunch.window.locator(".session-action-restart").first().click();
     await expect(firstLaunch.window.locator("#session-status")).toHaveText("Running");
+    const sizeAfterRestart = await reportTerminalSize(
+      firstLaunch.window,
+      "SIZE_AFTER_RESTART",
+    );
+    expect(sizeAfterRestart).toBe(sizeBeforeRestart);
     await writeTerminalCommand(
       firstLaunch.window,
       "#terminal",
