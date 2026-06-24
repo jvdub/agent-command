@@ -56,12 +56,16 @@ function subscribe(sectionName, methodName, listener) {
 /** @type {AgenticAppApi} */
 export const agenticApp = Object.freeze({
   getContext: () => call("app", "getContext"),
+  checkCommand: (command) => call("app", "checkCommand", command),
+  getDiagnostics: () => call("app", "getDiagnostics"),
+  openDataFolder: () => call("app", "openDataFolder"),
   pickDirectory: () => call("app", "pickDirectory"),
   startSession: (options) => call("sessions", "start", options),
   listSessions: () => call("sessions", "list"),
   stopSession: (sessionId) => call("sessions", "stop", sessionId),
   restartSession: (sessionId) => call("sessions", "restart", sessionId),
   removeSession: (sessionId) => call("sessions", "remove", sessionId),
+  clearSessionHistory: () => call("sessions", "clearHistory"),
   openWorkspaceFile: (sessionId, filePath) =>
     call("workspace", "openFile", sessionId, filePath),
   saveWorkspaceFile: (sessionId, filePath, content) =>

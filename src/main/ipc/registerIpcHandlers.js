@@ -23,6 +23,10 @@ function registerIpcHandlers({
   sessionService,
   workspaceFileService,
   manualTerminalService,
+  diagnosticsService,
+  app,
+  isCommandAvailable,
+  isSupportedPlatform,
 }) {
   const registry = createIpcHandlerRegistry(ipcMain, {
     ipcMain,
@@ -35,6 +39,10 @@ function registerIpcHandlers({
     sessionService,
     workspaceFileService,
     manualTerminalService,
+    diagnosticsService,
+    app,
+    isCommandAvailable,
+    isSupportedPlatform,
   });
 
   registry.registerFromModules([

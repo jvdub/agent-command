@@ -11,6 +11,7 @@ const { createWindowManager } = require("../window");
 const {
   createManualTerminalService,
 } = require("./manualTerminalService");
+const { createDiagnosticsService } = require("./diagnosticsService");
 const {
   createProcessInspectionService,
 } = require("./processInspectionService");
@@ -61,6 +62,13 @@ function registerAllServices(registry) {
         windowManager: manager,
       };
     },
+    [],
+  );
+
+  registry.register(
+    "diagnosticsService",
+    "Diagnostics Service",
+    ({ app }) => createDiagnosticsService({ app }),
     [],
   );
 
@@ -123,6 +131,7 @@ function registerAllServices(registry) {
       ptyRuntime,
       sessionPersistenceService,
       manualTerminalService,
+      diagnosticsService,
     }) =>
       createSessionService({
         sessions,
@@ -133,8 +142,14 @@ function registerAllServices(registry) {
         spawnSessionPty: ptyRuntime.spawnSessionPty,
         persistenceService: sessionPersistenceService,
         manualTerminalService,
+        diagnosticsService,
       }),
-    ["ptyRuntime", "sessionPersistenceService", "manualTerminalService"],
+    [
+      "ptyRuntime",
+      "sessionPersistenceService",
+      "manualTerminalService",
+      "diagnosticsService",
+    ],
   );
 }
 

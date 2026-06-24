@@ -1,7 +1,19 @@
 {
   "name": "agentic-command",
+  "productName": "Agentic Command",
   "version": "0.1.0",
   "description": "Electron wrapper for terminal-based agentic AI tools",
+  "private": true,
+  "author": "jvdub",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jvdub/agent-command.git"
+  },
+  "homepage": "https://github.com/jvdub/agent-command#readme",
+  "bugs": {
+    "url": "https://github.com/jvdub/agent-command/issues"
+  },
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -37,6 +49,8 @@
     "js-yaml": "5.1.0"
   },
   "build": {
+    "appId": "com.jvdub.agentic-command",
+    "productName": "Agentic Command",
     "asarUnpack": [
       "node_modules/node-pty/**/*"
     ]

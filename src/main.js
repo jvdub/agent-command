@@ -14,6 +14,8 @@ const {
 const { IPC_CHANNELS } = require("./shared/ipcContract");
 const {
   resolveInitialDirectory,
+  isCommandAvailable,
+  isSupportedPlatform,
   shellForPlatform,
 } = require("./main/platform");
 const { createServiceRegistry } = require("./main/serviceRegistry");
@@ -73,6 +75,7 @@ registerAllServices(serviceRegistry);
 const {
   ptyRuntime,
   processInspectionService,
+  diagnosticsService,
   sessionPersistenceService,
   sessionService,
   workspaceFileService,
@@ -80,6 +83,7 @@ const {
 } = serviceRegistry.resolveAll([
   "ptyRuntime",
   "processInspectionService",
+  "diagnosticsService",
   "sessionPersistenceService",
   "sessionService",
   "workspaceFileService",
@@ -94,6 +98,10 @@ const ipcRegistry = registerIpcHandlers({
   resolveInitialDirectory,
   shellForPlatform,
   processInspectionService,
+  diagnosticsService,
+  app,
+  isCommandAvailable,
+  isSupportedPlatform,
   sessionService,
   workspaceFileService,
   manualTerminalService,
@@ -102,6 +110,24 @@ serviceRegistry.setupIpcHandlers(ipcRegistry);
 
 const windowManager = ptyRuntime.windowManager;
 let isShuttingDown = false;
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  diagnosticsService.log("error", "uncaught-exception", {
+    message: error.message,
+    name: error.name,
+    origin,
+    stack: error.stack,
+  });
+});
+
+process.on("unhandledRejection", (reason) => {
+  diagnosticsService.log("error", "unhandled-rejection", {
+    reason:
+      reason instanceof Error
+        ? { message: reason.message, name: reason.name, stack: reason.stack }
+        : String(reason),
+  });
+});
 
 function createMainWindow() {
   const win = windowManager.createWindow();
@@ -144,6 +170,10 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   sessionPersistenceService.loadSessionsFromDisk();
+  diagnosticsService.log("info", "app-ready", {
+    version: app.getVersion(),
+    platform: process.platform,
+  });
   createMainWindow();
 
   app.on("second-instance", () => {

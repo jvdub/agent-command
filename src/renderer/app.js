@@ -42,6 +42,7 @@ const newSessionPopover = document.querySelector("#new-session-popover");
 const openLauncherEmptyButton = document.querySelector("#open-launcher-empty");
 const labelInput = document.querySelector("#label");
 const commandInput = document.querySelector("#command");
+const commandReadiness = document.querySelector("#command-readiness");
 const argsInput = document.querySelector("#args");
 const cwdInput = document.querySelector("#cwd");
 const pickDirectoryButton = document.querySelector("#pick-directory");
@@ -115,6 +116,9 @@ const quickOpenMeta = document.querySelector("#quick-open-meta");
 const quickOpenResults = document.querySelector("#quick-open-results");
 const quickOpenCloseButton = document.querySelector("#quick-open-close");
 const themeSelect = document.querySelector("#theme-select");
+const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
+const openDataFolderButton = document.querySelector("#open-data-folder");
+const clearHistoryButton = document.querySelector("#clear-history");
 
 const IDLE_THRESHOLD_MS = 20000;
 const UI_REFRESH_INTERVAL_MS = 150;
@@ -126,6 +130,7 @@ const ATTENTION_STREAM_MAX_BUFFER = 8192;
 const QUICK_OPEN_RECENTS_KEY = "agentic-command-quick-open-recents";
 const QUICK_OPEN_RECENTS_LIMIT = 40;
 const COPY_SHORTCUT_DEBOUNCE_MS = 50;
+const COMMAND_CHECK_DEBOUNCE_MS = 250;
 const LANGUAGE_BY_EXTENSION = {
   js: "javascript",
   mjs: "javascript",
@@ -330,6 +335,8 @@ let monacoApi = null;
 let monacoLoaderPromise = null;
 let editorModel = null;
 let openingReferencedFile = false;
+let commandCheckTimeoutId = null;
+let commandCheckSequence = 0;
 let sessionLifecycleHandlers = null;
 let lastCopyOrInterruptShortcutAt = 0;
 let activeTerminalTheme = getTerminalTheme("dark");
@@ -3264,6 +3271,99 @@ async function initializeContext() {
   ) {
     commandInput.value = contextDefaultCommand;
   }
+
+  if (context.supportedPlatform === false) {
+    setStatus(
+      "Unsupported platform",
+      "Agentic Command v1 is tested and supported on Windows and Linux",
+    );
+  }
+
+  await refreshCommandReadiness();
+}
+
+async function refreshCommandReadiness() {
+  const command = commandInput.value.trim();
+  const sequence = ++commandCheckSequence;
+
+  if (!command) {
+    commandReadiness.textContent = "Enter the agent CLI executable to run.";
+    commandReadiness.className = "field-help warning";
+    return;
+  }
+
+  commandReadiness.textContent = `Checking ${command}...`;
+  commandReadiness.className = "field-help";
+
+  try {
+    const result = await agenticApp.checkCommand(command);
+    if (sequence !== commandCheckSequence) {
+      return;
+    }
+
+    if (result.available) {
+      commandReadiness.textContent = `${command} is available.`;
+      commandReadiness.className = "field-help ready";
+      return;
+    }
+
+    commandReadiness.textContent = `${command} was not found in PATH. Install it or choose another command.`;
+    commandReadiness.className = "field-help warning";
+  } catch {
+    if (sequence === commandCheckSequence) {
+      commandReadiness.textContent = "Command availability could not be checked.";
+      commandReadiness.className = "field-help warning";
+    }
+  }
+}
+
+function scheduleCommandReadinessCheck() {
+  if (commandCheckTimeoutId) {
+    window.clearTimeout(commandCheckTimeoutId);
+  }
+  commandCheckTimeoutId = window.setTimeout(() => {
+    commandCheckTimeoutId = null;
+    void refreshCommandReadiness();
+  }, COMMAND_CHECK_DEBOUNCE_MS);
+}
+
+async function copyDiagnostics() {
+  try {
+    const diagnostics = await agenticApp.getDiagnostics();
+    await agenticApp.writeClipboardText(diagnostics);
+    setStatus("Copied", "Application diagnostics copied to clipboard");
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to copy diagnostics");
+  }
+}
+
+async function openDataFolder() {
+  try {
+    await agenticApp.openDataFolder();
+    setStatus("Opened", "Application data folder");
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to open application data");
+  }
+}
+
+async function clearSessionHistory() {
+  const confirmed = window.confirm(
+    "Remove all stopped sessions and their saved terminal history? Running sessions will be kept.",
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await agenticApp.clearSessionHistory();
+    const removed = Number(result?.removed) || 0;
+    setStatus(
+      "History cleared",
+      `${removed} stopped session${removed === 1 ? "" : "s"} removed`,
+    );
+  } catch (error) {
+    setStatus("Error", error.message || "Unable to clear session history");
+  }
 }
 
 async function startSession(event) {
@@ -3349,6 +3449,8 @@ window.addEventListener("resize", () => {
 });
 
 sessionForm.addEventListener("submit", startSession);
+commandInput.addEventListener("input", scheduleCommandReadinessCheck);
+commandInput.addEventListener("blur", () => void refreshCommandReadiness());
 pickDirectoryButton.addEventListener("click", pickDirectory);
 stopSessionButton.addEventListener("click", stopSession);
 sendInterruptButton.addEventListener("click", sendInterrupt);
@@ -3394,6 +3496,9 @@ newSessionButton.addEventListener("click", () => toggleSessionPopover());
 openLauncherEmptyButton.addEventListener("click", () =>
   toggleSessionPopover(true),
 );
+copyDiagnosticsButton.addEventListener("click", copyDiagnostics);
+openDataFolderButton.addEventListener("click", openDataFolder);
+clearHistoryButton.addEventListener("click", clearSessionHistory);
 const sessionPopoverDismissal = createPopoverDismissalController({
   popover: newSessionPopover,
   ignoredElements: [newSessionButton, openLauncherEmptyButton],

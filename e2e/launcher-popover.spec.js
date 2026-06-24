@@ -40,6 +40,7 @@ test("open launcher does not intercept first click on session buttons", async ({
 
   const target = page.getByTestId("target-session");
   await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
 
   const box = await target.boundingBox();
   expect(box).toBeTruthy();

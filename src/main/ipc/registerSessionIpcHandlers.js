@@ -32,9 +32,9 @@ function registerHandlers(registry, services) {
         );
       } catch (error) {
         const message = String(error?.message || "Unable to start session.");
-        if (process.platform === "win32" && /not found|enoent/i.test(message)) {
+        if (/not found|enoent/i.test(message)) {
           throw new Error(
-            `Command not found: ${options.command.trim()}. On Windows, confirm the CLI is installed and available in PATH for this app process.`,
+            `Command not found: ${options.command.trim()}. Confirm the CLI is installed and available in PATH for this app process.`,
           );
         }
 
@@ -71,6 +71,10 @@ function registerHandlers(registry, services) {
   registry.register("sessions", IPC_CHANNELS.invoke.removeSession, {
     handler: async (_event, sessionId) =>
       sessionService.removeSession(sessionId),
+  });
+
+  registry.register("sessions", IPC_CHANNELS.invoke.clearSessionHistory, {
+    handler: async () => sessionService.clearStoppedSessions(),
   });
 
   registry.register("sessions", IPC_CHANNELS.invoke.writeToSession, {

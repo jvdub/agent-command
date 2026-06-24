@@ -3,11 +3,26 @@ const path = require("path");
 const { boundTerminalBuffer } = require("./boundedBuffer");
 
 const ENCRYPTED_OUTPUT_ENCODING = "electron-safe-storage-v1";
+const SESSION_STORE_SCHEMA_VERSION = 1;
 
-function createSessionPersistenceService({ app, safeStorage, sessions }) {
+function createSessionPersistenceService({
+  app,
+  safeStorage,
+  sessions,
+  platform = process.platform,
+}) {
   function canProtectOutput() {
     try {
-      return Boolean(safeStorage?.isEncryptionAvailable?.());
+      if (!safeStorage?.isEncryptionAvailable?.()) {
+        return false;
+      }
+
+      if (platform === "linux") {
+        const backend = safeStorage?.getSelectedStorageBackend?.();
+        return Boolean(backend && !["basic_text", "unknown"].includes(backend));
+      }
+
+      return true;
     } catch {
       return false;
     }
@@ -74,12 +89,14 @@ function createSessionPersistenceService({ app, safeStorage, sessions }) {
       }
 
       const data = fs.readFileSync(storeFile, "utf-8");
-      const stored = JSON.parse(data);
+      const parsed = JSON.parse(data);
+      const stored = Array.isArray(parsed) ? parsed : parsed?.sessions;
       if (!Array.isArray(stored)) {
         return;
       }
 
-      let shouldMigrateLegacyOutput = false;
+      let shouldMigrateLegacyOutput =
+        Array.isArray(parsed) || parsed.schemaVersion !== SESSION_STORE_SCHEMA_VERSION;
       for (const sessionData of stored) {
         if (typeof sessionData.outputBuffer === "string") {
           shouldMigrateLegacyOutput = true;
@@ -95,8 +112,8 @@ function createSessionPersistenceService({ app, safeStorage, sessions }) {
           createdAt: sessionData.createdAt,
           isRunning: false,
           endedAt: sessionData.endedAt || null,
-          exitCode: sessionData.exitCode || null,
-          signal: sessionData.signal || null,
+          exitCode: sessionData.exitCode ?? null,
+          signal: sessionData.signal ?? null,
           dispose() {},
         });
       }
@@ -128,7 +145,14 @@ function createSessionPersistenceService({ app, safeStorage, sessions }) {
 
       fs.writeFileSync(
         getSessionStoreFile(),
-        JSON.stringify(sessionArray, null, 2),
+        JSON.stringify(
+          {
+            schemaVersion: SESSION_STORE_SCHEMA_VERSION,
+            sessions: sessionArray,
+          },
+          null,
+          2,
+        ),
         "utf-8",
       );
     } catch (error) {
@@ -150,5 +174,6 @@ function createSessionPersistenceService({ app, safeStorage, sessions }) {
 
 module.exports = {
   ENCRYPTED_OUTPUT_ENCODING,
+  SESSION_STORE_SCHEMA_VERSION,
   createSessionPersistenceService,
 };

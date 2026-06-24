@@ -14,6 +14,7 @@ function createSessionService({
   spawnSessionPty,
   persistenceService,
   manualTerminalService,
+  diagnosticsService = null,
 }) {
   function createSessionId() {
     return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -86,6 +87,11 @@ function createSessionService({
     };
 
     const ptyProcess = spawnSessionPty(pty, command, args, ptyOptions);
+    diagnosticsService?.log("info", "session-started", {
+      sessionId: id,
+      command,
+      cwd,
+    });
     const cleanup = [];
 
     cleanup.push(
@@ -116,6 +122,12 @@ function createSessionService({
         session.endedAt = Date.now();
         session.exitCode = event.exitCode;
         session.signal = event.signal || null;
+        diagnosticsService?.log("info", "session-exited", {
+          sessionId: id,
+          exitCode: event.exitCode,
+          signal: event.signal || null,
+          stoppedByUser: session.stopRequested,
+        });
 
         sendToRenderer(
           IPC_CHANNELS.events.sessionExit,
@@ -237,7 +249,23 @@ function createSessionService({
     return { ok: true };
   }
 
+  function clearStoppedSessions() {
+    let removed = 0;
+    for (const [sessionId, session] of sessions.entries()) {
+      if (!session.isRunning) {
+        sessions.delete(sessionId);
+        removed += 1;
+      }
+    }
+
+    persistenceService.saveSessionsToDisk();
+    publishSessionsChanged();
+    diagnosticsService?.log("info", "session-history-cleared", { removed });
+    return { removed };
+  }
+
   return {
+    clearStoppedSessions,
     listSessions,
     publishSessionsChanged,
     removeSession,

@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 const {
   ENCRYPTED_OUTPUT_ENCODING,
+  SESSION_STORE_SCHEMA_VERSION,
   createSessionPersistenceService,
 } = require("../sessionPersistenceService");
 
@@ -19,12 +20,19 @@ describe("sessionPersistenceService", () => {
     fs.rmSync(userDataDir, { recursive: true, force: true });
   });
 
-  function createService(sessions, safeStorage) {
+  function createService(sessions, safeStorage, platform = "win32") {
     return createSessionPersistenceService({
       app: { getPath: () => userDataDir },
       safeStorage,
       sessions,
+      platform,
     });
+  }
+
+  function readStore() {
+    return JSON.parse(
+      fs.readFileSync(path.join(userDataDir, "sessions.json"), "utf8"),
+    );
   }
 
   test("protects terminal output at rest and restores it", () => {
@@ -42,6 +50,7 @@ describe("sessionPersistenceService", () => {
         args: [],
         outputBuffer: "sensitive terminal output",
         createdAt: 1,
+        exitCode: 0,
         isRunning: false,
       }],
     ]);
@@ -50,11 +59,15 @@ describe("sessionPersistenceService", () => {
     service.saveSessionsToDisk();
     const raw = fs.readFileSync(path.join(userDataDir, "sessions.json"), "utf8");
     expect(raw).not.toContain("sensitive terminal output");
-    expect(JSON.parse(raw)[0].outputBuffer.encoding).toBe(ENCRYPTED_OUTPUT_ENCODING);
+    expect(readStore().schemaVersion).toBe(SESSION_STORE_SCHEMA_VERSION);
+    expect(readStore().sessions[0].outputBuffer.encoding).toBe(
+      ENCRYPTED_OUTPUT_ENCODING,
+    );
 
     sessions.clear();
     service.loadSessionsFromDisk();
     expect(sessions.get("session-1").outputBuffer).toBe("sensitive terminal output");
+    expect(sessions.get("session-1").exitCode).toBe(0);
   });
 
   test("does not persist terminal output when encryption is unavailable", () => {
@@ -77,7 +90,32 @@ describe("sessionPersistenceService", () => {
     service.saveSessionsToDisk();
     const raw = fs.readFileSync(path.join(userDataDir, "sessions.json"), "utf8");
     expect(raw).not.toContain("do not write this");
-    expect(JSON.parse(raw)[0].outputBuffer).toBeNull();
+    expect(readStore().sessions[0].outputBuffer).toBeNull();
+  });
+
+  test("does not persist terminal output with Linux basic-text storage", () => {
+    const sessions = new Map([
+      ["session-1", {
+        id: "session-1",
+        label: "Linux without a keyring",
+        cwd: "/repo",
+        command: "agent",
+        args: [],
+        outputBuffer: "do not write this",
+        createdAt: 1,
+        isRunning: false,
+      }],
+    ]);
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      getSelectedStorageBackend: () => "basic_text",
+    };
+
+    createService(sessions, safeStorage, "linux").saveSessionsToDisk();
+
+    const raw = fs.readFileSync(path.join(userDataDir, "sessions.json"), "utf8");
+    expect(raw).not.toContain("do not write this");
+    expect(readStore().sessions[0].outputBuffer).toBeNull();
   });
 
   test("migrates legacy plaintext output when sessions are loaded", () => {
@@ -111,7 +149,10 @@ describe("sessionPersistenceService", () => {
       "utf8",
     );
     expect(migrated).not.toContain("legacy plaintext");
-    expect(JSON.parse(migrated)[0].outputBuffer.encoding).toBe(
+    expect(JSON.parse(migrated).schemaVersion).toBe(
+      SESSION_STORE_SCHEMA_VERSION,
+    );
+    expect(JSON.parse(migrated).sessions[0].outputBuffer.encoding).toBe(
       ENCRYPTED_OUTPUT_ENCODING,
     );
   });

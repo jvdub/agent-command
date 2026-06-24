@@ -97,6 +97,9 @@ describe("sessionService integration", () => {
       }),
     );
     expect(stopManualTerminalBySessionId).toHaveBeenCalledWith(session.id);
+
+    expect(service.clearStoppedSessions()).toEqual({ removed: 1 });
+    expect(service.listSessions()).toEqual([]);
   });
 
   test("ignores the expected resize race after a PTY exits", () => {

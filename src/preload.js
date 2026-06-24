@@ -4,12 +4,16 @@ const { clipboard, contextBridge, ipcRenderer } = require("electron");
 const IPC_CHANNELS = Object.freeze({
   invoke: Object.freeze({
     getContext: "app:getContext",
+    checkCommand: "app:check-command",
+    getDiagnostics: "app:get-diagnostics",
+    openDataFolder: "app:open-data-folder",
     pickDirectory: "dialog:pickDirectory",
     startSession: "session:start",
     listSessions: "sessions:list",
     stopSession: "session:stop",
     restartSession: "session:restart",
     removeSession: "session:remove",
+    clearSessionHistory: "sessions:clear-history",
     openWorkspaceFile: "editor:openFile",
     saveWorkspaceFile: "editor:saveFile",
     listWorkspaceFiles: "workspace:listFiles",
@@ -49,6 +53,12 @@ function on(channel, listener) {
 const agentic = {
   app: {
     getContext: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.getContext),
+    checkCommand: (command) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.checkCommand, command),
+    getDiagnostics: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.getDiagnostics),
+    openDataFolder: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.openDataFolder),
     pickDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.pickDirectory),
     openExternalUrl: (url) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.openExternalUrl, { url }),
@@ -63,6 +73,8 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.restartSession, sessionId),
     remove: (sessionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.removeSession, sessionId),
+    clearHistory: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.clearSessionHistory),
     write: (sessionId, input) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.writeToSession, {
         sessionId,

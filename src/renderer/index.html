@@ -64,6 +64,13 @@
                 value="claude"
                 autocomplete="off"
               />
+              <span
+                id="command-readiness"
+                class="field-help"
+                aria-live="polite"
+              >
+                Checking command availability...
+              </span>
             </label>
 
             <label>
@@ -105,6 +112,18 @@
           <p id="session-meta" class="status-meta">
             Use + to create a session.
           </p>
+        </div>
+
+        <div class="sidebar-tools" aria-label="Application tools">
+          <button type="button" id="copy-diagnostics" class="secondary">
+            Copy diagnostics
+          </button>
+          <button type="button" id="open-data-folder" class="secondary">
+            Open data folder
+          </button>
+          <button type="button" id="clear-history" class="secondary danger-action">
+            Clear history
+          </button>
         </div>
       </aside>
 

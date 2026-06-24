@@ -2,6 +2,11 @@
 
 Desktop wrapper for interactive agent CLIs running inside a real pseudo-terminal.
 
+## Platform support
+
+Agentic Command v1 is tested and supported on native Windows and native Linux.
+macOS and WSL/WSLg are not release targets yet.
+
 ## What it does
 
 - Starts an agent command in a chosen working directory.
@@ -75,8 +80,10 @@ claude -i "Audit this repo and suggest the smallest fix"
 - On Linux, Electron needs a display server. In headless environments you will need something like Xvfb to launch the desktop window.
 - Session tabs remain visible after exit so you can inspect terminal output and exit status.
 - Session metadata is stored in Electron's per-user application-data directory.
-- Terminal history is encrypted with Electron's OS-backed safe storage before it is written to disk. If protected storage is unavailable, terminal output is not persisted.
+- Terminal history is encrypted with Electron's OS-backed safe storage before it is written to disk. On Linux, this requires a supported desktop keyring; Electron's `basic_text` fallback is treated as unprotected. If protected storage is unavailable, terminal output is not persisted.
 - Removing a stopped session also removes its stored history.
+- Use the sidebar tools to copy diagnostics, open the local data folder, or clear all stopped-session history.
+- See `PRIVACY.md`, `THIRD_PARTY_NOTICES.md`, and `docs/release-checklist.md` before distributing a release.
 
 ## Quality checks
 

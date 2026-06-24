@@ -16,6 +16,7 @@ This document explains the main runtime boundaries and where to add new behavior
 - Entry: src/main.js
 - Owns app lifecycle, BrowserWindow creation, PTY process orchestration, and filesystem access.
 - Delegates business logic to service modules under src/main/services.
+- Persists rotating local diagnostics through `diagnosticsService` without telemetry.
 
 2. IPC registration layer (transport wiring)
 
@@ -92,6 +93,12 @@ The top-level check pipeline enforces this to prevent channel drift.
 - Keep directory traversal bounded and skip heavy folders (node_modules, .git, dist, build).
 - Avoid synchronous file operations inside IPC handlers.
 - Keep payloads small and shaped for renderer needs.
+
+## Local Data
+
+- Session state is stored as a versioned document in Electron's per-user data directory.
+- Terminal output is protected with Electron `safeStorage`; output is omitted when protected storage is unavailable. On Linux, the `basic_text` and `unknown` storage backends are rejected.
+- Application diagnostics are local rotating JSON-line logs and are shared only when the user copies them.
 
 ## Security Notes
 

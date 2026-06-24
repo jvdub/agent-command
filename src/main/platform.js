@@ -26,6 +26,63 @@ function shellForPlatform(platform = process.platform, env = process.env) {
   return env.SHELL || "/bin/bash";
 }
 
+function isSupportedPlatform(platform = process.platform) {
+  return platform === "win32" || platform === "linux";
+}
+
+function isCommandAvailable(
+  rawCommand,
+  {
+    env = process.env,
+    platform = process.platform,
+    fileSystem = fs,
+  } = {},
+) {
+  const command = String(rawCommand || "").trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (!command) {
+    return false;
+  }
+
+  const hasPath = path.isAbsolute(command) || /[\\/]/.test(command);
+  const extensions =
+    platform === "win32"
+      ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+          .split(";")
+          .filter(Boolean)
+      : [""];
+  const candidates = [];
+
+  if (hasPath) {
+    candidates.push(command);
+  } else {
+    for (const directory of String(env.PATH || "").split(path.delimiter)) {
+      if (!directory) {
+        continue;
+      }
+      const cleanedDirectory = directory.replace(/^(["'])(.*)\1$/, "$2");
+      if (platform === "win32" && path.extname(command)) {
+        candidates.push(path.join(cleanedDirectory, command));
+      } else {
+        for (const extension of extensions) {
+          candidates.push(path.join(cleanedDirectory, `${command}${extension}`));
+        }
+      }
+    }
+  }
+
+  return candidates.some((candidate) => {
+    try {
+      fileSystem.accessSync(
+        candidate,
+        platform === "win32" ? fileSystem.constants.F_OK : fileSystem.constants.X_OK,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 function shellArgsForPlatform(platform = process.platform) {
   if (platform === "win32") {
     return ["-NoLogo", "-NoExit"];
@@ -122,6 +179,8 @@ function splitArgs(value = "") {
 module.exports = {
   buildPtyEnv,
   interactiveShellForPlatform,
+  isCommandAvailable,
+  isSupportedPlatform,
   resolveInitialDirectory,
   shellArgsForPlatform,
   shellForPlatform,

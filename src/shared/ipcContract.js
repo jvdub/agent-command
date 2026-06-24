@@ -1,12 +1,16 @@
 const IPC_CHANNELS = Object.freeze({
   invoke: Object.freeze({
     getContext: "app:getContext",
+    checkCommand: "app:check-command",
+    getDiagnostics: "app:get-diagnostics",
+    openDataFolder: "app:open-data-folder",
     pickDirectory: "dialog:pickDirectory",
     startSession: "session:start",
     listSessions: "sessions:list",
     stopSession: "session:stop",
     restartSession: "session:restart",
     removeSession: "session:remove",
+    clearSessionHistory: "sessions:clear-history",
     openWorkspaceFile: "editor:openFile",
     saveWorkspaceFile: "editor:saveFile",
     listWorkspaceFiles: "workspace:listFiles",
@@ -40,6 +44,11 @@ const IPC_CHANNELS = Object.freeze({
  * @property {string} shell
  * @property {NodeJS.Platform} platform
  * @property {boolean} processInspectionSupported
+ * @property {string} appName
+ * @property {string} appVersion
+ * @property {boolean} supportedPlatform
+ * @property {string} defaultCommand
+ * @property {boolean} defaultCommandAvailable
  */
 
 /**
@@ -55,6 +64,7 @@ const IPC_CHANNELS = Object.freeze({
  * @property {number | null} endedAt
  * @property {number | null} exitCode
  * @property {number | string | null} signal
+ * @property {boolean} stoppedByUser
  */
 
 /**
@@ -209,12 +219,16 @@ const IPC_CHANNELS = Object.freeze({
 /**
  * @typedef {object} AgenticAppApi
  * @property {() => Promise<AppContext>} getContext
+ * @property {(command: string) => Promise<{available: boolean, command: string}>} checkCommand
+ * @property {() => Promise<string>} getDiagnostics
+ * @property {() => Promise<OkResponse>} openDataFolder
  * @property {() => Promise<string | null>} pickDirectory
  * @property {(options: StartSessionOptions) => Promise<StartSessionResponse>} startSession
  * @property {() => Promise<SessionsListResponse>} listSessions
  * @property {(sessionId: string) => Promise<StopSessionResponse>} stopSession
  * @property {(sessionId: string) => Promise<StartSessionResponse>} restartSession
  * @property {(sessionId: string) => Promise<RemoveSessionResponse>} removeSession
+ * @property {() => Promise<{removed: number}>} clearSessionHistory
  * @property {(sessionId: string, filePath: string) => Promise<unknown>} openWorkspaceFile
  * @property {(sessionId: string, filePath: string, content: string) => Promise<unknown>} saveWorkspaceFile
  * @property {(payload: WorkspaceListFilesRequest) => Promise<unknown>} listWorkspaceFiles

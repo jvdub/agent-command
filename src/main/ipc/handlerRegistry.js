@@ -95,6 +95,12 @@ function createIpcHandlerRegistry(ipcMain, services) {
           const result = await registration.handler(event, payload, services);
           return normalizeHandlerResult(result);
         } catch (error) {
+          services.diagnosticsService?.log("error", "ipc-handler-error", {
+            channel: registration.channel,
+            domain: registration.domain,
+            message: error?.message || String(error),
+            stack: error?.stack || null,
+          });
           throw wrapIpcError(registration.domain, registration.channel, error);
         }
       });

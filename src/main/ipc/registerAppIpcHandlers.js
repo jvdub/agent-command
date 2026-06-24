@@ -37,6 +37,10 @@ function registerHandlers(registry, services) {
     resolveInitialDirectory,
     shellForPlatform,
     processInspectionService,
+    diagnosticsService,
+    app,
+    isCommandAvailable,
+    isSupportedPlatform,
   } = services;
 
   registry.register("app", IPC_CHANNELS.invoke.pickDirectory, {
@@ -55,14 +59,43 @@ function registerHandlers(registry, services) {
   });
 
   registry.register("app", IPC_CHANNELS.invoke.getContext, {
-    handler: async () => ({
-      cwd: resolveInitialDirectory(),
-      homeDirectory: os.homedir(),
-      shell: shellForPlatform(),
-      platform: process.platform,
-      processInspectionSupported:
-        processInspectionService.isProcessInspectionSupported(),
+    handler: async () => {
+      const defaultCommand = "claude";
+      return {
+        cwd: resolveInitialDirectory(),
+        homeDirectory: os.homedir(),
+        shell: shellForPlatform(),
+        platform: process.platform,
+        processInspectionSupported:
+          processInspectionService.isProcessInspectionSupported(),
+        appName: app.getName(),
+        appVersion: app.getVersion(),
+        defaultCommand,
+        defaultCommandAvailable: isCommandAvailable(defaultCommand),
+        supportedPlatform: isSupportedPlatform(),
+      };
+    },
+  });
+
+  registry.register("app", IPC_CHANNELS.invoke.checkCommand, {
+    handler: async (_event, command) => ({
+      command: String(command || "").trim(),
+      available: isCommandAvailable(command),
     }),
+  });
+
+  registry.register("app", IPC_CHANNELS.invoke.getDiagnostics, {
+    handler: async () => diagnosticsService.getDiagnostics(),
+  });
+
+  registry.register("app", IPC_CHANNELS.invoke.openDataFolder, {
+    handler: async () => {
+      const error = await shell.openPath(diagnosticsService.getDataDirectory());
+      if (error) {
+        throw new Error(error);
+      }
+      return buildOkResponse(true);
+    },
   });
 
   registry.register("app", IPC_CHANNELS.invoke.openExternalUrl, {
