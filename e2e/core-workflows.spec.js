@@ -248,6 +248,52 @@ test("switching sessions focuses input on the selected agent terminal", async ({
   }
 });
 
+test("sessions can be renamed inline and retain the name after relaunch", async ({}, testInfo) => {
+  const firstLaunch = await launchElectronApp(testInfo, "renamed-session-appdata");
+
+  try {
+    await startShellSession(firstLaunch.window, { label: "Rename me" });
+    const sessionTab = firstLaunch.window
+      .locator(".session-tab")
+      .filter({ hasText: "Rename me" });
+    await sessionTab.hover();
+
+    const renameButton = firstLaunch.window.getByRole("button", {
+      name: "Rename Rename me",
+    });
+    await expect(renameButton).toHaveCSS("opacity", "1");
+    await renameButton.click();
+
+    const renameInput = firstLaunch.window.getByRole("textbox", {
+      name: "Session name",
+    });
+    await expect(renameInput).toBeFocused();
+    await renameInput.fill("Renamed E2E session");
+    await renameInput.press("Enter");
+
+    await expect(firstLaunch.window.locator(".session-tab")).toContainText(
+      "Renamed E2E session",
+    );
+    await expect(firstLaunch.window.locator("#terminal-title")).toHaveText(
+      "Renamed E2E session",
+    );
+
+    await firstLaunch.window.getByRole("button", { name: "Stop" }).click();
+    await expect(firstLaunch.window.locator(".session-tab.stopped-tab")).toBeVisible();
+  } finally {
+    await firstLaunch.electronApp.close();
+  }
+
+  const secondLaunch = await launchElectronApp(testInfo, "renamed-session-appdata");
+  try {
+    await expect(secondLaunch.window.locator(".session-tab")).toContainText(
+      "Renamed E2E session",
+    );
+  } finally {
+    await secondLaunch.electronApp.close();
+  }
+});
+
 test("operational tools expose CLI readiness, diagnostics, and history clearing", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(testInfo);
 

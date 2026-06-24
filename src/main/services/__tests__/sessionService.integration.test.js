@@ -76,6 +76,10 @@ describe("sessionService integration", () => {
     );
     expect(saveSessionsToDisk).toHaveBeenCalled();
 
+    const renamed = service.renameSession(session.id, "  Renamed session  ");
+    expect(renamed.label).toBe("Renamed session");
+    expect(service.listSessions()[0].label).toBe("Renamed session");
+
     onDataHandler("hello ");
     onDataHandler("from pty");
     expect(sendToRenderer).not.toHaveBeenCalledWith(

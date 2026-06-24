@@ -9,6 +9,7 @@ const IPC_CHANNELS = Object.freeze({
     listSessions: "sessions:list",
     stopSession: "session:stop",
     restartSession: "session:restart",
+    renameSession: "session:rename",
     removeSession: "session:remove",
     clearSessionHistory: "sessions:clear-history",
     openWorkspaceFile: "editor:openFile",
@@ -227,6 +228,7 @@ const IPC_CHANNELS = Object.freeze({
  * @property {() => Promise<SessionsListResponse>} listSessions
  * @property {(sessionId: string) => Promise<StopSessionResponse>} stopSession
  * @property {(sessionId: string) => Promise<StartSessionResponse>} restartSession
+ * @property {(sessionId: string, label: string) => Promise<SessionSummary>} renameSession
  * @property {(sessionId: string) => Promise<RemoveSessionResponse>} removeSession
  * @property {() => Promise<{removed: number}>} clearSessionHistory
  * @property {(sessionId: string, filePath: string) => Promise<unknown>} openWorkspaceFile

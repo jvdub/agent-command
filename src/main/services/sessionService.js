@@ -288,6 +288,27 @@ function createSessionService({
     return { ok: true };
   }
 
+  function renameSession(sessionId, label) {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      throw new Error("Session not found.");
+    }
+
+    const normalizedLabel = String(label || "").trim();
+    if (normalizedLabel.length > 120) {
+      throw new Error("Session names must be 120 characters or fewer.");
+    }
+
+    session.label = normalizedLabel;
+    persistenceService.saveSessionsToDisk();
+    publishSessionsChanged();
+    diagnosticsService?.log("info", "session-renamed", {
+      sessionId,
+      hasCustomLabel: Boolean(normalizedLabel),
+    });
+    return buildSessionSummary(session);
+  }
+
   function clearStoppedSessions() {
     let removed = 0;
     for (const [sessionId, session] of sessions.entries()) {
@@ -307,6 +328,7 @@ function createSessionService({
     clearStoppedSessions,
     listSessions,
     publishSessionsChanged,
+    renameSession,
     removeSession,
     resizeSession,
     restartSession,

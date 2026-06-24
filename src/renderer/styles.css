@@ -227,6 +227,73 @@ select {
   transform: none;
 }
 
+.session-tab-shell {
+  position: relative;
+  width: 100%;
+}
+
+.session-tab-shell > .session-tab {
+  padding-right: 40px;
+}
+
+.session-tab-shell.stopped .session-tab {
+  padding-right: 40px;
+}
+
+.session-action-rename {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 7px;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.session-tab-shell.stopped .session-action-rename {
+  right: 126px;
+}
+
+.session-tab-shell:hover .session-action-rename,
+.session-tab-shell:focus-within .session-action-rename,
+.session-action-rename:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-action-rename:hover {
+  background: var(--surface-active);
+  color: var(--text);
+  transform: none;
+}
+
+.session-tab-renaming {
+  cursor: default;
+}
+
+.session-rename-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--panel-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 4px 6px;
+}
+
 .session-tab-group.pending {
   border-color: rgba(128, 199, 247, 0.55);
 }

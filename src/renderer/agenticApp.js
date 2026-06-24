@@ -64,6 +64,8 @@ export const agenticApp = Object.freeze({
   listSessions: () => call("sessions", "list"),
   stopSession: (sessionId) => call("sessions", "stop", sessionId),
   restartSession: (sessionId) => call("sessions", "restart", sessionId),
+  renameSession: (sessionId, label) =>
+    call("sessions", "rename", sessionId, label),
   removeSession: (sessionId) => call("sessions", "remove", sessionId),
   clearSessionHistory: () => call("sessions", "clearHistory"),
   openWorkspaceFile: (sessionId, filePath) =>

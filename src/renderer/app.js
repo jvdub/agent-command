@@ -339,6 +339,7 @@ let commandCheckTimeoutId = null;
 let commandCheckSequence = 0;
 let sessionLifecycleHandlers = null;
 let lastCopyOrInterruptShortcutAt = 0;
+let renamingSessionId = null;
 let activeTerminalTheme = getTerminalTheme("dark");
 
 const MONACO_LOADER_PATH = "./vendor/monaco-editor/min/vs/loader.js";
@@ -2925,6 +2926,15 @@ function getSessionStatusLabel(session) {
 }
 
 function renderSessionTabs() {
+  if (
+    renamingSessionId &&
+    sessionTabsList.querySelector(
+      `.session-rename-input[data-session-id="${CSS.escape(renamingSessionId)}"]`,
+    )
+  ) {
+    return;
+  }
+
   const allSessions = Array.from(sessions.values()).sort(
     (left, right) => right.createdAt - left.createdAt,
   );
@@ -2947,40 +2957,126 @@ function renderSessionTabs() {
         procs.length > 0
           ? `${escapeHtml(primaryProc)}${procs.length > 1 ? ` +${procs.length - 1}` : ""}`
           : "";
+      const displayName = getSessionDisplayName(session);
+      const isRenaming = renamingSessionId === session.id;
+      const tabContents = `
+        <div class="session-tab-top">
+          ${
+            isRenaming
+              ? `<input type="text" class="session-rename-input" data-session-id="${session.id}" value="${escapeHtml(session.label || "")}" placeholder="${escapeHtml(displayName)}" maxlength="120" aria-label="Session name">`
+              : `<p class="session-tab-name">${escapeHtml(displayName)}</p>`
+          }
+          <p class="session-tab-id">#${shortId(session.id)}</p>
+        </div>
+        <p class="session-tab-attention">${attention.label}</p>
+        ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
+      `;
+      const sessionTab = isRenaming
+        ? `<div class="session-tab session-tab-renaming ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">${tabContents}</div>`
+        : `<button type="button" class="session-tab ${!session.isRunning ? "stopped-tab " : ""}${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">${tabContents}</button>`;
+      const renameAction = isRenaming
+        ? ""
+        : `<button type="button" class="session-action-rename" data-session-id="${session.id}" title="Rename session" aria-label="Rename ${escapeHtml(displayName)}">&#9998;</button>`;
 
       if (!session.isRunning) {
         const isRestarting = restartingSessionIds.has(session.id);
         return `
-          <div class="session-tab-group ${isActive ? "active" : ""} ${isRestarting ? "pending" : ""}">
-            <button type="button" class="session-tab stopped-tab ${isActive ? "active" : ""}" data-session-id="${session.id}">
-              <div class="session-tab-top">
-                <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
-                <p class="session-tab-id">#${shortId(session.id)}</p>
+          <div class="session-tab-shell stopped">
+            <div class="session-tab-group ${isActive ? "active" : ""} ${isRestarting ? "pending" : ""}">
+              ${sessionTab}
+              <div class="session-tab-actions">
+                <button type="button" class="session-action-restart ${isRestarting ? "pending" : ""}" data-session-id="${session.id}" title="${isRestarting ? "Restarting session" : "Restart session"}" ${isRestarting ? 'disabled aria-busy="true"' : ""}>${isRestarting ? "Restarting..." : "Restart"}</button>
+                <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session" ${isRestarting ? "disabled" : ""}>Remove</button>
               </div>
-              <p class="session-tab-attention">${attention.label}</p>
-            </button>
-            <div class="session-tab-actions">
-              <button type="button" class="session-action-restart ${isRestarting ? "pending" : ""}" data-session-id="${session.id}" title="${isRestarting ? "Restarting session" : "Restart session"}" ${isRestarting ? 'disabled aria-busy="true"' : ""}>${isRestarting ? "Restarting..." : "Restart"}</button>
-              <button type="button" class="session-action-remove" data-session-id="${session.id}" title="Remove session" ${isRestarting ? "disabled" : ""}>Remove</button>
             </div>
+            ${renameAction}
           </div>
         `;
       }
 
       return `
-        <button type="button" class="session-tab ${isActive ? "active" : ""} ${attention.className}" data-session-id="${session.id}">
-          <div class="session-tab-top">
-            <p class="session-tab-name">${escapeHtml(getSessionDisplayName(session))}</p>
-            <p class="session-tab-id">#${shortId(session.id)}</p>
-          </div>
-          <p class="session-tab-attention">${attention.label}</p>
-          ${procSummary ? `<p class="session-tab-proc">Process: ${procSummary}</p>` : ""}
-        </button>
+        <div class="session-tab-shell">
+          ${sessionTab}
+          ${renameAction}
+        </div>
       `;
     })
     .join("");
 
   renderHtmlIfChanged(sessionTabsList, tabs);
+}
+
+function beginSessionRename(sessionId) {
+  if (!sessions.has(sessionId)) {
+    return;
+  }
+
+  renamingSessionId = sessionId;
+  renderSessionTabs();
+  window.requestAnimationFrame(() => {
+    const input = sessionTabsList.querySelector(
+      `.session-rename-input[data-session-id="${CSS.escape(sessionId)}"]`,
+    );
+    input?.focus();
+    input?.select();
+  });
+}
+
+function cancelSessionRename(sessionId) {
+  if (renamingSessionId !== sessionId) {
+    return;
+  }
+
+  renamingSessionId = null;
+  renderSessionTabs();
+  sessionTabsList
+    .querySelector(`.session-tab[data-session-id="${CSS.escape(sessionId)}"]`)
+    ?.focus();
+}
+
+async function saveSessionRename(input) {
+  const sessionId = input?.dataset.sessionId;
+  if (
+    !sessionId ||
+    renamingSessionId !== sessionId ||
+    input.dataset.saving === "true"
+  ) {
+    return;
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    renamingSessionId = null;
+    renderSessionTabs();
+    return;
+  }
+
+  const label = input.value.trim();
+  if (label === String(session.label || "").trim()) {
+    cancelSessionRename(sessionId);
+    return;
+  }
+
+  input.dataset.saving = "true";
+  input.disabled = true;
+  try {
+    const updated = await agenticApp.renameSession(sessionId, label);
+    sessions.set(sessionId, { ...session, ...updated });
+    renamingSessionId = null;
+    renderSessionTabs();
+    if (activeSessionId === sessionId) {
+      renderTerminalHeader(sessions.get(sessionId));
+    }
+    setStatus(
+      "Renamed",
+      label ? `Session renamed to ${label}` : "Custom session name removed",
+    );
+  } catch (error) {
+    input.dataset.saving = "false";
+    input.disabled = false;
+    input.focus();
+    setStatus("Error", error.message || "Unable to rename session");
+  }
 }
 
 function showEmptyView(shouldRefresh = true) {
@@ -3104,6 +3200,9 @@ function updateSessions(payload) {
 
   for (const existingId of sessions.keys()) {
     if (!incomingIds.has(existingId)) {
+      if (renamingSessionId === existingId) {
+        renamingSessionId = null;
+      }
       sessionProcesses.delete(existingId);
       sessionInsights.delete(existingId);
       sessionBuffers.delete(existingId);
@@ -3554,6 +3653,19 @@ sessionTabsList.addEventListener("click", (event) => {
     return;
   }
 
+  const renameBtn = target.closest(".session-action-rename");
+  if (renameBtn?.dataset.sessionId) {
+    event.preventDefault();
+    event.stopPropagation();
+    beginSessionRename(renameBtn.dataset.sessionId);
+    return;
+  }
+
+  if (target.closest(".session-rename-input")) {
+    event.stopPropagation();
+    return;
+  }
+
   const restartBtn = target.closest(".session-action-restart");
   if (restartBtn?.dataset.sessionId) {
     event.preventDefault();
@@ -3573,8 +3685,27 @@ sessionTabsList.addEventListener("click", (event) => {
   selectSessionFromSidebar(event);
 });
 sessionTabsList.addEventListener("keydown", (event) => {
+  const renameInput = event.target.closest?.(".session-rename-input");
+  if (renameInput) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void saveSessionRename(renameInput);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      cancelSessionRename(renameInput.dataset.sessionId);
+    }
+    event.stopPropagation();
+    return;
+  }
+
   if (event.key === "Enter" || event.key === " ") {
     selectSessionFromSidebar(event);
+  }
+});
+sessionTabsList.addEventListener("focusout", (event) => {
+  const renameInput = event.target.closest?.(".session-rename-input");
+  if (renameInput) {
+    void saveSessionRename(renameInput);
   }
 });
 

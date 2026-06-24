@@ -73,6 +73,16 @@ function registerHandlers(registry, services) {
       sessionService.removeSession(sessionId),
   });
 
+  registry.register("sessions", IPC_CHANNELS.invoke.renameSession, {
+    handler: async (_event, payload) => {
+      if (!payload?.sessionId) {
+        throw new Error("A session ID is required.");
+      }
+
+      return sessionService.renameSession(payload.sessionId, payload.label);
+    },
+  });
+
   registry.register("sessions", IPC_CHANNELS.invoke.clearSessionHistory, {
     handler: async () => sessionService.clearStoppedSessions(),
   });

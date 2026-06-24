@@ -37,6 +37,7 @@ describe("registerIpcHandlers", () => {
         listSessions: jest.fn(() => []),
         stopSessionById: jest.fn(() => true),
         restartSession: jest.fn(() => ({ id: "session-1" })),
+        renameSession: jest.fn(() => ({ id: "session-1", label: "Renamed" })),
         removeSession: jest.fn(() => ({ removed: true })),
         clearStoppedSessions: jest.fn(() => ({ removed: 2 })),
         writeToSession: jest.fn(() => ({ ok: true })),
@@ -156,5 +157,15 @@ describe("registerIpcHandlers", () => {
     await expect(
       handlerMap.get(IPC_CHANNELS.invoke.clearSessionHistory)({}),
     ).resolves.toEqual({ removed: 2 });
+    await expect(
+      handlerMap.get(IPC_CHANNELS.invoke.renameSession)({}, {
+        sessionId: "session-1",
+        label: "Renamed",
+      }),
+    ).resolves.toEqual({ id: "session-1", label: "Renamed" });
+    expect(services.sessionService.renameSession).toHaveBeenCalledWith(
+      "session-1",
+      "Renamed",
+    );
   });
 });

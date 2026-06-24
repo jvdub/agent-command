@@ -12,6 +12,7 @@ const IPC_CHANNELS = Object.freeze({
     listSessions: "sessions:list",
     stopSession: "session:stop",
     restartSession: "session:restart",
+    renameSession: "session:rename",
     removeSession: "session:remove",
     clearSessionHistory: "sessions:clear-history",
     openWorkspaceFile: "editor:openFile",
@@ -71,6 +72,11 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.stopSession, sessionId),
     restart: (sessionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.restartSession, sessionId),
+    rename: (sessionId, label) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.renameSession, {
+        sessionId,
+        label,
+      }),
     remove: (sessionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.removeSession, sessionId),
     clearHistory: () =>
