@@ -28,6 +28,17 @@ async function reportTerminalSize(window, label) {
   return reportedSize;
 }
 
+async function clickActiveTerminalLink(window, activeTerminal, text) {
+  const linkText = activeTerminal.getByText(text, { exact: true });
+  const box = await linkText.boundingBox();
+  expect(box).toBeTruthy();
+  await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(activeTerminal.locator(".xterm-screen")).toHaveClass(
+    /xterm-cursor-pointer/,
+  );
+  await window.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 test("agent and manual terminals accept interactive shell input", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(testInfo);
 
@@ -71,6 +82,50 @@ test("quick open loads a workspace file and theme choices remain selectable", as
       await window.locator("#theme-select").selectOption(mode);
       await expect(window.locator("#theme-select")).toHaveValue(mode);
     }
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("terminal output links open URLs and workspace files", async ({}, testInfo) => {
+  const { electronApp, window } = await launchElectronApp(testInfo);
+  const testUrl = "https://example.com/agent-command-e2e";
+
+  try {
+    await electronApp.evaluate(({ shell }) => {
+      globalThis.__openedExternalUrls = [];
+      shell.openExternal = async (url) => {
+        globalThis.__openedExternalUrls.push(url);
+      };
+    });
+
+    await startShellSession(window, { label: "Terminal links" });
+    await writeTerminalCommand(
+      window,
+      "#terminal",
+      `echo ${testUrl}`,
+      testUrl,
+    );
+    await writeTerminalCommand(
+      window,
+      "#terminal",
+      "echo README.md:1",
+      "README.md:1",
+    );
+
+    const activeTerminal = window.locator(
+      "#terminal .terminal-instance:not(.hidden)",
+    );
+    await clickActiveTerminalLink(window, activeTerminal, testUrl);
+    await expect
+      .poll(() =>
+        electronApp.evaluate(() => globalThis.__openedExternalUrls || []),
+      )
+      .toContainEqual(testUrl);
+
+    await clickActiveTerminalLink(window, activeTerminal, "README.md:1");
+    await expect(window.locator("#file-drawer")).toBeVisible();
+    await expect(window.locator("#file-editor-path")).toHaveText("README.md");
   } finally {
     await electronApp.close();
   }

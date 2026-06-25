@@ -129,7 +129,34 @@ describe("terminalClipboard", () => {
     expect(writeClipboardText).toHaveBeenCalledWith("preserved text");
   });
 
-  test("Ctrl+C uses selection captured on mouseup when live selection later clears", async () => {
+  test("plain left clicks do not poll terminal selection after mouseup", async () => {
+    const controller = createTerminalClipboardController({
+      readClipboardText: jest.fn(),
+      writeClipboardText: jest.fn(),
+      sendInterrupt: jest.fn(),
+      setStatus: jest.fn(),
+    });
+    const target = createTarget({ selection: "link text" });
+    controller.attachToTarget(target);
+
+    target.mount.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 20,
+      clientY: 20,
+    }));
+    target.mount.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 21,
+      clientY: 21,
+    }));
+    await flushAsyncHandlers();
+
+    expect(target.terminal.getSelection).not.toHaveBeenCalled();
+  });
+
+  test("Ctrl+C uses selection captured after a mouse drag when live selection later clears", async () => {
     const writeClipboardText = jest.fn();
     const sendInterrupt = jest.fn();
     const controller = createTerminalClipboardController({
@@ -144,7 +171,18 @@ describe("terminalClipboard", () => {
       .mockReturnValue("");
     controller.attachToTarget(target);
 
-    target.mount.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    target.mount.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    }));
+    target.mount.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 60,
+      clientY: 10,
+    }));
     await flushAsyncHandlers();
 
     const keyHandler = target.terminal.attachCustomKeyEventHandler.mock.calls[0][0];

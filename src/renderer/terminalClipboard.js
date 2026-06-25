@@ -15,6 +15,7 @@ export function createTerminalClipboardController({
   setStatus = null,
 }) {
   const deferredSnapshotTimers = new WeakMap();
+  const dragSnapshotThreshold = 3;
 
   function writeToClipboard(value) {
     return writeClipboardText(value);
@@ -70,9 +71,28 @@ export function createTerminalClipboardController({
     deferredSnapshotTimers.set(target, timer);
   }
 
+  function getPointerPoint(event) {
+    return {
+      x: Number.isFinite(event.clientX) ? event.clientX : 0,
+      y: Number.isFinite(event.clientY) ? event.clientY : 0,
+    };
+  }
+
+  function shouldSnapshotAfterDrag(startPoint, endPoint) {
+    if (!startPoint) {
+      return false;
+    }
+
+    return (
+      Math.abs(endPoint.x - startPoint.x) >= dragSnapshotThreshold ||
+      Math.abs(endPoint.y - startPoint.y) >= dragSnapshotThreshold
+    );
+  }
+
   function attachToTarget(target, { onKeyDown = null } = {}) {
     const { terminal, mount } = target;
     const ownerDocument = mount.ownerDocument || document;
+    let selectionDragStart = null;
 
     terminal.onSelectionChange?.(() => {
       snapshotSelection(target);
@@ -141,16 +161,25 @@ export function createTerminalClipboardController({
       terminal.paste(text);
     });
 
-    mount.addEventListener("mousedown", (event) => {
-      if (event.button === 2) {
-        snapshotSelection(target);
-        if (typeof openContextMenu === "function") {
-          event.preventDefault();
-          event.stopPropagation();
-          openContextMenu(event, target);
+    mount.addEventListener(
+      "mousedown",
+      (event) => {
+        if (event.button === 0) {
+          selectionDragStart = getPointerPoint(event);
+          return;
         }
-      }
-    }, true);
+
+        if (event.button === 2) {
+          snapshotSelection(target);
+          if (typeof openContextMenu === "function") {
+            event.preventDefault();
+            event.stopPropagation();
+            openContextMenu(event, target);
+          }
+        }
+      },
+      true,
+    );
 
     mount.addEventListener("contextmenu", (event) => {
       if (typeof openContextMenu === "function") {
@@ -160,17 +189,22 @@ export function createTerminalClipboardController({
       }
     }, true);
 
-    mount.addEventListener("mouseup", () => {
-      scheduleSnapshotSelection(target);
-    });
+    function snapshotIfSelectionDrag(event) {
+      const endPoint = getPointerPoint(event);
+      const shouldSnapshot = shouldSnapshotAfterDrag(
+        selectionDragStart,
+        endPoint,
+      );
+      selectionDragStart = null;
 
-    mount.addEventListener("pointerup", () => {
-      scheduleSnapshotSelection(target);
-    });
+      if (shouldSnapshot) {
+        scheduleSnapshotSelection(target);
+      }
+    }
 
-    ownerDocument.addEventListener("mouseup", () => {
-      scheduleSnapshotSelection(target);
-    });
+    mount.addEventListener("mouseup", snapshotIfSelectionDrag);
+
+    ownerDocument.addEventListener("mouseup", snapshotIfSelectionDrag);
   }
 
   return {
