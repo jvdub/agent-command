@@ -14,6 +14,8 @@ export function createTerminalClipboardController({
   openContextMenu = null,
   setStatus = null,
 }) {
+  const deferredSnapshotTimers = new WeakMap();
+
   function writeToClipboard(value) {
     return writeClipboardText(value);
   }
@@ -23,6 +25,7 @@ export function createTerminalClipboardController({
       return false;
     }
 
+    snapshotSelection(target);
     const copied = await copyTerminalSelectionToClipboard(target.terminal, {
       mount: target.mount || null,
       fallbackSelection: target.selectionSnapshot || "",
@@ -54,8 +57,22 @@ export function createTerminalClipboardController({
     );
   }
 
+  function scheduleSnapshotSelection(target) {
+    const existingTimer = deferredSnapshotTimers.get(target);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+
+    const timer = window.setTimeout(() => {
+      deferredSnapshotTimers.delete(target);
+      snapshotSelection(target);
+    }, 0);
+    deferredSnapshotTimers.set(target, timer);
+  }
+
   function attachToTarget(target, { onKeyDown = null } = {}) {
     const { terminal, mount } = target;
+    const ownerDocument = mount.ownerDocument || document;
 
     terminal.onSelectionChange?.(() => {
       snapshotSelection(target);
@@ -124,24 +141,35 @@ export function createTerminalClipboardController({
       terminal.paste(text);
     });
 
-    if (typeof openContextMenu === "function") {
-      mount.addEventListener("contextmenu", (event) => {
-        openContextMenu(event, target);
-      });
-    }
-
     mount.addEventListener("mousedown", (event) => {
       if (event.button === 2) {
         snapshotSelection(target);
+        if (typeof openContextMenu === "function") {
+          event.preventDefault();
+          event.stopPropagation();
+          openContextMenu(event, target);
+        }
       }
-    });
+    }, true);
+
+    mount.addEventListener("contextmenu", (event) => {
+      if (typeof openContextMenu === "function") {
+        event.preventDefault();
+        event.stopPropagation();
+        openContextMenu(event, target);
+      }
+    }, true);
 
     mount.addEventListener("mouseup", () => {
-      snapshotSelection(target);
+      scheduleSnapshotSelection(target);
     });
 
     mount.addEventListener("pointerup", () => {
-      snapshotSelection(target);
+      scheduleSnapshotSelection(target);
+    });
+
+    ownerDocument.addEventListener("mouseup", () => {
+      scheduleSnapshotSelection(target);
     });
   }
 

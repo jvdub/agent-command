@@ -97,7 +97,7 @@ describe("terminalClipboard", () => {
     expect(sendInterrupt).toHaveBeenCalledWith(target);
   });
 
-  test("right-click Copy can use preserved selection after live selection clears", async () => {
+  test("right-click opens app menu during capture and preserves selection", async () => {
     const writeClipboardText = jest.fn();
     const openContextMenu = jest.fn((event) => event.preventDefault());
     const controller = createTerminalClipboardController({
@@ -114,11 +114,17 @@ describe("terminalClipboard", () => {
     controller.attachToTarget(target);
 
     target.terminal.onSelectionChange.mock.calls[0][0]();
-    target.mount.dispatchEvent(
-      new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
-    );
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    const stopPropagation = jest.spyOn(event, "stopPropagation");
+    target.mount.dispatchEvent(event);
 
     expect(openContextMenu).toHaveBeenCalledWith(expect.any(MouseEvent), target);
+    expect(event.defaultPrevented).toBe(true);
+    expect(stopPropagation).toHaveBeenCalled();
     expect(await controller.copyTargetSelection(target)).toBe(true);
     expect(writeClipboardText).toHaveBeenCalledWith("preserved text");
   });
@@ -139,6 +145,7 @@ describe("terminalClipboard", () => {
     controller.attachToTarget(target);
 
     target.mount.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await flushAsyncHandlers();
 
     const keyHandler = target.terminal.attachCustomKeyEventHandler.mock.calls[0][0];
     expect(
