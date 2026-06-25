@@ -18,6 +18,7 @@ const {
   isSupportedPlatform,
   shellForPlatform,
 } = require("./main/platform");
+const { configureStableUserDataPath } = require("./main/appPaths");
 const { createServiceRegistry } = require("./main/serviceRegistry");
 const { registerAllServices } = require("./main/services");
 const { registerIpcHandlers } = require("./main/ipc/registerIpcHandlers");
@@ -58,6 +59,8 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 }
+
+configureStableUserDataPath(app, path, process.argv);
 
 const serviceRegistry = createServiceRegistry({
   app,
