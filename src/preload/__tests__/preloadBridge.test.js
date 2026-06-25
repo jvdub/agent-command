@@ -77,6 +77,12 @@ describe("preload bridge", () => {
       rows: 36,
     });
 
+    await exposed.agentic.manualTerminals.close("session-1", "2");
+    expect(invoke).toHaveBeenCalledWith("manual-terminal:close", {
+      sessionId: "session-1",
+      terminalId: "2",
+    });
+
     await expect(exposed.agentic.clipboard.readText()).resolves.toBe("clip");
     await exposed.agentic.clipboard.writeText("new-value");
     expect(writeText).toHaveBeenCalledWith("new-value");

@@ -62,6 +62,7 @@ describe("registerIpcHandlers", () => {
           outputBuffer: "",
           ptyProcess: { write: jest.fn(), resize: jest.fn() },
         })),
+        closeManualTerminal: jest.fn(() => ({ ok: true })),
       },
     };
 
@@ -166,6 +167,17 @@ describe("registerIpcHandlers", () => {
     expect(services.sessionService.renameSession).toHaveBeenCalledWith(
       "session-1",
       "Renamed",
+    );
+
+    await expect(
+      handlerMap.get(IPC_CHANNELS.invoke.closeManualTerminal)({}, {
+        sessionId: "session-1",
+        terminalId: "2",
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(services.manualTerminalService.closeManualTerminal).toHaveBeenCalledWith(
+      "session-1",
+      "2",
     );
   });
 });

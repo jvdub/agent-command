@@ -22,6 +22,7 @@ const IPC_CHANNELS = Object.freeze({
     ensureManualTerminal: "manual-terminal:ensure",
     writeToManualTerminal: "manual-terminal:write",
     resizeManualTerminal: "manual-terminal:resize",
+    closeManualTerminal: "manual-terminal:close",
     openExternalUrl: "external-link:open",
     readClipboardText: "clipboard:read-text",
     writeClipboardText: "clipboard:write-text",
@@ -241,6 +242,7 @@ const IPC_CHANNELS = Object.freeze({
  * @property {(sessionId: string, terminalId?: string) => Promise<ManualTerminalState>} ensureManualTerminal
  * @property {(sessionId: string, input: string, terminalId?: string) => Promise<OkResponse>} writeToManualTerminal
  * @property {(sessionId: string, size: { cols: number, rows: number }, terminalId?: string) => Promise<OkResponse>} resizeManualTerminal
+ * @property {(sessionId: string, terminalId?: string) => Promise<OkResponse>} closeManualTerminal
  * @property {(url: string) => Promise<OkResponse>} openExternalUrl
  * @property {() => Promise<string>} readClipboardText
  * @property {(value: string) => Promise<void>} writeClipboardText
@@ -295,6 +297,13 @@ function buildManualTerminalResizeRequest(sessionId, size, terminalId = "1") {
     terminalId: String(terminalId || "1"),
     cols: size.cols,
     rows: size.rows,
+  };
+}
+
+function buildManualTerminalCloseRequest(sessionId, terminalId = "1") {
+  return {
+    sessionId,
+    terminalId: String(terminalId || "1"),
   };
 }
 
@@ -381,6 +390,7 @@ module.exports = {
   IPC_CHANNELS,
   buildExternalLinkRequest,
   buildManualTerminalDataEvent,
+  buildManualTerminalCloseRequest,
   buildManualTerminalEnsureRequest,
   buildManualTerminalExitEvent,
   buildManualTerminalResizeRequest,

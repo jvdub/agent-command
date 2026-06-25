@@ -25,6 +25,7 @@ const IPC_CHANNELS = Object.freeze({
     ensureManualTerminal: "manual-terminal:ensure",
     writeToManualTerminal: "manual-terminal:write",
     resizeManualTerminal: "manual-terminal:resize",
+    closeManualTerminal: "manual-terminal:close",
     openExternalUrl: "external-link:open",
     readClipboardText: "clipboard:read-text",
     writeClipboardText: "clipboard:write-text",
@@ -143,6 +144,11 @@ const agentic = {
         terminalId,
         cols: size.cols,
         rows: size.rows,
+      }),
+    close: (sessionId, terminalId = "1") =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.closeManualTerminal, {
+        sessionId,
+        terminalId,
       }),
     onData: (listener) => on(IPC_CHANNELS.events.manualTerminalData, listener),
     onExit: (listener) => on(IPC_CHANNELS.events.manualTerminalExit, listener),

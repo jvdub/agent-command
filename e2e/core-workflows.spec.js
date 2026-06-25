@@ -72,6 +72,56 @@ test("agent and manual terminals accept interactive shell input", async ({}, tes
   }
 });
 
+test("manual terminal tabs can be closed and reopened from an empty state", async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "Closable manual terminals" });
+
+    const tabs = window.locator("#manual-terminal-tabs");
+    await expect(tabs).toContainText("Terminal 1");
+
+    await window.locator("#add-manual-terminal").click();
+    await expect(tabs).toContainText("Terminal 2");
+
+    await window.getByRole("button", { name: "Close Terminal 2" }).click();
+    await expect(tabs).not.toContainText("Terminal 2");
+    await expect(tabs).toContainText("Terminal 1");
+
+    await window.getByRole("button", { name: "Close Terminal 1" }).click();
+    await expect(tabs).toContainText("No terminals");
+    await expect(window.locator("#manual-terminal-subtitle")).toContainText(
+      "No workspace terminals open",
+    );
+    await expect(window.locator("#manual-terminal")).toContainText(
+      "No workspace terminals open",
+    );
+
+    await window.locator("#add-manual-terminal").click();
+    await expect(tabs).toContainText("Terminal 1");
+    await expect(tabs).not.toContainText("No terminals");
+    const activeSessionId = await window
+      .locator(".session-tab.active")
+      .getAttribute("data-session-id");
+    await window.evaluate(
+      async ({ sessionId }) => {
+        await window.agentic.manualTerminals.write(
+          sessionId,
+          "echo REOPENED_MANUAL_TERMINAL_E2E\r",
+          "1",
+        );
+      },
+      { sessionId: activeSessionId },
+    );
+    await expect(window.locator("#manual-terminal")).toContainText(
+      "REOPENED_MANUAL_TERMINAL_E2E",
+    );
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("quick open loads a workspace file and theme choices remain selectable", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(testInfo);
 

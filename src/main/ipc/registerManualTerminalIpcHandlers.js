@@ -72,6 +72,19 @@ function registerHandlers(registry, services) {
       return buildOkResponse(true);
     },
   });
+
+  registry.register("manual-terminal", IPC_CHANNELS.invoke.closeManualTerminal, {
+    handler: async (_event, payload) => {
+      const sessionId = payload?.sessionId;
+      const terminalId = String(payload?.terminalId || "1");
+
+      if (!sessionId) {
+        return buildOkResponse(false);
+      }
+
+      return manualTerminalService.closeManualTerminal(sessionId, terminalId);
+    },
+  });
 }
 
 const registerManualTerminalIpcHandlers = registerHandlers;

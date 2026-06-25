@@ -1031,9 +1031,15 @@ button:disabled {
   overflow-x: auto;
 }
 
-.manual-terminal-tab {
+.manual-terminal-tab-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
   flex: 0 0 auto;
-  padding: 7px 11px;
+}
+
+.manual-terminal-tab {
+  padding: 7px 30px 7px 11px;
   border: 1px solid transparent;
   border-radius: 8px 8px 0 0;
   background: transparent;
@@ -1048,6 +1054,35 @@ button:disabled {
   transform: none;
 }
 
+.manual-terminal-close {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.manual-terminal-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  transform: translateY(-50%);
+}
+
+.manual-terminal-close {
+  transform: translateY(-50%);
+}
+
+.manual-terminal-empty-tabs {
+  align-self: center;
+  margin: 0;
+}
+
 .terminal-tab-add {
   min-width: 34px;
   padding: 6px 10px;
@@ -1056,6 +1091,14 @@ button:disabled {
 
 .manual-terminal-subtitle {
   padding: 7px 12px 0;
+}
+
+.manual-terminal-empty {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .file-drawer {

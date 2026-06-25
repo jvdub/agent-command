@@ -87,6 +87,8 @@ export const agenticApp = Object.freeze({
     call("manualTerminals", "write", sessionId, input, terminalId),
   resizeManualTerminal: (sessionId, size, terminalId = "1") =>
     call("manualTerminals", "resize", sessionId, size, terminalId),
+  closeManualTerminal: (sessionId, terminalId = "1") =>
+    call("manualTerminals", "close", sessionId, terminalId),
   openExternalUrl: (url) => call("app", "openExternalUrl", url),
   readClipboardText: async () => {
     try {

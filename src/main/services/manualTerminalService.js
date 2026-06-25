@@ -57,7 +57,7 @@ function createManualTerminalService({
     cleanup.push(
       ptyProcess.onData((data) => {
         const existing = manualTerminals.get(key);
-        if (!existing) {
+        if (existing !== terminalState) {
           return;
         }
 
@@ -75,7 +75,7 @@ function createManualTerminalService({
     cleanup.push(
       ptyProcess.onExit((event) => {
         const existing = manualTerminals.get(key);
-        if (!existing) {
+        if (existing !== terminalState) {
           return;
         }
 
@@ -112,6 +112,23 @@ function createManualTerminalService({
     return startManualTerminal(session, terminalId);
   }
 
+  function closeManualTerminal(sessionId, terminalId = "1") {
+    const key = getManualTerminalKey(sessionId, terminalId);
+    const terminal = manualTerminals.get(key);
+    if (!terminal) {
+      return { ok: false };
+    }
+
+    manualTerminals.delete(key);
+    terminal.dispose();
+
+    if (terminal.isRunning) {
+      terminal.ptyProcess.kill();
+    }
+
+    return { ok: true };
+  }
+
   function stopManualTerminalBySessionId(sessionId) {
     for (const [key, terminal] of manualTerminals.entries()) {
       if (terminal.sessionId !== sessionId) {
@@ -139,6 +156,7 @@ function createManualTerminalService({
   }
 
   return {
+    closeManualTerminal,
     ensureManualTerminal,
     stopAllManualTerminals,
     stopManualTerminalBySessionId,
