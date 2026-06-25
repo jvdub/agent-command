@@ -68,6 +68,7 @@ export function createTerminalClipboardController({
 
       if (isShortcutKey(event, "c")) {
         event.preventDefault();
+        snapshotSelection(target);
         copyTargetSelection(target)
           .then((copied) => {
             if (copied) {
@@ -133,6 +134,14 @@ export function createTerminalClipboardController({
       if (event.button === 2) {
         snapshotSelection(target);
       }
+    });
+
+    mount.addEventListener("mouseup", () => {
+      snapshotSelection(target);
+    });
+
+    mount.addEventListener("pointerup", () => {
+      snapshotSelection(target);
     });
   }
 

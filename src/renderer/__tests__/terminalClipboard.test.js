@@ -123,6 +123,40 @@ describe("terminalClipboard", () => {
     expect(writeClipboardText).toHaveBeenCalledWith("preserved text");
   });
 
+  test("Ctrl+C uses selection captured on mouseup when live selection later clears", async () => {
+    const writeClipboardText = jest.fn();
+    const sendInterrupt = jest.fn();
+    const controller = createTerminalClipboardController({
+      readClipboardText: jest.fn(),
+      writeClipboardText,
+      sendInterrupt,
+      setStatus: jest.fn(),
+    });
+    const target = createTarget();
+    target.terminal.getSelection
+      .mockReturnValueOnce("drag selected text")
+      .mockReturnValue("");
+    controller.attachToTarget(target);
+
+    target.mount.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    const keyHandler = target.terminal.attachCustomKeyEventHandler.mock.calls[0][0];
+    expect(
+      keyHandler({
+        type: "keydown",
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        key: "c",
+        preventDefault: jest.fn(),
+      }),
+    ).toBe(false);
+    await flushAsyncHandlers();
+
+    expect(writeClipboardText).toHaveBeenCalledWith("drag selected text");
+    expect(sendInterrupt).not.toHaveBeenCalled();
+  });
+
   test("Ctrl+V pastes clipboard text into the terminal", async () => {
     const controller = createTerminalClipboardController({
       readClipboardText: jest.fn(async () => "paste me"),
