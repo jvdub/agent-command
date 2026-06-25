@@ -18,35 +18,11 @@ import {
   uiState,
 } from "./state.js";
 import {
-  copyTerminalSelectionToClipboard,
-  getTerminalSelectionText,
-  pasteClipboardIntoTerminal,
-  preserveTerminalSelection,
-  writeTextToClipboard,
-} from "./globalShortcutUtils.js";
-import {
   SHORTCUT_ACTIONS,
   shouldRunShortcut,
 } from "./shortcuts.js";
+import { createTerminalClipboardController } from "./terminalClipboard.js";
 import { normalizeCandidateFilePath } from "./utils.js";
-
-async function copyTerminalSelection(
-  terminal,
-  mount = null,
-  fallbackSelection = "",
-) {
-  return copyTerminalSelectionToClipboard(terminal, {
-    mount,
-    fallbackSelection,
-    bridgeWriteText: (value) => agenticApp.writeClipboardText(value),
-  });
-}
-
-async function pasteIntoTerminal(terminal) {
-  return pasteClipboardIntoTerminal(terminal, {
-    bridgeReadText: () => agenticApp.readClipboardText(),
-  });
-}
 
 function createManagerSearchUi({ getActiveTerminalInstance, setStatus }) {
   function setAgentSearchMessage(message, isError = false) {
@@ -388,11 +364,7 @@ export function createTerminalManager({
 
   elements.terminalContextCopyButton.addEventListener("click", async () => {
     if (uiState.terminalContextTarget) {
-      await runtime.copyTerminalSelection(
-        uiState.terminalContextTarget.terminal,
-        uiState.terminalContextTarget.mount,
-        uiState.terminalContextTarget.selectionSnapshot,
-      );
+      await runtime.copyTerminalSelection(uiState.terminalContextTarget);
     }
     closeTerminalContextMenu();
   });
@@ -450,106 +422,37 @@ export function createAppTerminalRuntime({
     return `${sessionId}:${terminalId}`;
   }
 
+  const terminalClipboard = createTerminalClipboardController({
+    readClipboardText: () => agenticAppApi.readClipboardText(),
+    writeClipboardText: (value) => agenticAppApi.writeClipboardText(value),
+    setStatus,
+    openContextMenu: openTerminalContextMenu,
+    sendInterrupt: (target) => {
+      if (target.kind === "manual") {
+        return agenticAppApi.writeToManualTerminal(
+          target.sessionId,
+          "\u0003",
+          target.terminalId || "1",
+        );
+      }
+
+      markSessionInput(target.sessionId);
+      scheduleUiRefresh();
+      return agenticAppApi.writeToSession(target.sessionId, "\u0003");
+    },
+  });
+
   function attachTerminalClipboardHandlers(target) {
-    const { terminal, mount } = target;
+    terminalClipboard.attachToTarget(target, {
+      onKeyDown(event) {
+        if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
+          event.preventDefault();
+          openWorkspaceSearch();
+          return false;
+        }
 
-    const snapshotSelection = () => {
-      preserveTerminalSelection(target, terminal, mount);
-    };
-
-    terminal.onSelectionChange?.(snapshotSelection);
-
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") {
         return true;
-      }
-
-      if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_COPY, event)) {
-        event.preventDefault();
-        copyTerminalSelection(
-          terminal,
-          mount,
-          preserveTerminalSelection(target, terminal, mount),
-        )
-          .then((copied) => {
-            if (copied) {
-              setStatus("Copied", "Terminal selection");
-              return;
-            }
-
-            if (target.kind === "manual") {
-              agenticAppApi.writeToManualTerminal(
-                target.sessionId,
-                "\u0003",
-                target.terminalId || "1",
-              );
-              return;
-            }
-
-            markSessionInput(target.sessionId);
-            scheduleUiRefresh();
-            agenticAppApi.writeToSession(target.sessionId, "\u0003");
-          })
-          .catch((error) => {
-            setStatus(
-              "Error",
-              error?.message || "Unable to process Ctrl+C shortcut",
-            );
-          });
-        return false;
-      }
-
-      if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_PASTE, event)) {
-        event.preventDefault();
-        pasteIntoTerminal(terminal);
-        return false;
-      }
-
-      if (shouldRunShortcut(SHORTCUT_ACTIONS.QUICK_OPEN, event)) {
-        event.preventDefault();
-        openWorkspaceSearch();
-        return false;
-      }
-
-      return true;
-    });
-
-    mount.addEventListener("copy", (event) => {
-      const selection = getTerminalSelectionText(terminal, mount);
-      if (!selection) {
-        return;
-      }
-
-      if (event.clipboardData?.setData) {
-        event.preventDefault();
-        event.clipboardData.setData("text/plain", selection);
-        return;
-      }
-
-      writeTextToClipboard(selection, (value) =>
-        agenticAppApi.writeClipboardText(value),
-      );
-    });
-
-    mount.addEventListener("paste", (event) => {
-      const text = event.clipboardData?.getData("text");
-      if (!text) {
-        return;
-      }
-
-      event.preventDefault();
-      terminal.paste(text);
-    });
-
-    mount.addEventListener("contextmenu", (event) => {
-      openTerminalContextMenu(event, target);
-    });
-
-    // Preserve selection before right-click context menu can clear it.
-    mount.addEventListener("mousedown", (event) => {
-      if (event.button === 2) {
-        snapshotSelection();
-      }
+      },
     });
   }
 
@@ -822,10 +725,10 @@ export function createAppTerminalRuntime({
   }
 
   return {
-    copyTerminalSelection,
+    copyTerminalSelection: terminalClipboard.copyTargetSelection,
     createSessionTerminal,
     getActiveTerminalInstance,
-    pasteIntoTerminal,
+    pasteIntoTerminal: terminalClipboard.pasteIntoTerminal,
     resizeManualTerminals,
     resizeSession,
     sendTerminalClearCommand,

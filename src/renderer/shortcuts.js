@@ -2,8 +2,6 @@ export const SHORTCUT_ACTIONS = Object.freeze({
   QUICK_OPEN: "quickOpen",
   FIND_IN_SESSION: "findInSession",
   SAVE_EDITOR: "saveEditor",
-  TERMINAL_COPY: "terminalCopy",
-  TERMINAL_PASTE: "terminalPaste",
   ESCAPE: "escape",
 });
 
@@ -30,12 +28,6 @@ export const SHORTCUT_REGISTRY = Object.freeze({
   [SHORTCUT_ACTIONS.SAVE_EDITOR]: {
     matches: (event) => isPrimaryModifierShortcut(event, "s"),
     isEnabled: (context) => Boolean(context.editorOpen),
-  },
-  [SHORTCUT_ACTIONS.TERMINAL_PASTE]: {
-    matches: (event) => isPrimaryModifierShortcut(event, "v"),
-  },
-  [SHORTCUT_ACTIONS.TERMINAL_COPY]: {
-    matches: (event) => isPrimaryModifierShortcut(event, "c"),
   },
   [SHORTCUT_ACTIONS.ESCAPE]: {
     matches: (event) => event?.key === "Escape",
