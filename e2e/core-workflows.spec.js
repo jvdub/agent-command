@@ -30,8 +30,14 @@ async function reportTerminalSize(window, label) {
 
 async function clickActiveTerminalLink(window, activeTerminal, text) {
   const linkText = activeTerminal.getByText(text, { exact: true });
-  const box = await linkText.boundingBox();
-  expect(box).toBeTruthy();
+  await expect(linkText).toBeVisible();
+  let box = null;
+  await expect
+    .poll(async () => {
+      box = await linkText.boundingBox();
+      return Boolean(box);
+    })
+    .toBe(true);
   await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(activeTerminal.locator(".xterm-screen")).toHaveClass(
     /xterm-cursor-pointer/,
