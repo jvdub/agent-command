@@ -21,6 +21,7 @@ import {
   copyTerminalSelectionToClipboard,
   getTerminalSelectionText,
   pasteClipboardIntoTerminal,
+  preserveTerminalSelection,
   writeTextToClipboard,
 } from "./globalShortcutUtils.js";
 import {
@@ -29,8 +30,14 @@ import {
 } from "./shortcuts.js";
 import { normalizeCandidateFilePath } from "./utils.js";
 
-async function copyTerminalSelection(terminal) {
+async function copyTerminalSelection(
+  terminal,
+  mount = null,
+  fallbackSelection = "",
+) {
   return copyTerminalSelectionToClipboard(terminal, {
+    mount,
+    fallbackSelection,
     bridgeWriteText: (value) => agenticApp.writeClipboardText(value),
   });
 }
@@ -289,8 +296,9 @@ export function createTerminalManager({
     event.preventDefault();
     uiState.terminalContextTarget = target;
 
-    const selection = target.terminal.getSelection();
-    elements.terminalContextCopyButton.disabled = !selection;
+    // Keep copy enabled even if xterm selection detection briefly desyncs on
+    // right-click; the click handler can still use the preserved snapshot.
+    elements.terminalContextCopyButton.disabled = !target;
 
     const menuWidth = 152;
     const menuHeight = 132;
@@ -382,6 +390,8 @@ export function createTerminalManager({
     if (uiState.terminalContextTarget) {
       await runtime.copyTerminalSelection(
         uiState.terminalContextTarget.terminal,
+        uiState.terminalContextTarget.mount,
+        uiState.terminalContextTarget.selectionSnapshot,
       );
     }
     closeTerminalContextMenu();
@@ -443,9 +453,50 @@ export function createAppTerminalRuntime({
   function attachTerminalClipboardHandlers(target) {
     const { terminal, mount } = target;
 
+    const snapshotSelection = () => {
+      preserveTerminalSelection(target, terminal, mount);
+    };
+
+    terminal.onSelectionChange?.(snapshotSelection);
+
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
         return true;
+      }
+
+      if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_COPY, event)) {
+        event.preventDefault();
+        copyTerminalSelection(
+          terminal,
+          mount,
+          preserveTerminalSelection(target, terminal, mount),
+        )
+          .then((copied) => {
+            if (copied) {
+              setStatus("Copied", "Terminal selection");
+              return;
+            }
+
+            if (target.kind === "manual") {
+              agenticAppApi.writeToManualTerminal(
+                target.sessionId,
+                "\u0003",
+                target.terminalId || "1",
+              );
+              return;
+            }
+
+            markSessionInput(target.sessionId);
+            scheduleUiRefresh();
+            agenticAppApi.writeToSession(target.sessionId, "\u0003");
+          })
+          .catch((error) => {
+            setStatus(
+              "Error",
+              error?.message || "Unable to process Ctrl+C shortcut",
+            );
+          });
+        return false;
       }
 
       if (shouldRunShortcut(SHORTCUT_ACTIONS.TERMINAL_PASTE, event)) {
@@ -492,6 +543,13 @@ export function createAppTerminalRuntime({
 
     mount.addEventListener("contextmenu", (event) => {
       openTerminalContextMenu(event, target);
+    });
+
+    // Preserve selection before right-click context menu can clear it.
+    mount.addEventListener("mousedown", (event) => {
+      if (event.button === 2) {
+        snapshotSelection();
+      }
     });
   }
 

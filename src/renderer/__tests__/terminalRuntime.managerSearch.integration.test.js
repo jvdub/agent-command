@@ -80,6 +80,7 @@ jest.mock("../vendor/@xterm/xterm/lib/xterm.mjs", () => ({
     open: jest.fn(),
     registerLinkProvider: jest.fn(),
     onData: jest.fn(),
+    onSelectionChange: jest.fn(),
     attachCustomKeyEventHandler: jest.fn(),
     hasSelection: jest.fn(() => false),
     getSelection: jest.fn(() => ""),
@@ -117,7 +118,14 @@ jest.mock("../vendor/@xterm/addon-web-links/lib/addon-web-links.mjs", () => ({
 
 import { SearchAddon } from "../vendor/@xterm/addon-search/lib/addon-search.mjs";
 import { Terminal } from "../vendor/@xterm/xterm/lib/xterm.mjs";
+import { agenticApp } from "../agenticApp.js";
 import { createTerminalManager } from "../terminalRuntime.js";
+
+async function flushAsyncHandlers() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe("terminalRuntime manager search integration", () => {
   beforeEach(() => {
@@ -211,6 +219,106 @@ describe("terminalRuntime manager search integration", () => {
     expect(handled).toBe(false);
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(openWorkspaceSearch).toHaveBeenCalledTimes(1);
+  });
+
+  test("Ctrl+C copies terminal selection before falling back to interrupt", async () => {
+    const setStatus = jest.fn();
+    const markSessionInput = jest.fn();
+    const scheduleUiRefresh = jest.fn();
+    const manager = createTerminalManager({
+      markSessionInput,
+      openReferencedFile: jest.fn(),
+      scheduleUiRefresh,
+      setStatus,
+    });
+
+    mockUiState.activeSessionId = "session-1";
+    const instance = manager.createSessionTerminal("session-1");
+    const keyHandler =
+      instance.terminal.attachCustomKeyEventHandler.mock.calls[0][0];
+    const preventDefault = jest.fn();
+
+    instance.terminal.getSelection.mockReturnValue("selected text");
+    expect(
+      keyHandler({
+        type: "keydown",
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        key: "c",
+        preventDefault,
+      }),
+    ).toBe(false);
+    await flushAsyncHandlers();
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(agenticApp.writeClipboardText).toHaveBeenCalledWith("selected text");
+    expect(setStatus).toHaveBeenCalledWith("Copied", "Terminal selection");
+    expect(agenticApp.writeToSession).not.toHaveBeenCalledWith(
+      "session-1",
+      "\u0003",
+    );
+
+    jest.clearAllMocks();
+    instance.terminal.getSelection.mockReturnValue("");
+    instance.selectionSnapshot = "";
+    expect(
+      keyHandler({
+        type: "keydown",
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        key: "c",
+        preventDefault,
+      }),
+    ).toBe(false);
+    await flushAsyncHandlers();
+
+    expect(markSessionInput).toHaveBeenCalledWith("session-1");
+    expect(scheduleUiRefresh).toHaveBeenCalledTimes(1);
+    expect(agenticApp.writeToSession).toHaveBeenCalledWith(
+      "session-1",
+      "\u0003",
+    );
+  });
+
+  test("right-click Copy uses preserved selection snapshot when live selection clears", async () => {
+    const manager = createTerminalManager({
+      markSessionInput: jest.fn(),
+      openReferencedFile: jest.fn(),
+      scheduleUiRefresh: jest.fn(),
+      setStatus: jest.fn(),
+    });
+
+    mockUiState.activeSessionId = "session-1";
+    const instance = manager.createSessionTerminal("session-1");
+    const selectionListener =
+      instance.terminal.onSelectionChange.mock.calls[0][0];
+
+    instance.terminal.getSelection
+      .mockReturnValueOnce("right-click selected text")
+      .mockReturnValue("");
+    selectionListener();
+
+    instance.mount.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    expect(mockElements.terminalContextCopyButton.disabled).toBe(false);
+
+    mockElements.terminalContextCopyButton.click();
+    await flushAsyncHandlers();
+
+    expect(agenticApp.writeClipboardText).toHaveBeenCalledWith(
+      "right-click selected text",
+    );
+    expect(mockElements.terminalContextMenu.classList.contains("hidden")).toBe(
+      true,
+    );
   });
 
   test("registers file link providers on both manual terminals", async () => {
