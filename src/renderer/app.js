@@ -31,6 +31,7 @@ import {
 } from "./boundedBuffer.js";
 import { createToastNotifier } from "./toastNotifications.js";
 import { createTerminalClipboardController } from "./terminalClipboard.js";
+import { createManagedRunsView } from "./managedRunsView.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -336,7 +337,9 @@ let editorModel = null;
 let openingReferencedFile = false;
 let commandCheckTimeoutId = null;
 let commandCheckSequence = 0;
+let lastCheckedCommand = null;
 let sessionLifecycleHandlers = null;
+let managedRunsViewController = null;
 let lastCopyOrInterruptShortcutAt = 0;
 let renamingSessionId = null;
 let activeTerminalTheme = getTerminalTheme("dark");
@@ -3108,6 +3111,7 @@ async function saveSessionRename(input) {
 }
 
 function showEmptyView(shouldRefresh = true) {
+  managedRunsViewController?.hide();
   emptyView.classList.remove("hidden");
   terminalView.classList.add("hidden");
   processDetailsPanel.classList.add("hidden");
@@ -3193,6 +3197,8 @@ async function openTerminalView(
   if (!session) {
     return;
   }
+
+  managedRunsViewController?.hide();
 
   if (activeSessionId && activeSessionId !== sessionId && isAgentSearchOpen) {
     closeAgentSearch({ restoreFocus: false });
@@ -3388,6 +3394,7 @@ async function initializeContext() {
   await sessionLifecycleHandlers.initializeContext();
 
   const context = await agenticApp.getContext();
+  await managedRunsViewController?.initialize(context.cwd);
   const contextDefaultCommand =
     typeof context.defaultCommand === "string"
       ? context.defaultCommand.trim()
@@ -3417,6 +3424,7 @@ async function refreshCommandReadiness() {
   if (!command) {
     commandReadiness.textContent = "Enter the agent CLI executable to run.";
     commandReadiness.className = "field-help warning";
+    lastCheckedCommand = command;
     return;
   }
 
@@ -3432,15 +3440,18 @@ async function refreshCommandReadiness() {
     if (result.available) {
       commandReadiness.textContent = `${command} is available.`;
       commandReadiness.className = "field-help ready";
+      lastCheckedCommand = command;
       return;
     }
 
     commandReadiness.textContent = `${command} was not found in PATH. Install it or choose another command.`;
     commandReadiness.className = "field-help warning";
+    lastCheckedCommand = command;
   } catch {
     if (sequence === commandCheckSequence) {
       commandReadiness.textContent = "Command availability could not be checked.";
       commandReadiness.className = "field-help warning";
+      lastCheckedCommand = command;
     }
   }
 }
@@ -3578,7 +3589,11 @@ window.addEventListener("resize", () => {
 
 sessionForm.addEventListener("submit", startSession);
 commandInput.addEventListener("input", scheduleCommandReadinessCheck);
-commandInput.addEventListener("blur", () => void refreshCommandReadiness());
+commandInput.addEventListener("blur", () => {
+  if (commandInput.value.trim() !== lastCheckedCommand) {
+    void refreshCommandReadiness();
+  }
+});
 pickDirectoryButton.addEventListener("click", pickDirectory);
 stopSessionButton.addEventListener("click", stopSession);
 sendInterruptButton.addEventListener("click", sendInterrupt);
@@ -4018,6 +4033,24 @@ terminalContextClearButton.addEventListener("click", async () => {
 
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
+managedRunsViewController = createManagedRunsView({
+  activateView: () => {
+    emptyView.classList.add("hidden");
+    terminalView.classList.add("hidden");
+    processDetailsPanel.classList.add("hidden");
+    activeSessionId = null;
+    newSessionPopover.classList.add("hidden");
+  },
+  onSessionStarted: async (session) => {
+    const latestSessions = await agenticApp.listSessions();
+    updateSessions(latestSessions.sessions || [session]);
+    ensureSessionBuffer(session.id);
+    ensureSessionInsight(session.id);
+    createSessionTerminal(session.id);
+    await openTerminalView(session.id);
+  },
+  setStatus,
+});
 const themeManager = createThemeManager({
   selectElement: themeSelect,
   onThemeApplied: ({ terminalTheme, monacoTheme }) => {

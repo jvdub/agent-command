@@ -21,6 +21,9 @@ async function launchElectronApp(testInfo, name = "appdata") {
   });
   const window = await electronApp.firstWindow();
   await window.waitForLoadState("domcontentloaded");
+  // Electron can expose the first renderer just before Playwright's main-process
+  // execution context finishes settling after app-ready startup work.
+  await window.waitForTimeout(100);
   return { appDataDir, electronApp, rootDir, window };
 }
 

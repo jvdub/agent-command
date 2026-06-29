@@ -89,6 +89,26 @@ export const agenticApp = Object.freeze({
     call("manualTerminals", "resize", sessionId, size, terminalId),
   closeManualTerminal: (sessionId, terminalId = "1") =>
     call("manualTerminals", "close", sessionId, terminalId),
+  createManagedRun: (payload) => call("managedRuns", "create", payload),
+  listManagedRuns: () => call("managedRuns", "list"),
+  getManagedRun: (runId) => call("managedRuns", "get", runId),
+  generateManagedRunPlan: (runId) =>
+    call("managedRuns", "generatePlan", runId),
+  saveManagedRunPlan: (runId, plan) =>
+    call("managedRuns", "savePlan", runId, plan),
+  approveManagedRunPlan: (runId) =>
+    call("managedRuns", "approvePlan", runId),
+  startManagedRun: (runId) => call("managedRuns", "start", runId),
+  pauseManagedRun: (runId) => call("managedRuns", "pause", runId),
+  cancelManagedRun: (runId) => call("managedRuns", "cancel", runId),
+  retryManagedRunTask: (runId, taskId) =>
+    call("managedRuns", "retryTask", runId, taskId),
+  updateManagedRunRouting: (runId, routing) =>
+    call("managedRuns", "updateRouting", runId, routing),
+  acceptManagedRun: (runId) => call("managedRuns", "accept", runId),
+  archiveManagedRun: (runId) => call("managedRuns", "archive", runId),
+  setManagedRunTaskStatus: (runId, taskId, status) =>
+    call("managedRuns", "setTaskStatus", runId, taskId, status),
   openExternalUrl: (url) => call("app", "openExternalUrl", url),
   readClipboardText: async () => {
     try {
@@ -121,6 +141,10 @@ export const agenticApp = Object.freeze({
     subscribe("manualTerminals", "onExit", listener),
   onWorkspaceFileChanged: (listener) =>
     subscribe("workspace", "onFileChanged", listener),
+  onManagedRunChanged: (listener) =>
+    subscribe("managedRuns", "onChanged", listener),
+  onManagedRunWorkerOutput: (listener) =>
+    subscribe("managedRuns", "onWorkerOutput", listener),
   onQuickOpenShortcut: (listener) =>
     subscribe("shortcuts", "onQuickOpen", listener),
   onCopyOrInterruptShortcut: (listener) =>

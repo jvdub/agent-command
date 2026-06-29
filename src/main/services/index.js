@@ -20,6 +20,14 @@ const {
 } = require("./sessionPersistenceService");
 const { createSessionService } = require("./sessionService");
 const { createWorkspaceFileService } = require("./workspaceFileService");
+const { createManagedRunPersistenceService } = require("./managedRunPersistenceService");
+const { createWorkerProviderRegistry } = require("./workerProviderRegistry");
+const { createWorkerProcessService } = require("./workerProcessService");
+const { createLocalInferenceService } = require("./localInferenceService");
+const { createTaskSchedulerService } = require("./taskSchedulerService");
+const { createManagedRunService } = require("./managedRunService");
+const { createTokenLedgerService } = require("./tokenLedgerService");
+const { IPC_CHANNELS } = require("../../shared/ipcContract");
 
 /**
  * Registers all main-process services and their dependencies.
@@ -28,6 +36,7 @@ const { createWorkspaceFileService } = require("./workspaceFileService");
  */
 function registerAllServices(registry) {
   const sessions = new Map();
+  const managedRuns = new Map();
   let windowManager = null;
 
   function ensureWindowManager({ BrowserWindow, path }) {
@@ -149,6 +158,120 @@ function registerAllServices(registry) {
       "sessionPersistenceService",
       "manualTerminalService",
       "diagnosticsService",
+    ],
+  );
+
+  registry.register(
+    "managedRunPersistenceService",
+    "Managed Run Persistence Service",
+    ({ app, safeStorage }) =>
+      createManagedRunPersistenceService({
+        app,
+        safeStorage,
+        runs: managedRuns,
+      }),
+    [],
+  );
+
+  registry.register(
+    "workerProviderRegistry",
+    "Managed Worker Provider Registry",
+    () => createWorkerProviderRegistry(),
+    [],
+  );
+
+  registry.register(
+    "workerProcessService",
+    "Managed Worker Process Service",
+    ({ ptyRuntime }) =>
+      createWorkerProcessService({
+        onOutput: (payload) =>
+          ptyRuntime.windowManager.sendToRenderer(
+            IPC_CHANNELS.events.managedRunWorkerOutput,
+            payload,
+          ),
+      }),
+    ["ptyRuntime"],
+  );
+
+  registry.register(
+    "localInferenceService",
+    "Local Inference Service",
+    () => createLocalInferenceService(),
+    [],
+  );
+
+  registry.register(
+    "tokenLedgerService",
+    "Managed Run Token Ledger",
+    () => createTokenLedgerService(),
+    [],
+  );
+
+  registry.register(
+    "taskSchedulerService",
+    "Managed Run Task Scheduler",
+    ({
+      ptyRuntime,
+      workerProviderRegistry,
+      workerProcessService,
+      managedRunPersistenceService,
+      tokenLedgerService,
+      localInferenceService,
+    }) =>
+      createTaskSchedulerService({
+        workerProviderRegistry,
+        workerProcessService,
+        managedRunPersistenceService,
+        tokenLedgerService,
+        localInferenceService,
+        publishRun: (run) =>
+          ptyRuntime.windowManager.sendToRenderer(
+            IPC_CHANNELS.events.managedRunChanged,
+            run,
+          ),
+      }),
+    [
+      "ptyRuntime",
+      "workerProviderRegistry",
+      "workerProcessService",
+      "managedRunPersistenceService",
+      "tokenLedgerService",
+      "localInferenceService",
+    ],
+  );
+
+  registry.register(
+    "managedRunService",
+    "Managed Run Service",
+    ({
+      ptyRuntime,
+      managedRunPersistenceService,
+      workerProviderRegistry,
+      workerProcessService,
+      taskSchedulerService,
+      tokenLedgerService,
+    }) =>
+      createManagedRunService({
+        runs: managedRuns,
+        managedRunPersistenceService,
+        workerProviderRegistry,
+        workerProcessService,
+        getTaskSchedulerService: () => taskSchedulerService,
+        tokenLedgerService,
+        publishRun: (run) =>
+          ptyRuntime.windowManager.sendToRenderer(
+            IPC_CHANNELS.events.managedRunChanged,
+            run,
+          ),
+      }),
+    [
+      "ptyRuntime",
+      "managedRunPersistenceService",
+      "workerProviderRegistry",
+      "workerProcessService",
+      "taskSchedulerService",
+      "tokenLedgerService",
     ],
   );
 }

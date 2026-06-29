@@ -27,6 +27,15 @@
           >
             +
           </button>
+          <button
+            type="button"
+            id="new-managed-run-button"
+            class="new-session-trigger managed-run-trigger"
+            aria-label="Create managed run"
+            title="Create managed run"
+          >
+            M
+          </button>
           <div>
             <p class="eyebrow">Sessions</p>
             <p class="status-meta">Active terminals</p>
@@ -104,7 +113,55 @@
           </form>
         </div>
 
+        <div id="new-managed-run-popover" class="launch-popover hidden">
+          <div class="panel-header compact">
+            <h2>New Managed Run</h2>
+          </div>
+          <form id="managed-run-form" class="session-form">
+            <label>
+              <span>Run Name</span>
+              <input id="managed-run-title-input" placeholder="Optional" autocomplete="off" />
+            </label>
+            <label>
+              <span>Repository</span>
+              <div class="path-row">
+                <input id="managed-run-repo-input" placeholder="C:\\path\\to\\repo" autocomplete="off" />
+                <button type="button" id="managed-run-pick-directory" class="secondary">Browse</button>
+              </div>
+            </label>
+            <label>
+              <span>Specification</span>
+              <textarea id="managed-run-spec-input" rows="7" placeholder="Paste the approved story, bug specification, or /grill-me result."></textarea>
+            </label>
+            <label>
+              <span>Worker Provider</span>
+              <select id="managed-run-provider-input">
+                <option value="codex">Codex</option>
+                <option value="claude">Claude Code</option>
+                <option value="opencode">OpenCode</option>
+              </select>
+            </label>
+            <details class="managed-run-advanced">
+              <summary>Non-default models</summary>
+              <p class="field-help">Each non-empty model is launched with <code>--model</code>.</p>
+              <label><span>Planning</span><input id="managed-run-planning-model" autocomplete="off" /></label>
+              <label><span>Implementation</span><input id="managed-run-implementation-model" autocomplete="off" /></label>
+              <label><span>Verification</span><input id="managed-run-verification-model" autocomplete="off" /></label>
+              <label><span>Final integration</span><input id="managed-run-integration-model" autocomplete="off" /></label>
+            </details>
+            <div class="button-row">
+              <button type="submit">Create Managed Run</button>
+            </div>
+          </form>
+        </div>
+
+        <p class="sidebar-section-label">Interactive Sessions</p>
         <div id="session-tabs-list" class="session-tabs-list"></div>
+
+        <p class="sidebar-section-label">Managed Runs</p>
+        <div id="managed-run-tabs-list" class="managed-run-tabs-list">
+          <p class="status-meta">No managed runs.</p>
+        </div>
 
         <div class="sidebar-tools" aria-label="Application tools">
           <button type="button" id="copy-diagnostics" class="secondary">
@@ -283,6 +340,81 @@
               </section>
             </section>
           </section>
+        </section>
+
+        <section id="managed-run-view" class="managed-run-view hidden">
+          <header class="managed-run-view-header">
+            <div>
+              <p class="eyebrow">Managed Run</p>
+              <h2 id="managed-run-view-title">Managed Run</h2>
+              <p id="managed-run-view-meta" class="status-meta"></p>
+            </div>
+            <div class="button-row managed-run-actions">
+              <button type="button" id="managed-run-generate-plan">Generate Plan</button>
+              <button type="button" id="managed-run-shape" class="secondary">Shape Interactively</button>
+              <button type="button" id="managed-run-save-plan" class="secondary">Save Plan</button>
+              <button type="button" id="managed-run-approve-plan" class="secondary">Approve Plan</button>
+              <button type="button" id="managed-run-start">Start</button>
+              <button type="button" id="managed-run-pause" class="secondary">Pause</button>
+              <button type="button" id="managed-run-cancel" class="secondary danger-action">Cancel</button>
+              <button type="button" id="managed-run-accept" class="secondary">Accept</button>
+              <button type="button" id="managed-run-archive" class="secondary">Archive</button>
+              <button type="button" id="managed-run-takeover" class="secondary">Take Over</button>
+            </div>
+          </header>
+
+          <div class="managed-run-grid">
+            <section class="managed-run-card managed-run-plan-card">
+              <div class="panel-header compact">
+                <div>
+                  <p class="eyebrow">Human Gate</p>
+                  <h2>Plan</h2>
+                </div>
+                <p id="managed-run-plan-meta" class="status-meta"></p>
+              </div>
+              <textarea id="managed-run-plan-editor" class="managed-run-plan-editor" spellcheck="false" placeholder="Generate a plan or paste structured plan JSON here."></textarea>
+              <details class="managed-run-routing-panel">
+                <summary>Future worker routing</summary>
+                <div class="managed-run-routing-grid">
+                  <label><span>Provider</span><select id="managed-run-routing-provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="opencode">OpenCode</option></select></label>
+                  <label><span>Planning model</span><input id="managed-run-routing-planner-model" autocomplete="off" /></label>
+                  <label><span>Implementation model</span><input id="managed-run-routing-implementer-model" autocomplete="off" /></label>
+                  <label><span>Verification model</span><input id="managed-run-routing-verifier-model" autocomplete="off" /></label>
+                  <label><span>Integration model</span><input id="managed-run-routing-integration-model" autocomplete="off" /></label>
+                </div>
+                <div class="button-row"><button type="button" id="managed-run-save-routing" class="secondary">Save Routing</button></div>
+              </details>
+            </section>
+
+            <section class="managed-run-card">
+              <div class="panel-header compact">
+                <div><p class="eyebrow">Execution</p><h2>Tasks</h2></div>
+              </div>
+              <div id="managed-run-task-list" class="managed-run-task-list"></div>
+            </section>
+
+            <section class="managed-run-card">
+              <div class="panel-header compact">
+                <div><p class="eyebrow">Workers</p><h2>Attempts</h2></div>
+                <p id="managed-run-usage" class="status-meta"></p>
+              </div>
+              <div id="managed-run-worker-list" class="managed-run-worker-list"></div>
+            </section>
+
+            <section class="managed-run-card managed-run-output-card">
+              <div class="panel-header compact">
+                <div><p class="eyebrow">Evidence</p><h2>Worker Output</h2></div>
+              </div>
+              <pre id="managed-run-worker-output" class="managed-run-worker-output">Select a worker attempt to inspect its output.</pre>
+            </section>
+
+            <section class="managed-run-card managed-run-events-card">
+              <div class="panel-header compact">
+                <div><p class="eyebrow">Audit Trail</p><h2>Events</h2></div>
+              </div>
+              <div id="managed-run-event-list" class="managed-run-event-list"></div>
+            </section>
+          </div>
         </section>
       </main>
     </div>

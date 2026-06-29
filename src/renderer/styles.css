@@ -321,6 +321,273 @@ select {
   }
 }
 
+.managed-run-trigger {
+  background: var(--info);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.sidebar-section-label {
+  margin: 2px 0 -2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.managed-run-tabs-list {
+  display: flex;
+  flex: 0 1 34%;
+  min-height: 64px;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.managed-run-tab {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+}
+
+.managed-run-tab.active {
+  border-color: var(--info);
+  box-shadow: inset 0 0 0 1px rgba(128, 199, 247, 0.28);
+}
+
+.managed-run-tab-title,
+.managed-run-tab-meta {
+  margin: 0;
+}
+
+.managed-run-tab-title {
+  overflow: hidden;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-run-tab-meta {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.managed-run-advanced {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.managed-run-advanced summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.managed-run-advanced label:first-of-type {
+  margin-top: 10px;
+}
+
+.managed-run-view {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.managed-run-view-header {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+}
+
+.managed-run-view-header h2 {
+  margin: 3px 0 5px;
+}
+
+.managed-run-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.managed-run-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(380px, 1.1fr);
+  gap: 14px;
+  padding: 14px 0 4px;
+}
+
+.managed-run-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.managed-run-plan-card,
+.managed-run-output-card,
+.managed-run-events-card {
+  grid-column: 1 / -1;
+}
+
+.managed-run-plan-editor {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field-bg);
+  color: var(--text);
+  padding: 12px;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.managed-run-routing-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.managed-run-routing-panel summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.managed-run-routing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.managed-run-routing-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.managed-run-task-list,
+.managed-run-worker-list,
+.managed-run-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.managed-run-task,
+.managed-run-worker,
+.managed-run-event {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.managed-run-task h3,
+.managed-run-worker p,
+.managed-run-event p {
+  margin: 0;
+}
+
+.managed-run-task-top,
+.managed-run-worker-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.managed-run-state {
+  color: var(--info);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.managed-run-task-detail,
+.managed-run-worker-detail,
+.managed-run-event-detail {
+  margin-top: 6px !important;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.managed-run-task-override {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.managed-run-task-override select {
+  max-width: 190px;
+}
+
+.managed-run-worker {
+  cursor: pointer;
+}
+
+.managed-run-worker.selected {
+  border-color: var(--accent);
+}
+
+.managed-run-worker-output {
+  min-height: 180px;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #08090c;
+  color: #e9e4d7;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1100px) {
+  .managed-run-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .managed-run-plan-card,
+  .managed-run-output-card,
+  .managed-run-events-card {
+    grid-column: 1;
+  }
+
+  .managed-run-view-header {
+    position: static;
+    flex-direction: column;
+  }
+}
+
 .session-tab.active {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(238, 108, 77, 0.3);

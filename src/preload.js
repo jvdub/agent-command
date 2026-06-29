@@ -29,6 +29,20 @@ const IPC_CHANNELS = Object.freeze({
     openExternalUrl: "external-link:open",
     readClipboardText: "clipboard:read-text",
     writeClipboardText: "clipboard:write-text",
+    createManagedRun: "managed-run:create",
+    listManagedRuns: "managed-runs:list",
+    getManagedRun: "managed-run:get",
+    generateManagedRunPlan: "managed-run:generate-plan",
+    saveManagedRunPlan: "managed-run:save-plan",
+    approveManagedRunPlan: "managed-run:approve-plan",
+    startManagedRun: "managed-run:start",
+    pauseManagedRun: "managed-run:pause",
+    cancelManagedRun: "managed-run:cancel",
+    retryManagedRunTask: "managed-run:retry-task",
+    updateManagedRunRouting: "managed-run:update-routing",
+    acceptManagedRun: "managed-run:accept",
+    archiveManagedRun: "managed-run:archive",
+    setManagedRunTaskStatus: "managed-run:set-task-status",
   }),
   events: Object.freeze({
     sessionsChanged: "sessions:changed",
@@ -39,6 +53,8 @@ const IPC_CHANNELS = Object.freeze({
     workspaceFileChanged: "workspace:file-changed",
     shortcutQuickOpen: "app:shortcut:quick-open",
     shortcutCopyOrInterrupt: "app:shortcut:copy-or-interrupt",
+    managedRunChanged: "managed-run:changed",
+    managedRunWorkerOutput: "managed-run:worker-output",
   }),
 });
 // END AUTO-GENERATED IPC CHANNELS
@@ -152,6 +168,49 @@ const agentic = {
       }),
     onData: (listener) => on(IPC_CHANNELS.events.manualTerminalData, listener),
     onExit: (listener) => on(IPC_CHANNELS.events.manualTerminalExit, listener),
+  },
+  managedRuns: {
+    create: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.createManagedRun, payload),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.listManagedRuns),
+    get: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.getManagedRun, runId),
+    generatePlan: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunPlan, runId),
+    savePlan: (runId, plan) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunPlan, { runId, plan }),
+    approvePlan: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.approveManagedRunPlan, runId),
+    start: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.startManagedRun, runId),
+    pause: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.pauseManagedRun, runId),
+    cancel: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.cancelManagedRun, runId),
+    retryTask: (runId, taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.retryManagedRunTask, {
+        runId,
+        taskId,
+      }),
+    updateRouting: (runId, routing) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.updateManagedRunRouting, {
+        runId,
+        routing,
+      }),
+    accept: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.acceptManagedRun, runId),
+    archive: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.archiveManagedRun, runId),
+    setTaskStatus: (runId, taskId, status) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.setManagedRunTaskStatus, {
+        runId,
+        taskId,
+        status,
+      }),
+    onChanged: (listener) =>
+      on(IPC_CHANNELS.events.managedRunChanged, listener),
+    onWorkerOutput: (listener) =>
+      on(IPC_CHANNELS.events.managedRunWorkerOutput, listener),
   },
   clipboard: {
     readText: async () => {

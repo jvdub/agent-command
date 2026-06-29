@@ -83,6 +83,8 @@ const {
   sessionService,
   workspaceFileService,
   manualTerminalService,
+  managedRunPersistenceService,
+  managedRunService,
 } = serviceRegistry.resolveAll([
   "ptyRuntime",
   "processInspectionService",
@@ -91,6 +93,8 @@ const {
   "sessionService",
   "workspaceFileService",
   "manualTerminalService",
+  "managedRunPersistenceService",
+  "managedRunService",
 ]);
 
 const ipcRegistry = registerIpcHandlers({
@@ -108,6 +112,7 @@ const ipcRegistry = registerIpcHandlers({
   sessionService,
   workspaceFileService,
   manualTerminalService,
+  managedRunService,
 });
 serviceRegistry.setupIpcHandlers(ipcRegistry);
 
@@ -162,6 +167,7 @@ function shutdownSessionsAndPersist() {
   isShuttingDown = true;
   sessionService.stopAllSessions();
   sessionPersistenceService.saveSessionsToDisk();
+  managedRunPersistenceService.save();
 }
 
 app.whenReady().then(() => {
@@ -173,6 +179,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   sessionPersistenceService.loadSessionsFromDisk();
+  managedRunPersistenceService.load();
   diagnosticsService.log("info", "app-ready", {
     version: app.getVersion(),
     platform: process.platform,

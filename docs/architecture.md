@@ -17,6 +17,7 @@ This document explains the main runtime boundaries and where to add new behavior
 - Owns app lifecycle, BrowserWindow creation, PTY process orchestration, and filesystem access.
 - Delegates business logic to service modules under src/main/services.
 - Persists rotating local diagnostics through `diagnosticsService` without telemetry.
+- Owns Managed Run scheduling, provider adapters, non-interactive workers, protected evidence, and usage accounting.
 
 2. IPC registration layer (transport wiring)
 
@@ -99,6 +100,20 @@ The top-level check pipeline enforces this to prevent channel drift.
 - Session state is stored as a versioned document in Electron's per-user data directory.
 - Terminal output is protected with Electron `safeStorage`; output is omitted when protected storage is unavailable. On Linux, the `basic_text` and `unknown` storage backends are rejected.
 - Application diagnostics are local rotating JSON-line logs and are shared only when the user copies them.
+- Managed Runs are stored as a versioned document in the same per-user data directory. Worker prompts and transcripts use `safeStorage` and are omitted when protected storage is unavailable.
+
+## Managed Run Boundary
+
+Managed Runs use structured process events rather than terminal-screen interpretation:
+
+1. `managedRunService` owns plans, approval, human overrides, and lifecycle requests.
+2. `taskSchedulerService` applies deterministic task, verification, retry, and final-review transitions.
+3. `workerProviderRegistry` maps capability tiers to Codex, Claude Code, or OpenCode command arguments.
+4. `workerProcessService` launches bounded non-interactive workers and captures evidence.
+5. `tokenLedgerService` normalizes usage metadata when providers expose it.
+6. `localInferenceService` provides a schema-constrained, provider-neutral local inference boundary; it cannot mutate run state directly.
+
+Planning and verification are read-only. Implementation is workspace-write. The renderer can request operations only through Managed Run IPC handlers and the narrowed preload bridge.
 
 ## Security Notes
 

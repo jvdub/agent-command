@@ -17,6 +17,8 @@ macOS and WSL/WSLg are not release targets yet.
 - Supports quick-open workspace navigation, modified-file inspection, and in-app file editing.
 - Surfaces per-session attention states so you can quickly triage which agents need input.
 - Supports system, light, and dark appearance modes.
+- Runs human-approved Managed Runs with independent implementation and verification workers.
+- Routes Managed Run roles through configurable provider/model tiers and records available token usage.
 
 ## Multi-session architecture
 
@@ -40,6 +42,28 @@ The app now uses a session manager model instead of a single global PTY.
 ## Current target
 
 The default command target is `claude`, which starts a normal interactive Claude CLI session when available in your shell. The command field stays editable so you can swap in a different agent later.
+
+## Managed Runs
+
+Managed Runs automate the mechanical orchestration loop without keeping a premium parent agent alive. A capable worker creates a structured plan, the user edits and approves it, and Agentic Command then runs one bounded implementation task at a time. Every implementation attempt receives an independent read-only verification, failed verification can feed a bounded retry, and a final integration verifier checks the complete mission before human acceptance.
+
+Managed Runs never commit, push, delete files, publish, or open pull requests. Planning and verification workers are read-only; only implementation workers receive workspace-write access.
+
+Codex, Claude Code, and OpenCode adapters are available. Model assignments use role/tier configuration. When a resolved model differs from the provider default, Agentic Command launches the CLI with `--model <resolved-model>`; the flag is omitted for the configured default.
+
+Optional environment configuration:
+
+```text
+AGENTIC_MANAGED_DEFAULT_PROVIDER=codex
+AGENTIC_MANAGED_CODEX_DEFAULT_MODEL=
+AGENTIC_MANAGED_CODEX_ECONOMY_MODEL=
+AGENTIC_MANAGED_CODEX_STANDARD_MODEL=
+AGENTIC_MANAGED_CODEX_PREMIUM_MODEL=
+AGENTIC_MANAGED_LOCAL_URL=http://127.0.0.1:11434
+AGENTIC_MANAGED_LOCAL_MODEL=qwen2.5-coder:7b
+```
+
+Equivalent `CLAUDE` and `OPENCODE` default/tier model variables are supported. See `docs/specs/managed-runs/` for lifecycle, safety, routing, and acceptance requirements.
 
 ## Run
 

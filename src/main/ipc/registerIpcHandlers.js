@@ -11,6 +11,9 @@ const {
 const {
   registerHandlers: registerManualTerminalHandlers,
 } = require("./registerManualTerminalIpcHandlers");
+const {
+  registerHandlers: registerManagedRunHandlers,
+} = require("./registerManagedRunIpcHandlers");
 
 function registerIpcHandlers({
   ipcMain,
@@ -23,6 +26,7 @@ function registerIpcHandlers({
   sessionService,
   workspaceFileService,
   manualTerminalService,
+  managedRunService,
   diagnosticsService,
   app,
   isCommandAvailable,
@@ -39,6 +43,7 @@ function registerIpcHandlers({
     sessionService,
     workspaceFileService,
     manualTerminalService,
+    managedRunService,
     diagnosticsService,
     app,
     isCommandAvailable,
@@ -50,6 +55,7 @@ function registerIpcHandlers({
     registerSessionHandlers,
     registerWorkspaceHandlers,
     registerManualTerminalHandlers,
+    registerManagedRunHandlers,
   ]);
 
   return registry;
