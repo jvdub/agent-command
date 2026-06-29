@@ -49,6 +49,8 @@ Managed Runs automate the mechanical orchestration loop without keeping a premiu
 
 Managed Runs never commit, push, delete files, publish, or open pull requests. Planning and verification workers are read-only; only implementation workers receive workspace-write access.
 
+When a selected target folder is not yet a Git repository, Agentic Command asks before running `git init`. Cancelling the prompt leaves the folder unchanged.
+
 Codex, Claude Code, and OpenCode adapters are available. Model assignments use role/tier configuration. When a resolved model differs from the provider default, Agentic Command launches the CLI with `--model <resolved-model>`; the flag is omitted for the configured default.
 
 Optional environment configuration:

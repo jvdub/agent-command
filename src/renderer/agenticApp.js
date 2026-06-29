@@ -90,6 +90,8 @@ export const agenticApp = Object.freeze({
   closeManualTerminal: (sessionId, terminalId = "1") =>
     call("manualTerminals", "close", sessionId, terminalId),
   createManagedRun: (payload) => call("managedRuns", "create", payload),
+  inspectManagedRunRepository: (repoPath) =>
+    call("managedRuns", "inspectRepository", repoPath),
   listManagedRuns: () => call("managedRuns", "list"),
   getManagedRun: (runId) => call("managedRuns", "get", runId),
   generateManagedRunPlan: (runId) =>

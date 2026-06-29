@@ -43,6 +43,7 @@ const IPC_CHANNELS = Object.freeze({
     acceptManagedRun: "managed-run:accept",
     archiveManagedRun: "managed-run:archive",
     setManagedRunTaskStatus: "managed-run:set-task-status",
+    inspectManagedRunRepository: "managed-run:inspect-repository",
   }),
   events: Object.freeze({
     sessionsChanged: "sessions:changed",
@@ -172,6 +173,11 @@ const agentic = {
   managedRuns: {
     create: (payload) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.createManagedRun, payload),
+    inspectRepository: (repoPath) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.invoke.inspectManagedRunRepository,
+        repoPath,
+      ),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.listManagedRuns),
     get: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.getManagedRun, runId),

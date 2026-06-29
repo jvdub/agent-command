@@ -264,6 +264,25 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     });
     elements.form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const repository = await perform("Checking repository", () =>
+        agenticApp.inspectManagedRunRepository(elements.repoInput.value),
+      );
+      if (!repository) return;
+      if (!repository.isDirectory) {
+        setStatus("Error", "Repository path must be a readable directory.");
+        return;
+      }
+      let initializeGit = false;
+      if (!repository.isGitRepository) {
+        const description = repository.isEmpty
+          ? "This folder is empty and is not a Git repository. Initialize Git here and continue?"
+          : "This folder is not a Git repository. Initialize Git here and continue?";
+        initializeGit = window.confirm(description);
+        if (!initializeGit) {
+          setStatus("Cancelled", "Managed Run creation cancelled without changing the folder.");
+          return;
+        }
+      }
       const run = await perform("Creating", () =>
         agenticApp.createManagedRun({
           title: elements.titleInput.value,
@@ -274,6 +293,7 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
           implementationModel: elements.implementationModel.value,
           verificationModel: elements.verificationModel.value,
           integrationModel: elements.integrationModel.value,
+          initializeGit,
         }),
       );
       if (run) {

@@ -6,6 +6,14 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.createManagedRun, {
     handler: async (_event, payload) => managedRunService.create(payload),
   });
+  registry.register(
+    "managed-runs",
+    IPC_CHANNELS.invoke.inspectManagedRunRepository,
+    {
+      handler: async (_event, repoPath) =>
+        managedRunService.inspectRepository(repoPath),
+    },
+  );
   registry.register("managed-runs", IPC_CHANNELS.invoke.listManagedRuns, {
     handler: async () => ({ runs: managedRunService.list() }),
   });

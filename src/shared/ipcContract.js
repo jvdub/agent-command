@@ -40,6 +40,7 @@ const IPC_CHANNELS = Object.freeze({
     acceptManagedRun: "managed-run:accept",
     archiveManagedRun: "managed-run:archive",
     setManagedRunTaskStatus: "managed-run:set-task-status",
+    inspectManagedRunRepository: "managed-run:inspect-repository",
   }),
   events: Object.freeze({
     sessionsChanged: "sessions:changed",

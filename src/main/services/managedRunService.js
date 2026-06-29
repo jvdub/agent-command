@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
+const { execFileSync } = require("child_process");
 const {
   addRunEvent,
   extractStructuredJson,
@@ -70,15 +71,55 @@ function createManagedRunService({
     return summarizeRun(run);
   }
 
+  function inspectRepository(inputPath) {
+    const repoPath = path.resolve(String(inputPath || "").trim());
+    const isDirectory = Boolean(
+      repoPath && fs.existsSync(repoPath) && fs.statSync(repoPath).isDirectory(),
+    );
+    if (!isDirectory) {
+      return {
+        repoPath,
+        isDirectory: false,
+        isGitRepository: false,
+        isEmpty: false,
+      };
+    }
+    return {
+      repoPath,
+      isDirectory: true,
+      isGitRepository: fs.existsSync(path.join(repoPath, ".git")),
+      isEmpty: fs.readdirSync(repoPath).length === 0,
+    };
+  }
+
   function create(input) {
-    const repoPath = path.resolve(String(input?.repoPath || "").trim());
+    const repository = inspectRepository(input?.repoPath);
+    const repoPath = repository.repoPath;
     const specification = String(input?.specification || "").trim();
     if (!specification) throw new Error("A specification is required.");
-    if (!repoPath || !fs.existsSync(repoPath) || !fs.statSync(repoPath).isDirectory()) {
+    if (!repository.isDirectory) {
       throw new Error("Repository path must be a readable directory.");
     }
-    if (!fs.existsSync(path.join(repoPath, ".git"))) {
-      throw new Error("Repository path must be a Git working tree.");
+    if (!repository.isGitRepository) {
+      if (input?.initializeGit !== true) {
+        throw new Error(
+          "Repository path is not a Git working tree. Confirm Git initialization to continue.",
+        );
+      }
+      try {
+        execFileSync("git", ["init"], {
+          cwd: repoPath,
+          windowsHide: true,
+          stdio: "pipe",
+        });
+      } catch (error) {
+        throw new Error(
+          `Git repository initialization failed: ${error.stderr?.toString().trim() || error.message}`,
+        );
+      }
+      if (!fs.existsSync(path.join(repoPath, ".git"))) {
+        throw new Error("Git initialization completed without creating repository metadata.");
+      }
     }
     const now = nowIso();
     const provider = String(input?.provider || "codex");
@@ -354,6 +395,7 @@ function createManagedRunService({
     create,
     generatePlan,
     get,
+    inspectRepository,
     list,
     pause,
     retry,

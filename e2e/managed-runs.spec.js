@@ -1,4 +1,6 @@
 const { test, expect } = require("@playwright/test");
+const fs = require("fs");
+const path = require("path");
 const { launchElectronApp, rootDir } = require("./helpers/electronApp");
 
 test("managed runs require an explicitly approved structured plan", async ({}, testInfo) => {
@@ -66,6 +68,38 @@ test("managed runs require an explicitly approved structured plan", async ({}, t
     await expect(window.locator("#managed-run-task-list")).toContainText(
       "task-1 · Focused task",
     );
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("managed runs can initialize an empty target after explicit confirmation", async ({}, testInfo) => {
+  const emptyTarget = testInfo.outputPath("empty-managed-target");
+  const cancelledTarget = testInfo.outputPath("cancelled-managed-target");
+  fs.mkdirSync(emptyTarget, { recursive: true });
+  fs.mkdirSync(cancelledTarget, { recursive: true });
+  const { electronApp, window } = await launchElectronApp(
+    testInfo,
+    "managed-run-empty-appdata",
+  );
+
+  try {
+    await window.getByRole("button", { name: "Create managed run" }).click();
+    await window.locator("#managed-run-title-input").fill("New repository run");
+    await window.locator("#managed-run-repo-input").fill(cancelledTarget);
+    await window
+      .locator("#managed-run-spec-input")
+      .fill("Create the initial project structure.");
+    window.once("dialog", (dialog) => dialog.dismiss());
+    await window.locator("#managed-run-form button[type='submit']").click();
+    expect(fs.existsSync(path.join(cancelledTarget, ".git"))).toBe(false);
+
+    await window.locator("#managed-run-repo-input").fill(emptyTarget);
+    window.once("dialog", (dialog) => dialog.accept());
+    await window.locator("#managed-run-form button[type='submit']").click();
+
+    await expect(window.locator("#managed-run-view")).toBeVisible();
+    expect(fs.existsSync(path.join(emptyTarget, ".git"))).toBe(true);
   } finally {
     await electronApp.close();
   }
