@@ -27,6 +27,13 @@ ${PLANNING_SAFETY}
 Return exactly one JSON object:
 {
   "objective":"mission objective",
+  "inspection":{
+    "status":"succeeded|blocked",
+    "repositoryState":"empty|nonempty|unknown",
+    "commandsRun":["read-only command actually run"],
+    "filesInspected":["path actually inspected; may be empty for an empty repository"],
+    "blocker":null
+  },
   "constraints":["constraint"],
   "nonGoals":["non-goal"],
   "successCriteria":["observable mission criterion"],
@@ -130,6 +137,7 @@ function createManagedRunService({
       specification,
       status: "draft",
       plan: null,
+      planSource: null,
       planRevision: 0,
       approvedRevision: null,
       approvedAt: null,
@@ -218,8 +226,11 @@ function createManagedRunService({
       return saveAndPublish(run);
     }
     try {
-      const plan = validateAndNormalizePlan(extractStructuredJson(worker.stdout));
+      const plan = validateAndNormalizePlan(extractStructuredJson(worker.stdout), {
+        requireInspection: true,
+      });
       run.plan = plan;
+      run.planSource = "worker";
       run.planRevision += 1;
       run.approvedRevision = null;
       run.approvedAt = null;
@@ -239,6 +250,7 @@ function createManagedRunService({
       typeof rawPlan === "string" ? JSON.parse(rawPlan) : rawPlan,
     );
     run.plan = plan;
+    run.planSource = "human";
     run.planRevision += 1;
     run.approvedRevision = null;
     run.approvedAt = null;
@@ -252,6 +264,27 @@ function createManagedRunService({
   function approvePlan(runId) {
     const run = requireRun(runId);
     if (!run.plan || run.planRevision < 1) throw new Error("No plan is available to approve.");
+    const generatedPlan =
+      run.planSource === "worker" ||
+      (!run.planSource && run.workers.some((worker) => worker.role === "planner"));
+    if (
+      generatedPlan &&
+      (run.plan.inspection?.status !== "succeeded" ||
+        !Array.isArray(run.plan.inspection?.commandsRun) ||
+        run.plan.inspection.commandsRun.length === 0 ||
+        run.plan.inspection.blocker)
+    ) {
+      run.status = "review_required";
+      addRunEvent(
+        run,
+        "Plan approval blocked because repository inspection was not verified. Regenerate or save a human-reviewed replacement plan.",
+        "error",
+      );
+      saveAndPublish(run);
+      throw new Error(
+        "Generated plans require verified repository inspection before approval.",
+      );
+    }
     run.approvedRevision = run.planRevision;
     run.approvedAt = nowIso();
     run.status = "ready";

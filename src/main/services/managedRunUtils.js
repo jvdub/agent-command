@@ -67,7 +67,7 @@ function normalizeStringArray(value) {
     : [];
 }
 
-function validateAndNormalizePlan(input) {
+function validateAndNormalizePlan(input, { requireInspection = false } = {}) {
   if (!input || typeof input !== "object") {
     throw new Error("Plan must be a JSON object.");
   }
@@ -76,6 +76,28 @@ function validateAndNormalizePlan(input) {
   const rawTasks = Array.isArray(input.tasks) ? input.tasks : [];
   if (!objective || rawTasks.length === 0) {
     throw new Error("Plan requires an objective and at least one task.");
+  }
+
+  const rawInspection = input.inspection;
+  const inspection = rawInspection && typeof rawInspection === "object"
+    ? {
+        status: String(rawInspection.status || "").trim(),
+        repositoryState: String(rawInspection.repositoryState || "unknown").trim(),
+        commandsRun: normalizeStringArray(rawInspection.commandsRun),
+        filesInspected: normalizeStringArray(rawInspection.filesInspected),
+        blocker: String(rawInspection.blocker || "").trim() || null,
+      }
+    : null;
+  if (
+    requireInspection &&
+    (!inspection ||
+      inspection.status !== "succeeded" ||
+      inspection.commandsRun.length === 0 ||
+      inspection.blocker)
+  ) {
+    throw new Error(
+      "Plan is not approvable because repository inspection did not succeed with command evidence.",
+    );
   }
 
   const ids = new Set();
@@ -150,6 +172,7 @@ function validateAndNormalizePlan(input) {
 
   return {
     objective,
+    inspection,
     constraints: normalizeStringArray(input.constraints),
     nonGoals: normalizeStringArray(input.nonGoals),
     successCriteria: normalizeStringArray(input.successCriteria),

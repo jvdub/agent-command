@@ -24,6 +24,12 @@ test("managed runs require an explicitly approved structured plan", async ({}, t
     await expect(window.locator("#managed-run-view-title")).toHaveText(
       "Managed E2E run",
     );
+    // The periodic PTY refresh must not replace an active Managed Run view.
+    await window.waitForTimeout(3_200);
+    await expect(window.locator("#managed-run-view")).toBeVisible();
+    await expect(window.locator("#managed-run-view-title")).toHaveText(
+      "Managed E2E run",
+    );
     await expect(window.locator("#managed-run-start")).toBeDisabled();
     await expect(window.locator("#managed-run-routing-implementer-model")).toHaveValue(
       "codex-special",

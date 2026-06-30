@@ -446,7 +446,11 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     renderTabs();
   }
 
-  return { hide, initialize, show };
+  function isActive() {
+    return Boolean(activeRunId) && !elements.view.classList.contains("hidden");
+  }
+
+  return { hide, initialize, isActive, show };
 }
 
 export { createManagedRunsView };

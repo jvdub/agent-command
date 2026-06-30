@@ -2908,6 +2908,9 @@ function refreshVisibleUi() {
   renderSessionTabs();
 
   if (!activeSessionId) {
+    if (managedRunsViewController?.isActive()) {
+      return;
+    }
     showEmptyView(false);
     return;
   }

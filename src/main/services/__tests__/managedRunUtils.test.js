@@ -25,6 +25,34 @@ describe("Managed Run plan contracts", () => {
     });
   });
 
+  test("requires successful repository inspection for generated plans", () => {
+    const plan = {
+      objective: "Ship the feature",
+      inspection: {
+        status: "blocked",
+        repositoryState: "unknown",
+        commandsRun: [],
+        blocker: "The sandbox could not launch read commands.",
+      },
+      tasks: [{ id: "task-1", title: "Implement", objective: "Build it" }],
+    };
+
+    expect(() =>
+      validateAndNormalizePlan(plan, { requireInspection: true }),
+    ).toThrow(/repository inspection did not succeed/i);
+
+    plan.inspection = {
+      status: "succeeded",
+      repositoryState: "empty",
+      commandsRun: ["git status --short", "list repository root"],
+      filesInspected: [],
+      blocker: null,
+    };
+    expect(
+      validateAndNormalizePlan(plan, { requireInspection: true }).inspection,
+    ).toMatchObject({ status: "succeeded", repositoryState: "empty" });
+  });
+
   test("rejects unknown and cyclic dependencies", () => {
     expect(() =>
       validateAndNormalizePlan({

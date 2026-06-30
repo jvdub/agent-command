@@ -37,6 +37,16 @@ function parseUsage(stdout) {
   return usage;
 }
 
+function buildWorkerEnvironment(source = process.env) {
+  const environment = { ...source };
+  // These describe the parent Codex execution sandbox, not the worker we are
+  // launching. Inheriting them can make a nested Codex CLI fail to initialize
+  // its own explicitly requested sandbox before it can run read commands.
+  delete environment.CODEX_SANDBOX_NETWORK_DISABLED;
+  delete environment.CODEX_THREAD_ID;
+  return environment;
+}
+
 function createWorkerProcessService({ onOutput = () => {} } = {}) {
   const active = new Map();
 
@@ -120,7 +130,7 @@ function createWorkerProcessService({ onOutput = () => {} } = {}) {
             cwd,
             shell: false,
             windowsHide: true,
-            env: process.env,
+            env: buildWorkerEnvironment(),
           });
           active.set(runId, {
             workerId,
@@ -174,6 +184,7 @@ function createWorkerProcessService({ onOutput = () => {} } = {}) {
 
 module.exports = {
   MAX_OUTPUT_CHARS,
+  buildWorkerEnvironment,
   createWorkerProcessService,
   parseUsage,
 };
