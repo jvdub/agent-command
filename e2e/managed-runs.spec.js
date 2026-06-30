@@ -59,7 +59,31 @@ test("managed runs require an explicitly approved structured plan", async ({}, t
         },
       ],
     };
-    await window.locator("#managed-run-plan-editor").fill(JSON.stringify(plan));
+    await window.locator("#managed-run-plan-editor").fill(`
+# Objective
+
+${plan.objective}
+
+# Success criteria
+
+- ${plan.successCriteria[0]}
+
+# Tasks
+
+## Task \`${plan.tasks[0].id}\`: ${plan.tasks[0].title}
+
+### Objective
+
+${plan.tasks[0].objective}
+
+### Success criteria
+
+- ${plan.tasks[0].successCriteria[0]}
+
+### Maximum attempts
+
+${plan.tasks[0].maxAttempts}
+`);
     await window.locator("#managed-run-save-plan").click();
     await expect(window.locator("#managed-run-plan-meta")).toContainText(
       "approval required",

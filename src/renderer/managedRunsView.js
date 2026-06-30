@@ -1,4 +1,5 @@
 import { agenticApp } from "./agenticApp.js";
+import { markdownToPlan, planToMarkdown } from "./managedRunPlanMarkdown.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -193,7 +194,7 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
       : "No plan generated";
     const planKey = `${run.id}:${run.planRevision}`;
     if (planKey !== renderedPlanKey && document.activeElement !== elements.planEditor) {
-      elements.planEditor.value = run.plan ? JSON.stringify(run.plan, null, 2) : "";
+      elements.planEditor.value = planToMarkdown(run.plan);
       renderedPlanKey = planKey;
     }
     populateRouting(run);
@@ -350,7 +351,7 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     });
     elements.savePlan.addEventListener("click", () =>
       perform("Saving", () =>
-        agenticApp.saveManagedRunPlan(activeRunId, JSON.parse(elements.planEditor.value)),
+        agenticApp.saveManagedRunPlan(activeRunId, markdownToPlan(elements.planEditor.value)),
       ),
     );
     elements.approvePlan.addEventListener("click", () =>
