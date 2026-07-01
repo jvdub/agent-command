@@ -2,7 +2,7 @@ import { agenticApp } from "./agenticApp.js";
 import { markdownToPlan, planToMarkdown } from "./managedRunPlanMarkdown.js";
 import { allAttentionItems, renderInbox } from "./managedRunInbox.js";
 import { renderInspector } from "./managedRunInspector.js";
-import { renderJourney } from "./managedRunJourney.js";
+import { layoutJourney, renderJourney } from "./managedRunJourney.js";
 import { currentAction, runProgress } from "./managedRunSelectors.js";
 
 function escapeHtml(value) {
@@ -39,6 +39,8 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     planPanel: document.querySelector("#managed-run-plan-panel"),
     planEditor: document.querySelector("#managed-run-plan-editor"),
     journey: document.querySelector("#managed-run-journey"),
+    journeyControls: document.querySelector(".journey-controls"),
+    journeyZoom: document.querySelector("#managed-run-journey-zoom"),
     inspector: document.querySelector("#managed-run-inspector"),
     inboxList: document.querySelector("#managed-run-inbox-list"),
     inboxCount: document.querySelector("#managed-run-inbox-count"),
@@ -65,13 +67,84 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   const runs = new Map();
   const liveOutput = new Map();
   const workerDetailCache = new Map();
+  const journeyViews = new Map();
   let activeRunId = null;
   let selectedTaskId = null;
   let selectedWorkerId = null;
   let workerDetailState = "idle";
   let renderedPlanKey = "";
+  let journeyDrag = null;
 
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
+
+  function journeySignature(run) {
+    return (run.tasks || []).map((task) => `${task.id}:${(task.dependencies || []).join(",")}`).join("|");
+  }
+
+  function applyJourneyView() {
+    const canvas = elements.journey.querySelector(".journey-canvas");
+    const state = activeRunId ? journeyViews.get(activeRunId) : null;
+    if (!canvas || !state) return;
+    canvas.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+    elements.journeyZoom.textContent = `${Math.round(state.scale * 100)}%`;
+  }
+
+  function fitJourney() {
+    const canvas = elements.journey.querySelector(".journey-canvas");
+    if (!canvas || !activeRunId) return;
+    const graphWidth = Number(canvas.dataset.graphWidth || canvas.offsetWidth || 1);
+    const graphHeight = Number(canvas.dataset.graphHeight || canvas.offsetHeight || 1);
+    const viewportWidth = elements.journey.clientWidth;
+    const viewportHeight = elements.journey.clientHeight;
+    if (!viewportWidth || !viewportHeight) return;
+    const scale = Math.max(0.15, Math.min(1, (viewportWidth - 36) / graphWidth, (viewportHeight - 36) / graphHeight));
+    journeyViews.set(activeRunId, {
+      signature: journeySignature(activeRun()),
+      manual: false,
+      scale,
+      x: (viewportWidth - graphWidth * scale) / 2,
+      y: (viewportHeight - graphHeight * scale) / 2,
+    });
+    applyJourneyView();
+  }
+
+  function zoomJourney(factor, clientX = null, clientY = null) {
+    if (!activeRunId) return;
+    const current = journeyViews.get(activeRunId) || { scale: 1, x: 0, y: 0 };
+    const rect = elements.journey.getBoundingClientRect();
+    const anchorX = clientX === null ? rect.width / 2 : clientX - rect.left;
+    const anchorY = clientY === null ? rect.height / 2 : clientY - rect.top;
+    const scale = Math.min(1.6, Math.max(0.15, current.scale * factor));
+    const ratio = scale / current.scale;
+    journeyViews.set(activeRunId, {
+      ...current,
+      manual: true,
+      scale,
+      x: anchorX - (anchorX - current.x) * ratio,
+      y: anchorY - (anchorY - current.y) * ratio,
+    });
+    applyJourneyView();
+  }
+
+  function renderJourneySurface(run) {
+    const viewportWidth = elements.journey.clientWidth || 600;
+    const viewportHeight = elements.journey.clientHeight || 500;
+    const horizontal = layoutJourney(run, { direction: "horizontal" });
+    const vertical = layoutJourney(run, { direction: "vertical" });
+    const fitScale = (graph) => Math.min(1, (viewportWidth - 36) / graph.width, (viewportHeight - 36) / graph.height);
+    const direction = fitScale(vertical) > fitScale(horizontal) ? "vertical" : "horizontal";
+    const signature = `${journeySignature(run)}:${direction}`;
+    const existing = journeyViews.get(run.id);
+    elements.journey.innerHTML = renderJourney(run, selectedTaskId, { direction });
+    requestAnimationFrame(() => {
+      if (!existing || existing.signature !== signature) {
+        fitJourney();
+        const state = journeyViews.get(run.id);
+        if (state) state.signature = signature;
+      }
+      else applyJourneyView();
+    });
+  }
 
   function renderTabs() {
     const list = [...runs.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -136,7 +209,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       renderedPlanKey = planKey;
     }
     populateRouting(run);
-    elements.journey.innerHTML = renderJourney(run, selectedTaskId);
+    renderJourneySurface(run);
     renderInspectorSurface();
     renderInboxSurface();
     renderEvents(run);
@@ -253,6 +326,45 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       selectedWorkerId = null;
       workerDetailState = "idle";
       renderActive();
+    });
+    elements.journeyControls.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-journey-action]")?.dataset.journeyAction;
+      if (action === "fit") fitJourney();
+      if (action === "zoom-in") zoomJourney(1.2);
+      if (action === "zoom-out") zoomJourney(1 / 1.2);
+    });
+    elements.journey.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      zoomJourney(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY);
+    }, { passive: false });
+    elements.journey.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("[data-task-id]")) return;
+      const state = journeyViews.get(activeRunId);
+      if (!state) return;
+      state.manual = true;
+      journeyDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: state.x, y: state.y };
+      elements.journey.setPointerCapture(event.pointerId);
+      elements.journey.classList.add("dragging");
+    });
+    elements.journey.addEventListener("pointermove", (event) => {
+      if (!journeyDrag || journeyDrag.pointerId !== event.pointerId) return;
+      const state = journeyViews.get(activeRunId);
+      if (!state) return;
+      state.x = journeyDrag.x + event.clientX - journeyDrag.startX;
+      state.y = journeyDrag.y + event.clientY - journeyDrag.startY;
+      applyJourneyView();
+    });
+    function finishJourneyDrag(event) {
+      if (!journeyDrag || journeyDrag.pointerId !== event.pointerId) return;
+      journeyDrag = null;
+      elements.journey.classList.remove("dragging");
+      if (elements.journey.hasPointerCapture(event.pointerId)) elements.journey.releasePointerCapture(event.pointerId);
+    }
+    elements.journey.addEventListener("pointerup", finishJourneyDrag);
+    elements.journey.addEventListener("pointercancel", finishJourneyDrag);
+    window.addEventListener("resize", () => {
+      const state = activeRunId ? journeyViews.get(activeRunId) : null;
+      if (state && !state.manual) requestAnimationFrame(() => renderJourneySurface(activeRun()));
     });
     elements.journey.addEventListener("keydown", (event) => {
       if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;

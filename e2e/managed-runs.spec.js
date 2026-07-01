@@ -57,8 +57,40 @@ test("managed runs require an explicitly approved structured plan", async ({}, t
           contextNotes: [],
           maxAttempts: 3,
         },
+        ...[2, 3, 4, 5].map((number) => ({
+          id: `task-${number}`,
+          title: `Follow-up task ${number}`,
+          objective: `Complete bounded step ${number}`,
+          successCriteria: [`Step ${number} passes`],
+          dependencies: [`task-${number - 1}`],
+          relevantScope: ["src"],
+          implementationTier: "standard",
+          verificationTier: "standard",
+          verificationGuidance: ["Run focused tests"],
+          contextNotes: [],
+          maxAttempts: 3,
+        })),
       ],
     };
+    const taskMarkdown = plan.tasks.map((task) => `
+## Task \`${task.id}\`: ${task.title}
+
+### Objective
+
+${task.objective}
+
+### Success criteria
+
+- ${task.successCriteria[0]}
+
+### Dependencies
+
+${task.dependencies.length ? task.dependencies.map((dependency) => `- ${dependency}`).join("\n") : "_None_"}
+
+### Maximum attempts
+
+${task.maxAttempts}
+`).join("\n");
     await window.locator("#managed-run-plan-editor").fill(`
 # Objective
 
@@ -70,19 +102,7 @@ ${plan.objective}
 
 # Tasks
 
-## Task \`${plan.tasks[0].id}\`: ${plan.tasks[0].title}
-
-### Objective
-
-${plan.tasks[0].objective}
-
-### Success criteria
-
-- ${plan.tasks[0].successCriteria[0]}
-
-### Maximum attempts
-
-${plan.tasks[0].maxAttempts}
+${taskMarkdown}
 `);
     await window.locator("#managed-run-save-plan").click();
     await expect(window.locator("#managed-run-plan-meta")).toContainText(
@@ -111,6 +131,17 @@ ${plan.tasks[0].maxAttempts}
     await expect(window.locator("#managed-run-inbox-list")).toContainText(
       "Nothing needs your attention",
     );
+    const graphContainment = await window.locator("#managed-run-journey").evaluate((viewport) => {
+      const bounds = viewport.getBoundingClientRect();
+      const nodes = [...viewport.querySelectorAll("[data-task-id]")].map((node) => node.getBoundingClientRect());
+      return {
+        pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+        nodesFit: nodes.every((node) =>
+          node.left >= bounds.left - 1 && node.right <= bounds.right + 1 &&
+          node.top >= bounds.top - 1 && node.bottom <= bounds.bottom + 1),
+      };
+    });
+    expect(graphContainment).toEqual({ pageFits: true, nodesFit: true });
     await window.screenshot({
       path: testInfo.outputPath("managed-run-journey.png"),
     });
@@ -118,10 +149,8 @@ ${plan.tasks[0].maxAttempts}
     await window.setViewportSize({ width: 900, height: 720 });
     await expect(window.locator(".managed-run-workspace")).toBeVisible();
     await expect(window.locator("#managed-run-inspector")).toBeVisible();
-    await expect(window.locator("#managed-run-journey")).toHaveCSS(
-      "flex-direction",
-      "column",
-    );
+    await expect(window.locator("#managed-run-journey")).toHaveCSS("overflow", "hidden");
+    await expect(window.locator("#managed-run-journey-zoom")).toBeVisible();
     await window.screenshot({
       path: testInfo.outputPath("managed-run-journey-dark-narrow.png"),
     });

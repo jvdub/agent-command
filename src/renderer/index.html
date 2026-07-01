@@ -376,8 +376,16 @@
             </aside>
 
             <section class="managed-run-journey-panel" aria-labelledby="managed-run-journey-title">
-              <div class="panel-header compact"><div><p class="eyebrow">Goal Workflow</p><h2 id="managed-run-journey-title">Journey</h2></div></div>
-              <ol id="managed-run-journey" class="managed-run-journey"></ol>
+              <div class="panel-header compact">
+                <div><p class="eyebrow">Goal Workflow</p><h2 id="managed-run-journey-title">Journey</h2></div>
+                <div class="journey-controls" aria-label="Workflow canvas controls">
+                  <button type="button" class="secondary" data-journey-action="zoom-out" aria-label="Zoom out">&minus;</button>
+                  <span id="managed-run-journey-zoom" aria-live="polite">100%</span>
+                  <button type="button" class="secondary" data-journey-action="zoom-in" aria-label="Zoom in">+</button>
+                  <button type="button" class="secondary" data-journey-action="fit">Fit</button>
+                </div>
+              </div>
+              <div id="managed-run-journey" class="managed-run-journey" aria-label="Workflow graph. Drag to pan and use the controls to zoom."></div>
             </section>
 
             <aside id="managed-run-inspector" class="managed-run-inspector" aria-label="Selected task details"></aside>

@@ -1,6 +1,6 @@
 import { renderInbox } from "../managedRunInbox.js";
 import { renderInspector } from "../managedRunInspector.js";
-import { renderJourney } from "../managedRunJourney.js";
+import { layoutJourney, renderJourney } from "../managedRunJourney.js";
 
 function fixture() {
   return {
@@ -59,6 +59,32 @@ test("renders a task journey with verification and retry inside the station", ()
   expect(html).toContain("Verify 1");
   expect(html).toContain("journey-retry");
   expect(html).toContain("Integration verification");
+  expect(html).toContain("journey-canvas");
+  expect(html).toContain("journey-edge");
+});
+
+test("lays dependency branches into bounded graph columns", () => {
+  const run = fixture();
+  run.tasks.push({
+    id: "task-2",
+    title: "Parallel task",
+    status: "planned",
+    order: 2,
+    dependencies: [],
+    attempts: [],
+  });
+  const graph = layoutJourney(run);
+  const first = graph.nodes.find((node) => node.id === "task-1");
+  const parallel = graph.nodes.find((node) => node.id === "task-2");
+  const final = graph.nodes.find((node) => node.id === "final-verification");
+  expect(parallel.x).toBe(first.x);
+  expect(parallel.y).not.toBe(first.y);
+  expect(final.x).toBeGreaterThan(first.x);
+  expect(graph.edges).toHaveLength(2);
+  const vertical = layoutJourney(run, { direction: "vertical" });
+  expect(vertical.nodes.find((node) => node.id === "final-verification").y).toBeGreaterThan(
+    vertical.nodes.find((node) => node.id === "task-1").y,
+  );
 });
 
 test("renders approved definition separately from exact prompt and file provenance", () => {

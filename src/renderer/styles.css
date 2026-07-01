@@ -419,10 +419,12 @@ select {
 
 .managed-run-workspace {
   display: grid;
-  grid-template-columns: minmax(180px, 0.55fr) minmax(440px, 1.8fr) minmax(320px, 1fr);
+  width: 100%;
+  grid-template-columns: clamp(180px, 15vw, 230px) minmax(0, 1fr) clamp(300px, 27vw, 400px);
   min-height: 560px;
   gap: 12px;
   padding: 14px 0;
+  overflow: hidden;
 }
 
 .managed-run-inbox,
@@ -468,44 +470,60 @@ select {
 .managed-inbox-empty { color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
 
 .managed-run-journey {
-  display: flex;
-  min-width: max-content;
-  align-items: stretch;
-  gap: 36px;
-  padding: 34px 18px 28px;
-  margin: 0;
-  overflow-x: auto;
-  list-style: none;
-}
-
-.journey-stop { position: relative; width: 240px; flex: 0 0 240px; }
-.journey-connector {
-  position: absolute;
-  top: 27px;
-  right: calc(100% + 4px);
-  width: 28px;
-  height: 2px;
-  background: var(--border-strong);
-}
-.journey-station {
-  display: flex;
+  position: relative;
   width: 100%;
-  min-height: 178px;
-  gap: 11px;
-  padding: 13px;
+  height: clamp(430px, calc(100vh - 300px), 650px);
+  min-height: 430px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--surface-subtle);
+  background-color: var(--surface-subtle);
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px);
+  background-size: 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+.managed-run-journey.dragging { cursor: grabbing; }
+.journey-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.journey-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.journey-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.journey-edges marker path { fill: var(--border-strong); }
+.journey-edge-succeeded,
+.journey-edge-pass { stroke: var(--success); }
+.journey-controls { display: flex; align-items: center; gap: 5px; }
+.journey-controls button { min-width: 30px; min-height: 28px; padding: 4px 8px; font-size: 0.72rem; }
+.journey-controls span { min-width: 42px; color: var(--muted); text-align: center; font-size: 0.68rem; font-weight: 700; }
+.journey-station {
+  position: absolute;
+  display: flex;
+  gap: 11px;
+  padding: 13px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
   color: var(--text);
   text-align: left;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
-.journey-stop.selected .journey-station { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
-.journey-stop-succeeded .journey-station,
-.journey-stop-pass .journey-station { border-color: var(--success); }
-.journey-stop-human_review_required .journey-station,
-.journey-stop-replan_required .journey-station,
-.journey-stop-fix_required .journey-station { border-color: var(--warning); }
-.journey-stop-failed .journey-station { border-color: var(--danger); }
+.journey-station.selected { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info), 0 8px 24px rgba(0, 0, 0, 0.16); }
+.journey-station.journey-stop-succeeded,
+.journey-station.journey-stop-pass { border-color: var(--success); }
+.journey-station.journey-stop-human_review_required,
+.journey-station.journey-stop-replan_required,
+.journey-station.journey-stop-fix_required { border-color: var(--warning); }
+.journey-station.journey-stop-failed { border-color: var(--danger); }
 .journey-station-marker {
   display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center;
   border: 1px solid currentColor; border-radius: 50%; color: var(--info); font-weight: 800;
@@ -694,9 +712,7 @@ select {
   .managed-run-inbox { order: 1; }
   .managed-run-journey-panel { order: 2; }
   .managed-run-inspector { order: 3; max-height: none; }
-  .managed-run-journey { min-width: 0; flex-direction: column; gap: 22px; overflow: visible; }
-  .journey-stop { width: 100%; flex-basis: auto; }
-  .journey-connector { top: auto; right: auto; bottom: 100%; left: 28px; width: 2px; height: 18px; }
+  .managed-run-journey { height: 520px; }
   .managed-run-plan-card,
   .managed-run-events-card {
     grid-column: 1;
