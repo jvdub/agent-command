@@ -251,6 +251,7 @@ function registerAllServices(registry) {
       workerProcessService,
       taskSchedulerService,
       tokenLedgerService,
+      workspaceFileService,
     }) =>
       createManagedRunService({
         runs: managedRuns,
@@ -259,6 +260,7 @@ function registerAllServices(registry) {
         workerProcessService,
         getTaskSchedulerService: () => taskSchedulerService,
         tokenLedgerService,
+        workspaceFileService,
         publishRun: (run) =>
           ptyRuntime.windowManager.sendToRenderer(
             IPC_CHANNELS.events.managedRunChanged,
@@ -272,6 +274,7 @@ function registerAllServices(registry) {
       "workerProcessService",
       "taskSchedulerService",
       "tokenLedgerService",
+      "workspaceFileService",
     ],
   );
 }

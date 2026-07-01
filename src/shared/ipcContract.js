@@ -29,6 +29,8 @@ const IPC_CHANNELS = Object.freeze({
     createManagedRun: "managed-run:create",
     listManagedRuns: "managed-runs:list",
     getManagedRun: "managed-run:get",
+    getManagedRunWorkerDetail: "managed-run:get-worker-detail",
+    openManagedRunFile: "managed-run:open-file",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",

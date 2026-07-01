@@ -400,6 +400,156 @@ select {
   overflow-y: auto;
 }
 
+.managed-run-current-action {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.managed-run-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.managed-run-progress-row p { margin: 0; }
+
+.managed-run-workspace {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.55fr) minmax(440px, 1.8fr) minmax(320px, 1fr);
+  min-height: 560px;
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.managed-run-inbox,
+.managed-run-journey-panel,
+.managed-run-inspector {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.managed-run-inbox { align-self: start; }
+.managed-inbox-count {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.managed-inbox-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 5px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 0.76rem;
+}
+.managed-inbox-item:hover,
+.managed-inbox-item.active { background: var(--surface-subtle); }
+.managed-inbox-dot { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 4px; border-radius: 50%; background: var(--info); }
+.priority-critical .managed-inbox-dot { background: var(--danger); }
+.priority-warning .managed-inbox-dot { background: var(--warning); }
+.managed-inbox-empty { color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
+
+.managed-run-journey {
+  display: flex;
+  min-width: max-content;
+  align-items: stretch;
+  gap: 36px;
+  padding: 34px 18px 28px;
+  margin: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.journey-stop { position: relative; width: 240px; flex: 0 0 240px; }
+.journey-connector {
+  position: absolute;
+  top: 27px;
+  right: calc(100% + 4px);
+  width: 28px;
+  height: 2px;
+  background: var(--border-strong);
+}
+.journey-station {
+  display: flex;
+  width: 100%;
+  min-height: 178px;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  text-align: left;
+}
+.journey-stop.selected .journey-station { border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info); }
+.journey-stop-succeeded .journey-station,
+.journey-stop-pass .journey-station { border-color: var(--success); }
+.journey-stop-human_review_required .journey-station,
+.journey-stop-replan_required .journey-station,
+.journey-stop-fix_required .journey-station { border-color: var(--warning); }
+.journey-stop-failed .journey-station { border-color: var(--danger); }
+.journey-station-marker {
+  display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center;
+  border: 1px solid currentColor; border-radius: 50%; color: var(--info); font-weight: 800;
+}
+.journey-stop-succeeded .journey-station-marker,
+.journey-stop-pass .journey-station-marker { color: var(--success); }
+.journey-station-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 7px; }
+.journey-station-title { font-weight: 800; line-height: 1.35; }
+.journey-station-meta,
+.journey-dependencies { color: var(--muted); font-size: 0.72rem; line-height: 1.4; }
+.journey-attempt-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: auto; }
+.journey-phase { padding: 3px 5px; border: 1px solid var(--border); border-radius: 5px; font-size: 0.64rem; }
+.journey-phase-pass { border-color: var(--success); color: var(--success); }
+.journey-phase-fix_required { border-color: var(--danger); color: var(--danger); }
+.journey-retry { color: var(--warning); font-size: 1rem; font-weight: 900; }
+.journey-phase-arrow,
+.journey-attempt-empty { color: var(--muted); font-size: 0.65rem; }
+
+.managed-run-inspector { max-height: calc(100vh - 210px); overflow: auto; }
+.managed-run-inspector h3 { margin: 3px 0 8px; }
+.managed-run-inspector h4 { margin: 12px 0 5px; font-size: 0.76rem; }
+.managed-run-inspector details { padding: 9px 0; border-top: 1px solid var(--border); }
+.managed-run-inspector summary { cursor: pointer; font-size: 0.8rem; font-weight: 800; }
+.managed-run-inspector p,
+.managed-run-inspector li { font-size: 0.76rem; line-height: 1.5; }
+.managed-run-inspector ul { padding-left: 20px; }
+.inspector-provenance { color: var(--info); font-size: 0.7rem !important; font-weight: 750; }
+.inspector-attempt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 7px 0; }
+.inspector-attempt { padding: 6px 8px; border: 1px solid var(--border); background: var(--surface-subtle); color: var(--text); font-size: 0.7rem; }
+.inspector-attempt.active { border-color: var(--info); color: var(--info); }
+.inspector-prompt { max-height: 320px; overflow: auto; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--terminal-background); color: var(--terminal-foreground); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.7rem; line-height: 1.45; }
+.inspector-file-link { display: flex; width: 100%; justify-content: space-between; gap: 10px; padding: 7px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--text); text-align: left; }
+.inspector-file-link:hover { background: var(--surface-subtle); }
+.inspector-file-link small { color: var(--muted); }
+.managed-run-supporting-panels { display: grid; gap: 10px; padding-bottom: 10px; }
+.managed-run-supporting-panels > details > summary { cursor: pointer; font-weight: 800; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .journey-stop-implementing .journey-station-marker,
+  .journey-stop-verifying .journey-station-marker,
+  .journey-stop-running .journey-station-marker { animation: managed-run-pulse 1.6s ease-in-out infinite; }
+}
+@keyframes managed-run-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--info) 18%, transparent); } }
+
 .managed-run-view-header {
   position: sticky;
   z-index: 3;
@@ -424,13 +574,6 @@ select {
   flex-wrap: wrap;
 }
 
-.managed-run-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(380px, 1.1fr);
-  gap: 14px;
-  padding: 14px 0 4px;
-}
-
 .managed-run-card {
   min-width: 0;
   padding: 14px;
@@ -440,7 +583,6 @@ select {
 }
 
 .managed-run-plan-card,
-.managed-run-output-card,
 .managed-run-events-card {
   grid-column: 1 / -1;
 }
@@ -486,16 +628,12 @@ select {
   font-size: 0.75rem;
 }
 
-.managed-run-task-list,
-.managed-run-worker-list,
 .managed-run-event-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.managed-run-task,
-.managed-run-worker,
 .managed-run-event {
   padding: 10px;
   border: 1px solid var(--border);
@@ -503,18 +641,8 @@ select {
   background: var(--surface-subtle);
 }
 
-.managed-run-task h3,
-.managed-run-worker p,
 .managed-run-event p {
   margin: 0;
-}
-
-.managed-run-task-top,
-.managed-run-worker-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .managed-run-state {
@@ -525,8 +653,6 @@ select {
   text-transform: uppercase;
 }
 
-.managed-run-task-detail,
-.managed-run-worker-detail,
 .managed-run-event-detail {
   margin-top: 6px !important;
   color: var(--muted);
@@ -548,14 +674,6 @@ select {
   max-width: 190px;
 }
 
-.managed-run-worker {
-  cursor: pointer;
-}
-
-.managed-run-worker.selected {
-  border-color: var(--accent);
-}
-
 .managed-run-worker-output {
   min-height: 180px;
   max-height: 420px;
@@ -572,12 +690,14 @@ select {
 }
 
 @media (max-width: 1100px) {
-  .managed-run-grid {
-    grid-template-columns: 1fr;
-  }
-
+  .managed-run-workspace { grid-template-columns: 1fr; }
+  .managed-run-inbox { order: 1; }
+  .managed-run-journey-panel { order: 2; }
+  .managed-run-inspector { order: 3; max-height: none; }
+  .managed-run-journey { min-width: 0; flex-direction: column; gap: 22px; overflow: visible; }
+  .journey-stop { width: 100%; flex-basis: auto; }
+  .journey-connector { top: auto; right: auto; bottom: 100%; left: 28px; width: 2px; height: 18px; }
   .managed-run-plan-card,
-  .managed-run-output-card,
   .managed-run-events-card {
     grid-column: 1;
   }

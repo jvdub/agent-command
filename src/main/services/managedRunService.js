@@ -4,6 +4,9 @@ const { randomUUID } = require("crypto");
 const { execFileSync } = require("child_process");
 const {
   addRunEvent,
+  clonePlanDefinition,
+  createApprovedPlanSnapshot,
+  createRuntimeTasks,
   extractStructuredJson,
   nowIso,
   summarizeRun,
@@ -63,6 +66,7 @@ function createManagedRunService({
   workerProcessService,
   getTaskSchedulerService,
   tokenLedgerService,
+  workspaceFileService,
   publishRun,
 }) {
   function requireRun(runId) {
@@ -74,8 +78,9 @@ function createManagedRunService({
   function saveAndPublish(run) {
     run.updatedAt = nowIso();
     managedRunPersistenceService.save();
-    publishRun(run);
-    return summarizeRun(run);
+    const summary = summarizeRun(run);
+    publishRun(summary);
+    return summary;
   }
 
   function inspectRepository(inputPath) {
@@ -141,6 +146,7 @@ function createManagedRunService({
       planRevision: 0,
       approvedRevision: null,
       approvedAt: null,
+      approvedPlanSnapshot: null,
       tasks: [],
       routing: {
         planner: { provider, tier: "premium", model: String(input?.planningModel || "") },
@@ -173,6 +179,43 @@ function createManagedRunService({
     return summarizeRun(requireRun(runId));
   }
 
+  function getWorkerDetail(runId, workerId) {
+    const run = requireRun(runId);
+    const worker = run.workers.find((candidate) => candidate.id === workerId);
+    if (!worker) throw new Error("Managed Run worker not found.");
+    return {
+      id: worker.id,
+      runId: worker.runId,
+      taskId: worker.taskId,
+      role: worker.role,
+      attemptNumber: worker.attemptNumber || null,
+      promptKind: worker.promptKind || worker.role,
+      promptVersion: worker.promptVersion || 1,
+      promptCreatedAt: worker.promptCreatedAt || worker.startedAt,
+      definitionRevision: worker.definitionRevision || null,
+      prompt: worker.promptAvailability === "not_persisted" ? null : worker.prompt,
+      promptAvailability: worker.promptAvailability || (worker.prompt ? "available" : "not_persisted"),
+      stdout: worker.stdout,
+      stderr: worker.stderr,
+      provider: worker.provider,
+      tier: worker.tier,
+      model: worker.model,
+      permissionMode: worker.permissionMode,
+      commandPreview: worker.commandPreview,
+      status: worker.status,
+      startedAt: worker.startedAt,
+      finishedAt: worker.finishedAt,
+      usage: worker.usage,
+      git: worker.git,
+      artifacts: worker.artifacts || null,
+    };
+  }
+
+  async function openFile(runId, filePath) {
+    const run = requireRun(runId);
+    return workspaceFileService.openEditorFileAtRoot(run.repoPath, filePath, run.id);
+  }
+
   async function generatePlan(runId) {
     const run = requireRun(runId);
     if (workerProcessService.hasActiveWorker(run.id)) {
@@ -202,6 +245,12 @@ function createManagedRunService({
       permissionMode: launch.permissionMode,
       commandPreview: launch.preview,
       prompt,
+      promptAvailability: "available",
+      promptKind: "planning",
+      promptVersion: 1,
+      promptCreatedAt: nowIso(),
+      definitionRevision: run.planRevision || null,
+      attemptNumber: null,
       stdout: "",
       stderr: "",
       exitCode: null,
@@ -217,7 +266,7 @@ function createManagedRunService({
     saveAndPublish(run);
     const worker = await execution.completion;
     const index = run.workers.findIndex((item) => item.id === worker.id);
-    if (index >= 0) run.workers[index] = worker;
+    if (index >= 0) run.workers[index] = { ...placeholder, ...worker };
     run.activeWorkerId = null;
     tokenLedgerService.record(run.usage, worker);
     if (worker.status !== "succeeded") {
@@ -229,12 +278,13 @@ function createManagedRunService({
       const plan = validateAndNormalizePlan(extractStructuredJson(worker.stdout), {
         requireInspection: true,
       });
-      run.plan = plan;
+      run.plan = clonePlanDefinition(plan);
       run.planSource = "worker";
       run.planRevision += 1;
       run.approvedRevision = null;
       run.approvedAt = null;
-      run.tasks = plan.tasks;
+      run.approvedPlanSnapshot = null;
+      run.tasks = createRuntimeTasks(plan.tasks);
       run.status = "approval_required";
       addRunEvent(run, `Plan revision ${run.planRevision} is ready for human approval.`);
     } catch (error) {
@@ -249,12 +299,13 @@ function createManagedRunService({
     const plan = validateAndNormalizePlan(
       typeof rawPlan === "string" ? JSON.parse(rawPlan) : rawPlan,
     );
-    run.plan = plan;
+    run.plan = clonePlanDefinition(plan);
     run.planSource = "human";
     run.planRevision += 1;
     run.approvedRevision = null;
     run.approvedAt = null;
-    run.tasks = plan.tasks;
+    run.approvedPlanSnapshot = null;
+    run.tasks = createRuntimeTasks(plan.tasks);
     run.finalVerification = null;
     run.status = "approval_required";
     addRunEvent(run, `Plan revision ${run.planRevision} saved; approval is required.`);
@@ -287,6 +338,10 @@ function createManagedRunService({
     }
     run.approvedRevision = run.planRevision;
     run.approvedAt = nowIso();
+    run.approvedPlanSnapshot = createApprovedPlanSnapshot(run.plan, {
+      revision: run.approvedRevision,
+      approvedAt: run.approvedAt,
+    });
     run.status = "ready";
     addRunEvent(run, `Plan revision ${run.planRevision} approved by the user.`);
     return saveAndPublish(run);
@@ -296,6 +351,9 @@ function createManagedRunService({
     const run = requireRun(runId);
     if (run.approvedRevision !== run.planRevision) {
       throw new Error("The current plan revision must be approved before execution.");
+    }
+    if (run.approvedPlanSnapshot?.revision !== run.approvedRevision) {
+      throw new Error("The approved plan snapshot is missing or stale; approve the plan again.");
     }
     if (!["ready", "paused", "review_required"].includes(run.status)) {
       throw new Error(`Managed Run cannot start from ${run.status}.`);
@@ -428,8 +486,10 @@ function createManagedRunService({
     create,
     generatePlan,
     get,
+    getWorkerDetail,
     inspectRepository,
     list,
+    openFile,
     pause,
     retry,
     savePlan,

@@ -2,6 +2,7 @@ const {
   RUN_TERMINAL_STATES,
   addRunEvent,
   extractStructuredJson,
+  summarizeRun,
 } = require("./managedRunUtils");
 
 const SAFETY_RULES = `Safety rules:
@@ -118,7 +119,7 @@ function createTaskSchedulerService({
   function persistAndPublish(run) {
     run.updatedAt = new Date().toISOString();
     managedRunPersistenceService.save();
-    publishRun(run);
+    publishRun(summarizeRun(run));
   }
 
   function updateUsage(run, worker) {
@@ -135,7 +136,7 @@ function createTaskSchedulerService({
     return { ...base, tier: tier || "standard" };
   }
 
-  async function launchWorker(run, role, task, prompt) {
+  async function launchWorker(run, role, task, prompt, attemptNumber = null) {
     const launch = workerProviderRegistry.buildLaunch({
       role,
       selection: selectionFor(run, role, task),
@@ -159,6 +160,18 @@ function createTaskSchedulerService({
       permissionMode: launch.permissionMode,
       commandPreview: launch.preview,
       prompt,
+      promptAvailability: "available",
+      promptKind: role === "verifier"
+        ? "task_verification"
+        : role === "integration_verifier"
+          ? "integration_verification"
+          : role === "implementer"
+            ? "implementation"
+            : role,
+      promptVersion: 1,
+      promptCreatedAt: new Date().toISOString(),
+      definitionRevision: run.approvedRevision,
+      attemptNumber,
       stdout: "",
       stderr: "",
       exitCode: null,
@@ -173,21 +186,25 @@ function createTaskSchedulerService({
     addRunEvent(
       run,
       `Starting ${role}${task ? ` for ${task.id}` : ""}: ${launch.preview}`,
+      "info",
+      { taskId: task?.id || null, attemptNumber, workerId: placeholder.id, phase: role },
     );
     persistAndPublish(run);
 
     const completed = await execution.completion;
     const index = run.workers.findIndex((worker) => worker.id === completed.id);
-    if (index >= 0) run.workers[index] = completed;
+    const completedWorker = { ...placeholder, ...completed };
+    if (index >= 0) run.workers[index] = completedWorker;
     run.activeWorkerId = null;
-    updateUsage(run, completed);
+    updateUsage(run, completedWorker);
     addRunEvent(
       run,
       `${role}${task ? ` for ${task.id}` : ""} ${completed.status} (exit ${completed.exitCode}).`,
       completed.status === "succeeded" ? "info" : "error",
+      { taskId: task?.id || null, attemptNumber, workerId: completedWorker.id, phase: role },
     );
     persistAndPublish(run);
-    return completed;
+    return completedWorker;
   }
 
   function nextExecutableTask(run) {
@@ -248,6 +265,7 @@ function createTaskSchedulerService({
       "implementer",
       task,
       implementationPrompt(run, task, attemptNumber, feedback),
+      attemptNumber,
     );
     const attempt = {
       number: attemptNumber,
@@ -256,6 +274,8 @@ function createTaskSchedulerService({
       verification: null,
       startedAt: implementation.startedAt,
       finishedAt: null,
+      definitionRevision: run.approvedRevision,
+      artifacts: null,
     };
     task.attempts.push(attempt);
 
@@ -284,6 +304,36 @@ function createTaskSchedulerService({
       return;
     }
 
+    try {
+      const reported = extractStructuredJson(implementation.stdout);
+      const safeFiles = Array.isArray(reported.changedFiles)
+        ? reported.changedFiles.map((value) => String(value || "").trim().replace(/\\/g, "/"))
+          .filter((value) => value && !value.startsWith("/") && !/^[A-Za-z]:\//u.test(value) && !value.split("/").includes(".."))
+        : [];
+      attempt.artifacts = {
+        parseStatus: "parsed",
+        summary: String(reported.summary || ""),
+        reportedFiles: safeFiles,
+        observedFiles: [...(implementation.git?.changedFiles || [])],
+        checks: Array.isArray(reported.checks) ? reported.checks.map(String) : [],
+        risks: Array.isArray(reported.risks) ? reported.risks.map(String) : [],
+        observedAttribution: "working-tree-after",
+      };
+      implementation.artifacts = attempt.artifacts;
+    } catch (error) {
+      attempt.artifacts = {
+        parseStatus: "malformed",
+        parseError: error.message,
+        summary: "",
+        reportedFiles: [],
+        observedFiles: [...(implementation.git?.changedFiles || [])],
+        checks: [],
+        risks: [],
+        observedAttribution: "working-tree-after",
+      };
+      implementation.artifacts = attempt.artifacts;
+    }
+
     task.status = "awaiting_verification";
     persistAndPublish(run);
     task.status = "verifying";
@@ -292,6 +342,7 @@ function createTaskSchedulerService({
       "verifier",
       task,
       verificationPrompt(run, task, implementation),
+      attemptNumber,
     );
     attempt.verificationWorkerId = verification.id;
     attempt.finishedAt = verification.finishedAt;
@@ -344,20 +395,38 @@ function createTaskSchedulerService({
 
     if (outcome.verdict === "pass") {
       task.status = "succeeded";
-      addRunEvent(run, `${task.id} passed independent verification.`);
+      addRunEvent(run, `${task.id} passed independent verification.`, "info", {
+        taskId: task.id,
+        attemptNumber,
+        workerId: verification.id,
+        phase: "verification",
+        verdict: "pass",
+      });
       persistAndPublish(run);
       return;
     }
     if (outcome.verdict === "fix_required" && attemptNumber < task.maxAttempts) {
       task.status = "retry_required";
-      addRunEvent(run, `${task.id} requires another implementation attempt.`, "warning");
+      addRunEvent(run, `${task.id} requires another implementation attempt.`, "warning", {
+        taskId: task.id,
+        attemptNumber,
+        workerId: verification.id,
+        phase: "verification",
+        verdict: "fix_required",
+      });
       persistAndPublish(run);
       return;
     }
     if (outcome.verdict === "plan_defect") {
       task.status = "replan_required";
       run.status = "replan_required";
-      addRunEvent(run, `${task.id} exposed a plan defect.`, "warning");
+      addRunEvent(run, `${task.id} exposed a plan defect.`, "warning", {
+        taskId: task.id,
+        attemptNumber,
+        workerId: verification.id,
+        phase: "verification",
+        verdict: "plan_defect",
+      });
       persistAndPublish(run);
       return;
     }
@@ -378,6 +447,7 @@ function createTaskSchedulerService({
       "integration_verifier",
       null,
       integrationPrompt(run),
+      null,
     );
     if (worker.status !== "succeeded") {
       stopForReview(run, "Final integration verifier failed to complete.");

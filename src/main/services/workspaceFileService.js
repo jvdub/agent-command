@@ -488,6 +488,33 @@ function createWorkspaceFileService({
     };
   }
 
+  async function openEditorFileAtRoot(rootPath, requestedPath, contextId = null) {
+    const root = path.resolve(String(rootPath || ""));
+    const raw = String(requestedPath || "").trim();
+    if (!raw) throw new Error("A file path is required.");
+    if (path.isAbsolute(raw)) {
+      throw new Error("Managed Run file paths must be repository-relative.");
+    }
+    const absolutePath = path.resolve(root, raw);
+    if (!pathWithinRoot(root, absolutePath) || absolutePath === root) {
+      throw new Error("Access denied: file path is outside the Managed Run repository.");
+    }
+    await assertEditableTextFile(absolutePath);
+    const realRoot = await fs.promises.realpath(root);
+    const realFile = await fs.promises.realpath(absolutePath);
+    if (!pathWithinRoot(realRoot, realFile)) {
+      throw new Error("Access denied: resolved file is outside the Managed Run repository.");
+    }
+    const resolved = {
+      absolutePath: realFile,
+      relativePath: path.relative(realRoot, realFile),
+      workspaceRoot: realRoot,
+    };
+    const content = await readFile(realFile, "utf-8");
+    watchEditorFile(contextId || `managed-run:${root}`, resolved);
+    return { absolutePath: realFile, relativePath: resolved.relativePath, content };
+  }
+
   async function listWorkspaceChanges(sessionId) {
     const session = getSessionByIdOrThrow(sessionId);
 
@@ -544,6 +571,7 @@ function createWorkspaceFileService({
     listWorkspaceFilesForRoot,
     listWorkspaceChanges,
     openEditorFile,
+    openEditorFileAtRoot,
     saveEditorFile,
     stopWatchingEditorFile,
   };

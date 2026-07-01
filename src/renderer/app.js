@@ -1317,6 +1317,7 @@ async function openReferencedFile(sessionId, filePath, lineNumber = null) {
     fileEditorPanel.classList.remove("hidden");
     fileEditorEmpty.classList.add("hidden");
     const file = await agenticApp.openWorkspaceFile(sessionId, filePath);
+    monacoEditor?.updateOptions?.({ readOnly: false });
     showFilePreview(file.content);
     fileEditorPath.textContent = file.relativePath;
     editorState.open = true;
@@ -1903,6 +1904,46 @@ function appendSessionBuffer(sessionId, chunk) {
     sessionId,
     appendBoundedBuffer(sessionBuffers.get(sessionId), chunk),
   );
+}
+
+async function openManagedRunEditorFile(file, runId) {
+  openingReferencedFile = true;
+  try {
+    fileDrawer.classList.remove("hidden");
+    fileEditorPanel.classList.remove("hidden");
+    fileEditorEmpty.classList.add("hidden");
+    showFilePreview(file.content);
+    fileEditorPath.textContent = file.relativePath;
+    editorState.open = true;
+    editorState.sessionId = null;
+    editorState.filePath = file.relativePath;
+    editorState.absolutePath = file.absolutePath;
+    editorState.relativePath = file.relativePath;
+    editorState.dirty = false;
+    setEditorStatus(`Opened ${file.relativePath} from Managed Run (read-only)`);
+    await waitForMonacoEditor();
+    suppressEditorChange = true;
+    editorModel?.dispose();
+    const language = languageForPath(file.relativePath);
+    const safePath = file.relativePath.replace(/\\/g, "/");
+    editorModel = monacoApi.editor.createModel(
+      file.content,
+      language,
+      monacoApi.Uri.parse(`inmemory://managed-run/${encodeURIComponent(runId)}/${safePath}`),
+    );
+    monacoEditor.setModel(editorModel);
+    monacoEditor.updateOptions({ readOnly: true });
+    monacoEditor.setScrollTop(0);
+    hideFilePreview();
+    monacoEditor.focus();
+  } catch (error) {
+    const message = `Unable to open ${file?.relativePath || "Managed Run file"}: ${error?.message || error}`;
+    setEditorStatus(message);
+    setStatus("Error", message);
+  } finally {
+    suppressEditorChange = false;
+    openingReferencedFile = false;
+  }
 }
 
 function ensureSessionInsight(sessionId) {
@@ -4052,6 +4093,7 @@ managedRunsViewController = createManagedRunsView({
     createSessionTerminal(session.id);
     await openTerminalView(session.id);
   },
+  onOpenManagedRunFile: openManagedRunEditorFile,
   setStatus,
 });
 const themeManager = createThemeManager({

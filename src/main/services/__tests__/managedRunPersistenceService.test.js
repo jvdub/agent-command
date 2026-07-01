@@ -2,6 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
+  MANAGED_RUN_SCHEMA_VERSION,
   createManagedRunPersistenceService,
 } = require("../managedRunPersistenceService");
 
@@ -70,5 +71,80 @@ describe("Managed Run persistence", () => {
     expect(restored.get("run-1").workers[0].stdout).toBe("sensitive output");
     expect(restored.get("run-1").status).toBe("review_required");
     expect(restored.get("run-1").activeWorkerId).toBeNull();
+  });
+
+  test("migrates an approved legacy plan to an explicitly best-effort snapshot", () => {
+    const app = { getPath: () => userDataDir };
+    const target = path.join(userDataDir, "managed-runs.json");
+    fs.writeFileSync(
+      target,
+      JSON.stringify({
+        schemaVersion: 1,
+        runs: [{
+          id: "legacy",
+          status: "completed",
+          planRevision: 3,
+          approvedRevision: 3,
+          approvedAt: "2026-06-30T12:00:00.000Z",
+          plan: {
+            objective: "Legacy goal",
+            tasks: [{ id: "task-1", title: "Build", objective: "Build it" }],
+          },
+          tasks: [{
+            id: "task-1",
+            title: "Build",
+            objective: "Build it",
+            status: "succeeded",
+            attempts: [{ number: 1 }],
+          }],
+          workers: [],
+          events: [],
+        }],
+      }),
+      "utf8",
+    );
+
+    const restored = new Map();
+    createManagedRunPersistenceService({
+      app,
+      safeStorage: safeStorage(),
+      runs: restored,
+      platform: "win32",
+    }).load();
+
+    expect(MANAGED_RUN_SCHEMA_VERSION).toBe(2);
+    expect(restored.get("legacy").approvedPlanSnapshot).toMatchObject({
+      revision: 3,
+      provenance: "migrated-best-effort",
+    });
+    expect(restored.get("legacy").approvedPlanSnapshot.tasks[0]).not.toHaveProperty("status");
+  });
+
+  test("marks prompts unavailable when protected storage cannot persist them", () => {
+    const app = { getPath: () => userDataDir };
+    const runs = new Map([["run-1", {
+      id: "run-1",
+      status: "completed",
+      workers: [{ id: "worker-1", prompt: "secret", stdout: "output", stderr: "" }],
+      events: [],
+    }]]);
+    const unavailableStorage = { isEncryptionAvailable: () => false };
+    createManagedRunPersistenceService({
+      app,
+      safeStorage: unavailableStorage,
+      runs,
+      platform: "win32",
+    }).save();
+    const restored = new Map();
+    createManagedRunPersistenceService({
+      app,
+      safeStorage: unavailableStorage,
+      runs: restored,
+      platform: "win32",
+    }).load();
+    expect(restored.get("run-1").workers[0]).toMatchObject({
+      prompt: "",
+      promptAvailability: "not_persisted",
+    });
   });
 });

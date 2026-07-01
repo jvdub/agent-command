@@ -94,6 +94,10 @@ export const agenticApp = Object.freeze({
     call("managedRuns", "inspectRepository", repoPath),
   listManagedRuns: () => call("managedRuns", "list"),
   getManagedRun: (runId) => call("managedRuns", "get", runId),
+  getManagedRunWorkerDetail: (runId, workerId) =>
+    call("managedRuns", "getWorkerDetail", runId, workerId),
+  openManagedRunFile: (runId, filePath) =>
+    call("managedRuns", "openFile", runId, filePath),
   generateManagedRunPlan: (runId) =>
     call("managedRuns", "generatePlan", runId),
   saveManagedRunPlan: (runId, plan) =>

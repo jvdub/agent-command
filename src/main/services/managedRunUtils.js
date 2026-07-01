@@ -67,6 +67,73 @@ function normalizeStringArray(value) {
     : [];
 }
 
+const TASK_DEFINITION_FIELDS = Object.freeze([
+  "id",
+  "title",
+  "objective",
+  "successCriteria",
+  "dependencies",
+  "relevantScope",
+  "implementationTier",
+  "verificationTier",
+  "verificationGuidance",
+  "contextNotes",
+  "maxAttempts",
+  "order",
+]);
+
+function cloneTaskDefinition(task) {
+  const clone = {};
+  for (const field of TASK_DEFINITION_FIELDS) {
+    const value = task?.[field];
+    clone[field] = Array.isArray(value) ? [...value] : value;
+  }
+  return clone;
+}
+
+function clonePlanDefinition(plan) {
+  if (!plan) return null;
+  return {
+    objective: String(plan.objective || ""),
+    inspection: plan.inspection
+      ? {
+          ...plan.inspection,
+          commandsRun: [...(plan.inspection.commandsRun || [])],
+          filesInspected: [...(plan.inspection.filesInspected || [])],
+        }
+      : null,
+    constraints: [...(plan.constraints || [])],
+    nonGoals: [...(plan.nonGoals || [])],
+    successCriteria: [...(plan.successCriteria || [])],
+    risks: [...(plan.risks || [])],
+    unresolvedQuestions: [...(plan.unresolvedQuestions || [])],
+    finalVerificationGuidance: [...(plan.finalVerificationGuidance || [])],
+    tasks: (plan.tasks || []).map(cloneTaskDefinition),
+  };
+}
+
+function createRuntimeTasks(tasks) {
+  return (tasks || []).map((task) => ({
+    ...cloneTaskDefinition(task),
+    status: String(task.status || "planned"),
+    attempts: Array.isArray(task.attempts)
+      ? task.attempts.map((attempt) => ({ ...attempt }))
+      : [],
+  }));
+}
+
+function createApprovedPlanSnapshot(
+  plan,
+  { revision, approvedAt, provenance = "exact" },
+) {
+  return {
+    ...clonePlanDefinition(plan),
+    revision: Number(revision),
+    approvedAt: String(approvedAt || ""),
+    provenance,
+  };
+}
+
 function validateAndNormalizePlan(input, { requireInspection = false } = {}) {
   if (!input || typeof input !== "object") {
     throw new Error("Plan must be a JSON object.");
@@ -198,6 +265,10 @@ function summarizeRun(run) {
 module.exports = {
   RUN_TERMINAL_STATES,
   addRunEvent,
+  clonePlanDefinition,
+  cloneTaskDefinition,
+  createApprovedPlanSnapshot,
+  createRuntimeTasks,
   extractStructuredJson,
   nowIso,
   summarizeRun,

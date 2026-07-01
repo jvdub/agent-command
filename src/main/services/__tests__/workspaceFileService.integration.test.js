@@ -149,4 +149,29 @@ describe("workspaceFileService integration", () => {
 
     await fs.promises.rm(workspace, { recursive: true, force: true });
   });
+
+  test("opens Managed Run files within an explicit repository root and rejects escapes", async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "managed-run-root-"));
+    const outside = await fs.promises.mkdtemp(path.join(os.tmpdir(), "managed-run-outside-"));
+    await fs.promises.mkdir(path.join(root, "src"));
+    await fs.promises.writeFile(path.join(root, "src", "safe.js"), "export const safe = true;", "utf8");
+    await fs.promises.writeFile(path.join(outside, "secret.txt"), "secret", "utf8");
+    const service = createWorkspaceFileService({
+      sessions: new Map(),
+      dialog: {},
+      getMainWindow: jest.fn(),
+      resolveInitialDirectory: () => root,
+      watch: jest.fn(() => { throw new Error("watch unavailable"); }),
+    });
+
+    await expect(service.openEditorFileAtRoot(root, "src/safe.js", "run-1"))
+      .resolves.toMatchObject({ relativePath: path.join("src", "safe.js") });
+    await expect(service.openEditorFileAtRoot(root, "../secret.txt"))
+      .rejects.toThrow(/outside/i);
+    await expect(service.openEditorFileAtRoot(root, path.join(outside, "secret.txt")))
+      .rejects.toThrow(/repository-relative/i);
+
+    await fs.promises.rm(root, { recursive: true, force: true });
+    await fs.promises.rm(outside, { recursive: true, force: true });
+  });
 });

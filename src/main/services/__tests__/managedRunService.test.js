@@ -11,6 +11,7 @@ function createRun() {
     planRevision: 0,
     approvedRevision: null,
     approvedAt: null,
+    approvedPlanSnapshot: null,
     tasks: [],
     routing: { planner: { provider: "codex", tier: "premium", model: "" } },
     workers: [],
@@ -70,6 +71,9 @@ function createServiceWithPlannerOutput(plannerOutput) {
     },
     getTaskSchedulerService: jest.fn(),
     tokenLedgerService: { record: jest.fn(), createLedger: jest.fn(() => ({})) },
+    workspaceFileService: {
+      openEditorFileAtRoot: jest.fn(async (_root, filePath) => ({ filePath })),
+    },
     publishRun: jest.fn(),
   });
   return { run, service };
@@ -112,6 +116,55 @@ describe("Managed Run planning", () => {
 
     expect(run.status).toBe("approval_required");
     expect(run.plan.inspection.repositoryState).toBe("empty");
+    expect(run.plan.tasks[0]).not.toBe(run.tasks[0]);
+  });
+
+  test("freezes an approved definition and requires its matching snapshot", async () => {
+    const { run, service } = createServiceWithPlannerOutput({
+      objective: "Build the app",
+      inspection: {
+        status: "succeeded",
+        repositoryState: "nonempty",
+        commandsRun: ["git status --short"],
+        filesInspected: ["package.json"],
+        blocker: null,
+      },
+      tasks: [{ id: "task-1", title: "Build", objective: "Implement it" }],
+    });
+    await service.generatePlan(run.id);
+    service.approvePlan(run.id);
+
+    run.tasks[0].status = "succeeded";
+    expect(run.approvedPlanSnapshot.tasks[0]).not.toHaveProperty("status");
+    expect(run.approvedPlanSnapshot).toMatchObject({
+      revision: 1,
+      provenance: "exact",
+    });
+  });
+
+  test("returns one exact worker prompt on demand without exposing it in run summaries", async () => {
+    const { run, service } = createServiceWithPlannerOutput({
+      objective: "Build the app",
+      inspection: {
+        status: "succeeded",
+        repositoryState: "nonempty",
+        commandsRun: ["git status --short"],
+        filesInspected: ["package.json"],
+        blocker: null,
+      },
+      tasks: [{ id: "task-1", title: "Build", objective: "Implement it" }],
+    });
+    await service.generatePlan(run.id);
+    run.workers[0].prompt = "exact sensitive prompt";
+    run.workers[0].promptAvailability = "available";
+
+    expect(service.get(run.id).workers[0].prompt).toBeUndefined();
+    expect(service.getWorkerDetail(run.id, run.workers[0].id)).toMatchObject({
+      prompt: "exact sensitive prompt",
+      promptAvailability: "available",
+      promptKind: "planning",
+    });
+    expect(() => service.getWorkerDetail(run.id, "other-worker")).toThrow(/not found/i);
   });
 
   test("blocks approval of a persisted legacy planner result without inspection", () => {

@@ -20,6 +20,14 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.getManagedRun, {
     handler: async (_event, runId) => managedRunService.get(runId),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.getManagedRunWorkerDetail, {
+    handler: async (_event, payload) =>
+      managedRunService.getWorkerDetail(payload?.runId, payload?.workerId),
+  });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.openManagedRunFile, {
+    handler: async (_event, payload) =>
+      managedRunService.openFile(payload?.runId, payload?.filePath),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.generateManagedRunPlan, {
     handler: async (_event, runId) => managedRunService.generatePlan(runId),
   });

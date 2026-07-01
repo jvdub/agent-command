@@ -345,9 +345,10 @@
         <section id="managed-run-view" class="managed-run-view hidden">
           <header class="managed-run-view-header">
             <div>
-              <p class="eyebrow">Managed Run</p>
+              <p class="eyebrow">Managed Goal</p>
               <h2 id="managed-run-view-title">Managed Run</h2>
               <p id="managed-run-view-meta" class="status-meta"></p>
+              <p id="managed-run-current-action" class="managed-run-current-action"></p>
             </div>
             <div class="button-row managed-run-actions">
               <button type="button" id="managed-run-generate-plan">Generate Plan</button>
@@ -363,8 +364,28 @@
             </div>
           </header>
 
-          <div class="managed-run-grid">
-            <section class="managed-run-card managed-run-plan-card">
+          <div class="managed-run-progress-row">
+            <p id="managed-run-progress"></p>
+            <p id="managed-run-usage" class="status-meta"></p>
+          </div>
+
+          <div class="managed-run-workspace">
+            <aside class="managed-run-inbox" aria-label="Managed Run inbox">
+              <div class="panel-header compact"><div><p class="eyebrow">Managed Runs</p><h2>Inbox</h2></div><span id="managed-run-inbox-count" class="managed-inbox-count">0</span></div>
+              <div id="managed-run-inbox-list"></div>
+            </aside>
+
+            <section class="managed-run-journey-panel" aria-labelledby="managed-run-journey-title">
+              <div class="panel-header compact"><div><p class="eyebrow">Goal Workflow</p><h2 id="managed-run-journey-title">Journey</h2></div></div>
+              <ol id="managed-run-journey" class="managed-run-journey"></ol>
+            </section>
+
+            <aside id="managed-run-inspector" class="managed-run-inspector" aria-label="Selected task details"></aside>
+          </div>
+
+          <div class="managed-run-supporting-panels">
+            <details id="managed-run-plan-panel" class="managed-run-card managed-run-plan-card">
+              <summary>Plan and worker routing</summary>
               <div class="panel-header compact">
                 <div>
                   <p class="eyebrow">Human Gate</p>
@@ -384,36 +405,15 @@
                 </div>
                 <div class="button-row"><button type="button" id="managed-run-save-routing" class="secondary">Save Routing</button></div>
               </details>
-            </section>
+            </details>
 
-            <section class="managed-run-card">
-              <div class="panel-header compact">
-                <div><p class="eyebrow">Execution</p><h2>Tasks</h2></div>
-              </div>
-              <div id="managed-run-task-list" class="managed-run-task-list"></div>
-            </section>
-
-            <section class="managed-run-card">
-              <div class="panel-header compact">
-                <div><p class="eyebrow">Workers</p><h2>Attempts</h2></div>
-                <p id="managed-run-usage" class="status-meta"></p>
-              </div>
-              <div id="managed-run-worker-list" class="managed-run-worker-list"></div>
-            </section>
-
-            <section class="managed-run-card managed-run-output-card">
-              <div class="panel-header compact">
-                <div><p class="eyebrow">Evidence</p><h2>Worker Output</h2></div>
-              </div>
-              <pre id="managed-run-worker-output" class="managed-run-worker-output">Select a worker attempt to inspect its output.</pre>
-            </section>
-
-            <section class="managed-run-card managed-run-events-card">
+            <details class="managed-run-card managed-run-events-card">
+              <summary>Goal activity and audit trail</summary>
               <div class="panel-header compact">
                 <div><p class="eyebrow">Audit Trail</p><h2>Events</h2></div>
               </div>
               <div id="managed-run-event-list" class="managed-run-event-list"></div>
-            </section>
+            </details>
           </div>
         </section>
       </main>

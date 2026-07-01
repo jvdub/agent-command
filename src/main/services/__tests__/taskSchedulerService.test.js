@@ -135,7 +135,7 @@ describe("Managed Run deterministic scheduler", () => {
   test("implements, independently verifies, and runs final verification", async () => {
     const run = makeRun();
     const { scheduler } = fakeScheduler([
-      { stdout: '{"summary":"implemented"}' },
+      { stdout: '{"summary":"implemented","changedFiles":["src/feature.js"],"checks":["npm test: pass"],"risks":[]}' },
       { stdout: pass },
       { stdout: pass },
     ]);
@@ -144,6 +144,11 @@ describe("Managed Run deterministic scheduler", () => {
 
     expect(run.tasks[0].status).toBe("succeeded");
     expect(run.tasks[0].attempts).toHaveLength(1);
+    expect(run.tasks[0].attempts[0].artifacts).toMatchObject({
+      parseStatus: "parsed",
+      reportedFiles: ["src/feature.js"],
+      checks: ["npm test: pass"],
+    });
     expect(run.workers.map((worker) => worker.role)).toEqual([
       "implementer",
       "verifier",
@@ -151,6 +156,16 @@ describe("Managed Run deterministic scheduler", () => {
     ]);
     expect(run.finalVerification.verdict).toBe("pass");
     expect(run.status).toBe("review_required");
+    expect(run.workers[0]).toMatchObject({
+      promptKind: "implementation",
+      promptVersion: 1,
+      attemptNumber: 1,
+    });
+    expect(run.workers[1]).toMatchObject({
+      promptKind: "task_verification",
+      attemptNumber: 1,
+    });
+    expect(run.workers[2].promptKind).toBe("integration_verification");
   });
 
   test("feeds verification failure into a bounded retry", async () => {

@@ -1,20 +1,21 @@
 import { agenticApp } from "./agenticApp.js";
 import { markdownToPlan, planToMarkdown } from "./managedRunPlanMarkdown.js";
+import { allAttentionItems, renderInbox } from "./managedRunInbox.js";
+import { renderInspector } from "./managedRunInspector.js";
+import { renderJourney } from "./managedRunJourney.js";
+import { currentAction, runProgress } from "./managedRunSelectors.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
-function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
+function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRunFile, setStatus }) {
   const elements = {
     view: document.querySelector("#managed-run-view"),
     tabs: document.querySelector("#managed-run-tabs-list"),
@@ -32,11 +33,15 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     integrationModel: document.querySelector("#managed-run-integration-model"),
     viewTitle: document.querySelector("#managed-run-view-title"),
     viewMeta: document.querySelector("#managed-run-view-meta"),
+    currentAction: document.querySelector("#managed-run-current-action"),
+    progress: document.querySelector("#managed-run-progress"),
     planMeta: document.querySelector("#managed-run-plan-meta"),
+    planPanel: document.querySelector("#managed-run-plan-panel"),
     planEditor: document.querySelector("#managed-run-plan-editor"),
-    taskList: document.querySelector("#managed-run-task-list"),
-    workerList: document.querySelector("#managed-run-worker-list"),
-    workerOutput: document.querySelector("#managed-run-worker-output"),
+    journey: document.querySelector("#managed-run-journey"),
+    inspector: document.querySelector("#managed-run-inspector"),
+    inboxList: document.querySelector("#managed-run-inbox-list"),
+    inboxCount: document.querySelector("#managed-run-inbox-count"),
     eventList: document.querySelector("#managed-run-event-list"),
     usage: document.querySelector("#managed-run-usage"),
     generatePlan: document.querySelector("#managed-run-generate-plan"),
@@ -59,158 +64,89 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
 
   const runs = new Map();
   const liveOutput = new Map();
+  const workerDetailCache = new Map();
   let activeRunId = null;
+  let selectedTaskId = null;
   let selectedWorkerId = null;
+  let workerDetailState = "idle";
   let renderedPlanKey = "";
 
-  function activeRun() {
-    return activeRunId ? runs.get(activeRunId) : null;
-  }
+  const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
 
   function renderTabs() {
-    const list = Array.from(runs.values()).sort((a, b) =>
-      String(b.updatedAt).localeCompare(String(a.updatedAt)),
-    );
-    if (!list.length) {
-      elements.tabs.innerHTML = '<p class="status-meta">No managed runs.</p>';
-      return;
-    }
-    elements.tabs.innerHTML = list
-      .map(
-        (run) => `
-          <button type="button" class="managed-run-tab ${run.id === activeRunId ? "active" : ""}" data-managed-run-id="${escapeHtml(run.id)}">
-            <p class="managed-run-tab-title">${escapeHtml(run.title)}</p>
-            <p class="managed-run-tab-meta">${escapeHtml(prettyStatus(run.status))} · ${run.tasks?.filter((task) => task.status === "succeeded").length || 0}/${run.tasks?.length || 0} tasks</p>
-          </button>`,
-      )
-      .join("");
+    const list = [...runs.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    elements.tabs.innerHTML = list.length ? list.map((run) => `
+      <button type="button" class="managed-run-tab ${run.id === activeRunId ? "active" : ""}" data-managed-run-id="${escapeHtml(run.id)}">
+        <p class="managed-run-tab-title">${escapeHtml(run.title)}</p>
+        <p class="managed-run-tab-meta">${escapeHtml(prettyStatus(run.status))} · ${runProgress(run).verified}/${runProgress(run).total} verified</p>
+      </button>`).join("") : '<p class="status-meta">No managed runs.</p>';
   }
 
-  function renderTasks(run) {
-    if (!run.tasks?.length) {
-      elements.taskList.innerHTML =
-        '<p class="status-meta">No approved tasks yet.</p>';
-      return;
-    }
-    elements.taskList.innerHTML = run.tasks
-      .map((task) => {
-        const latest = task.attempts?.at(-1)?.verification;
-        const canRetry = [
-          "failed",
-          "human_review_required",
-          "replan_required",
-        ].includes(task.status);
-        return `
-          <article class="managed-run-task">
-            <div class="managed-run-task-top">
-              <h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3>
-              <span class="managed-run-state">${escapeHtml(prettyStatus(task.status))}</span>
-            </div>
-            <p class="managed-run-task-detail">${escapeHtml(task.objective)}</p>
-            <p class="managed-run-task-detail">${task.attempts?.length || 0}/${task.maxAttempts} attempts · implementation ${escapeHtml(task.implementationTier)} · verification ${escapeHtml(task.verificationTier)}</p>
-            ${latest ? `<p class="managed-run-task-detail">Latest verdict: ${escapeHtml(latest.verdict)}${latest.feedback ? ` — ${escapeHtml(latest.feedback)}` : ""}</p>` : ""}
-            <label class="managed-run-task-override">
-              <span>Human override</span>
-              <select class="managed-run-task-status" data-task-id="${escapeHtml(task.id)}">
-                ${["planned", "retry_required", "human_review_required", "succeeded", "cancelled", "failed"].map((status) => `<option value="${status}" ${status === task.status ? "selected" : ""}>${prettyStatus(status)}</option>`).join("")}
-              </select>
-            </label>
-            ${canRetry ? `<div class="button-row"><button type="button" class="secondary managed-run-retry-task" data-task-id="${escapeHtml(task.id)}">Retry task</button></div>` : ""}
-          </article>`;
-      })
-      .join("");
+  function renderInboxSurface() {
+    const visibleRuns = [...runs.values()].filter((run) => !run.archived);
+    elements.inboxList.innerHTML = renderInbox(visibleRuns, activeRunId);
+    elements.inboxCount.textContent = String(allAttentionItems(visibleRuns).length);
   }
 
-  function workerText(worker) {
-    const streamed = liveOutput.get(worker.id) || "";
-    return [worker.stdout || streamed, worker.stderr ? `\n[stderr]\n${worker.stderr}` : ""]
-      .filter(Boolean)
-      .join("");
+  function defaultSelection(run) {
+    if (selectedTaskId && (selectedTaskId === "final-verification" || run.tasks?.some((task) => task.id === selectedTaskId))) return;
+    selectedTaskId = run.tasks?.find((task) => ["implementing", "verifying", "human_review_required", "retry_required"].includes(task.status))?.id || run.tasks?.[0]?.id || "final-verification";
   }
 
-  function renderWorkers(run) {
-    if (!run.workers?.length) {
-      elements.workerList.innerHTML = '<p class="status-meta">No workers yet.</p>';
-      return;
-    }
-    elements.workerList.innerHTML = [...run.workers]
-      .reverse()
-      .map(
-        (worker) => `
-          <article class="managed-run-worker ${worker.id === selectedWorkerId ? "selected" : ""}" data-worker-id="${escapeHtml(worker.id)}" tabindex="0">
-            <div class="managed-run-worker-top">
-              <p><strong>${escapeHtml(prettyStatus(worker.role))}</strong>${worker.taskId ? ` · ${escapeHtml(worker.taskId)}` : ""}</p>
-              <span class="managed-run-state">${escapeHtml(prettyStatus(worker.status))}</span>
-            </div>
-            <p class="managed-run-worker-detail">${escapeHtml(worker.provider)} · ${escapeHtml(worker.tier)}${worker.model ? ` · ${escapeHtml(worker.model)}` : " · provider default"}${worker.modelFlagUsed ? " · --model" : ""}</p>
-            <p class="managed-run-worker-detail">${escapeHtml(worker.commandPreview)}</p>
-          </article>`,
-      )
-      .join("");
-    if (!selectedWorkerId && run.workers.length) {
-      selectedWorkerId = run.workers.at(-1).id;
-    }
-    const selected = run.workers.find((worker) => worker.id === selectedWorkerId);
-    if (selected) elements.workerOutput.textContent = workerText(selected) || "Waiting for output...";
+  function renderInspectorSurface() {
+    const scrollTop = elements.inspector.scrollTop;
+    const detail = selectedWorkerId ? workerDetailCache.get(selectedWorkerId) : null;
+    elements.inspector.innerHTML = renderInspector({
+      run: activeRun(), taskId: selectedTaskId, selectedWorkerId,
+      workerDetail: detail, workerDetailState,
+    });
+    elements.inspector.scrollTop = scrollTop;
   }
 
   function renderEvents(run) {
-    elements.eventList.innerHTML = [...(run.events || [])]
-      .reverse()
-      .slice(0, 100)
-      .map(
-        (event) => `
-          <article class="managed-run-event">
-            <p><strong>${escapeHtml(event.message)}</strong></p>
-            <p class="managed-run-event-detail">${escapeHtml(new Date(event.at).toLocaleString())} · ${escapeHtml(event.level)}</p>
-          </article>`,
-      )
-      .join("");
+    elements.eventList.innerHTML = [...(run.events || [])].reverse().slice(0, 100).map((event) => `
+      <article class="managed-run-event"><p><strong>${escapeHtml(event.message)}</strong></p><p class="managed-run-event-detail">${escapeHtml(new Date(event.at).toLocaleString())} · ${escapeHtml(event.level)}</p></article>`).join("");
   }
 
   function populateRouting(run) {
-    const provider = run.routing?.implementer?.provider || "codex";
-    if (document.activeElement !== elements.routingProvider) {
-      elements.routingProvider.value = provider;
-    }
     const pairs = [
+      [elements.routingProvider, run.routing?.implementer?.provider || "codex"],
       [elements.routingPlannerModel, run.routing?.planner?.model],
       [elements.routingImplementerModel, run.routing?.implementer?.model],
       [elements.routingVerifierModel, run.routing?.verifier?.model],
       [elements.routingIntegrationModel, run.routing?.integration_verifier?.model],
     ];
-    for (const [element, value] of pairs) {
-      if (document.activeElement !== element) element.value = value || "";
-    }
+    for (const [element, value] of pairs) if (document.activeElement !== element) element.value = value || "";
   }
 
   function renderActive() {
     const run = activeRun();
     if (!run) return;
+    defaultSelection(run);
     elements.viewTitle.textContent = run.title;
     elements.viewMeta.textContent = `${prettyStatus(run.status)} · ${run.repoPath}`;
-    elements.planMeta.textContent = run.plan
-      ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}`
-      : "No plan generated";
+    elements.currentAction.textContent = currentAction(run);
+    const progress = runProgress(run);
+    elements.progress.textContent = `${progress.verified} of ${progress.total} tasks verified · ${progress.attempts} attempts · ${progress.retries} retries`;
+    elements.planMeta.textContent = run.plan ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}` : "No plan generated";
+    if (!run.plan || run.approvedRevision !== run.planRevision) elements.planPanel.open = true;
     const planKey = `${run.id}:${run.planRevision}`;
     if (planKey !== renderedPlanKey && document.activeElement !== elements.planEditor) {
       elements.planEditor.value = planToMarkdown(run.plan);
       renderedPlanKey = planKey;
     }
     populateRouting(run);
-    renderTasks(run);
-    renderWorkers(run);
+    elements.journey.innerHTML = renderJourney(run, selectedTaskId);
+    renderInspectorSurface();
+    renderInboxSurface();
     renderEvents(run);
     const usage = run.usage || {};
-    elements.usage.textContent = `${usage.workerCount || 0} workers · ${usage.premiumWorkerCount || 0} premium · ${usage.localInferenceCalls || 0} local decisions${usage.hasTokenData ? ` · ${(usage.inputTokens || 0) + (usage.outputTokens || 0)} known tokens` : " · token data unavailable"}`;
-
+    elements.usage.textContent = `${usage.workerCount || 0} workers · ${usage.hasTokenData ? `${(usage.inputTokens || 0) + (usage.outputTokens || 0)} tokens` : "token data unavailable"}`;
     const active = Boolean(run.activeWorkerId) || ["planning", "running", "final_verification"].includes(run.status);
     elements.generatePlan.disabled = active;
     elements.savePlan.disabled = active || !elements.planEditor.value.trim();
     elements.approvePlan.disabled = run.status !== "approval_required";
-    elements.start.disabled =
-      !["ready", "paused", "review_required"].includes(run.status) ||
-      run.finalVerification?.verdict === "pass";
+    elements.start.disabled = !["ready", "paused", "review_required"].includes(run.status) || run.finalVerification?.verdict === "pass";
     elements.start.textContent = run.status === "ready" ? "Start" : "Resume";
     elements.pause.disabled = !["ready", "running", "final_verification"].includes(run.status);
     elements.cancel.disabled = ["cancelled", "completed", "failed"].includes(run.status);
@@ -220,14 +156,17 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     elements.takeover.disabled = active;
   }
 
-  function show(runId) {
+  function show(runId, target = {}) {
     if (!runs.has(runId)) return;
     activeRunId = runId;
-    selectedWorkerId = runs.get(runId).workers?.at(-1)?.id || null;
+    selectedTaskId = target.taskId || selectedTaskId;
+    selectedWorkerId = null;
+    workerDetailState = "idle";
     activateView();
     elements.view.classList.remove("hidden");
     renderTabs();
     renderActive();
+    if (target.section) requestAnimationFrame(() => elements.inspector.querySelector(`[data-inspector-section="${target.section}"]`)?.scrollIntoView({ block: "nearest" }));
   }
 
   function hide() {
@@ -239,6 +178,7 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
   function upsert(run) {
     runs.set(run.id, run);
     renderTabs();
+    renderInboxSurface();
     if (run.id === activeRunId) renderActive();
   }
 
@@ -255,187 +195,136 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     }
   }
 
+  async function selectWorker(workerId) {
+    selectedWorkerId = workerId;
+    if (workerDetailCache.has(workerId)) {
+      workerDetailState = "loaded";
+      renderInspectorSurface();
+      return;
+    }
+    workerDetailState = "loading";
+    renderInspectorSurface();
+    try {
+      const detail = await agenticApp.getManagedRunWorkerDetail(activeRunId, workerId);
+      workerDetailCache.set(workerId, detail);
+      workerDetailState = "loaded";
+    } catch {
+      workerDetailState = "error";
+    }
+    renderInspectorSurface();
+  }
+
   function bind() {
-    elements.newButton.addEventListener("click", () => {
-      elements.popover.classList.toggle("hidden");
-    });
+    elements.newButton.addEventListener("click", () => elements.popover.classList.toggle("hidden"));
     elements.pickDirectory.addEventListener("click", async () => {
       const selected = await agenticApp.pickDirectory();
       if (selected) elements.repoInput.value = selected;
     });
     elements.form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const repository = await perform("Checking repository", () =>
-        agenticApp.inspectManagedRunRepository(elements.repoInput.value),
-      );
-      if (!repository) return;
-      if (!repository.isDirectory) {
-        setStatus("Error", "Repository path must be a readable directory.");
-        return;
-      }
+      const repository = await perform("Checking repository", () => agenticApp.inspectManagedRunRepository(elements.repoInput.value));
+      if (!repository?.isDirectory) return setStatus("Error", "Repository path must be a readable directory.");
       let initializeGit = false;
       if (!repository.isGitRepository) {
-        const description = repository.isEmpty
-          ? "This folder is empty and is not a Git repository. Initialize Git here and continue?"
-          : "This folder is not a Git repository. Initialize Git here and continue?";
-        initializeGit = window.confirm(description);
-        if (!initializeGit) {
-          setStatus("Cancelled", "Managed Run creation cancelled without changing the folder.");
-          return;
-        }
+        initializeGit = window.confirm("This folder is not a Git repository. Initialize Git here and continue?");
+        if (!initializeGit) return;
       }
-      const run = await perform("Creating", () =>
-        agenticApp.createManagedRun({
-          title: elements.titleInput.value,
-          repoPath: elements.repoInput.value,
-          specification: elements.specInput.value,
-          provider: elements.providerInput.value,
-          planningModel: elements.planningModel.value,
-          implementationModel: elements.implementationModel.value,
-          verificationModel: elements.verificationModel.value,
-          integrationModel: elements.integrationModel.value,
-          initializeGit,
-        }),
-      );
-      if (run) {
-        elements.popover.classList.add("hidden");
-        show(run.id);
-      }
+      const run = await perform("Creating", () => agenticApp.createManagedRun({
+        title: elements.titleInput.value, repoPath: elements.repoInput.value,
+        specification: elements.specInput.value, provider: elements.providerInput.value,
+        planningModel: elements.planningModel.value, implementationModel: elements.implementationModel.value,
+        verificationModel: elements.verificationModel.value, integrationModel: elements.integrationModel.value,
+        initializeGit,
+      }));
+      if (run) { elements.popover.classList.add("hidden"); show(run.id); }
     });
     elements.tabs.addEventListener("click", (event) => {
       const tab = event.target.closest("[data-managed-run-id]");
       if (tab) show(tab.dataset.managedRunId);
     });
-    elements.generatePlan.addEventListener("click", () =>
-      perform("Planning", () => agenticApp.generateManagedRunPlan(activeRunId)),
-    );
-    async function launchInteractive(role) {
-      const run = activeRun();
-      if (!run) return;
-      const routing = run.routing?.[role] || {};
-      const argsArray = routing.model ? ["--model", routing.model] : [];
-      const result = await perform(
-        role === "planner" ? "Shaping" : "Taking over",
-        () =>
-          agenticApp.startSession({
-            label:
-              role === "planner"
-                ? `Shape: ${run.title}`
-                : `Take over: ${run.title}`,
-            command: routing.provider || "codex",
-            argsArray,
-            cwd: run.repoPath,
-            cols: 120,
-            rows: 36,
-          }),
-      );
-      if (result?.session) {
-        await onSessionStarted?.(result.session);
-        setStatus(
-          role === "planner" ? "Shaping" : "Takeover",
-          role === "planner"
-            ? "Interactive planning session started; use /grill-me or your preferred shaping workflow."
-            : "Interactive takeover session started in the Managed Run repository.",
-        );
-      }
-    }
-    elements.shape.addEventListener("click", () => void launchInteractive("planner"));
-    elements.takeover.addEventListener("click", () =>
-      void launchInteractive("implementer"),
-    );
-    elements.planEditor.addEventListener("input", () => {
-      const run = activeRun();
-      const active = Boolean(run?.activeWorkerId) ||
-        ["planning", "running", "final_verification"].includes(run?.status);
-      elements.savePlan.disabled = active || !elements.planEditor.value.trim();
+    elements.inboxList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-inbox-run-id]");
+      if (item) show(item.dataset.inboxRunId, { taskId: item.dataset.inboxTaskId || null, section: item.dataset.inboxSection });
     });
-    elements.savePlan.addEventListener("click", () =>
-      perform("Saving", () =>
-        agenticApp.saveManagedRunPlan(activeRunId, markdownToPlan(elements.planEditor.value)),
-      ),
-    );
-    elements.approvePlan.addEventListener("click", () =>
-      perform("Approved", () => agenticApp.approveManagedRunPlan(activeRunId)),
-    );
-    elements.start.addEventListener("click", () =>
-      perform("Running", () => agenticApp.startManagedRun(activeRunId)),
-    );
-    elements.pause.addEventListener("click", () =>
-      perform("Paused", () => agenticApp.pauseManagedRun(activeRunId)),
-    );
-    elements.cancel.addEventListener("click", () =>
-      perform("Cancelled", () => agenticApp.cancelManagedRun(activeRunId)),
-    );
-    elements.accept.addEventListener("click", () =>
-      perform("Completed", () => agenticApp.acceptManagedRun(activeRunId)),
-    );
-    elements.archive.addEventListener("click", async () => {
-      const archived = await perform("Archived", () =>
-        agenticApp.archiveManagedRun(activeRunId),
-      );
-      if (archived) {
-        runs.delete(activeRunId);
-        hide();
-      }
-    });
-    elements.saveRouting.addEventListener("click", () => {
-      const provider = elements.routingProvider.value;
-      return perform("Routing saved", () =>
-        agenticApp.updateManagedRunRouting(activeRunId, {
-          planner: { provider, model: elements.routingPlannerModel.value },
-          implementer: { provider, model: elements.routingImplementerModel.value },
-          verifier: { provider, model: elements.routingVerifierModel.value },
-          integration_verifier: { provider, model: elements.routingIntegrationModel.value },
-        }),
-      );
-    });
-    elements.taskList.addEventListener("click", (event) => {
-      const button = event.target.closest(".managed-run-retry-task");
-      if (button) {
-        void perform("Retrying", () =>
-          agenticApp.retryManagedRunTask(activeRunId, button.dataset.taskId),
-        );
-      }
-    });
-    elements.taskList.addEventListener("change", (event) => {
-      const select = event.target.closest(".managed-run-task-status");
-      if (!select) return;
-      const run = activeRun();
-      const task = run?.tasks?.find((candidate) => candidate.id === select.dataset.taskId);
-      if (!task || select.value === task.status) return;
-      const confirmed = window.confirm(
-        `Change ${task.id} from ${prettyStatus(task.status)} to ${prettyStatus(select.value)}? This will be recorded as a human override.`,
-      );
-      if (!confirmed) {
-        renderActive();
-        return;
-      }
-      void perform("Task overridden", () =>
-        agenticApp.setManagedRunTaskStatus(
-          activeRunId,
-          task.id,
-          select.value,
-        ),
-      );
-    });
-    elements.workerList.addEventListener("click", (event) => {
-      const workerElement = event.target.closest("[data-worker-id]");
-      if (!workerElement) return;
-      selectedWorkerId = workerElement.dataset.workerId;
+    elements.journey.addEventListener("click", (event) => {
+      const station = event.target.closest("[data-task-id]");
+      if (!station) return;
+      selectedTaskId = station.dataset.taskId;
+      selectedWorkerId = null;
+      workerDetailState = "idle";
       renderActive();
     });
-
-    agenticApp.onManagedRunChanged((run) => {
-      if (run?.id) upsert(run);
+    elements.journey.addEventListener("keydown", (event) => {
+      if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) return;
+      const stations = [...elements.journey.querySelectorAll("[data-task-id]")];
+      const index = stations.indexOf(document.activeElement);
+      if (index < 0) return;
+      event.preventDefault();
+      const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1;
+      stations[(index + delta + stations.length) % stations.length]?.focus();
     });
+    elements.inspector.addEventListener("click", async (event) => {
+      const attempt = event.target.closest("[data-worker-id]");
+      if (attempt) return void selectWorker(attempt.dataset.workerId);
+      const file = event.target.closest("[data-managed-file]");
+      if (file) {
+        try {
+          const opened = await agenticApp.openManagedRunFile(activeRunId, file.dataset.managedFile);
+          await onOpenManagedRunFile?.(opened, activeRunId);
+        } catch (error) { setStatus("Error", error.message || "Unable to open Managed Run file"); }
+        return;
+      }
+      if (event.target.closest(".inspector-copy-prompt")) {
+        const detail = workerDetailCache.get(selectedWorkerId);
+        if (detail?.prompt) { await agenticApp.writeClipboardText(detail.prompt); setStatus("Copied", "Exact worker prompt copied"); }
+      }
+      const retry = event.target.closest("[data-retry-task]");
+      if (retry) void perform("Retrying", () => agenticApp.retryManagedRunTask(activeRunId, retry.dataset.retryTask));
+    });
+    elements.inspector.addEventListener("change", (event) => {
+      const select = event.target.closest("[data-task-status]");
+      if (!select) return;
+      const task = activeRun()?.tasks?.find((candidate) => candidate.id === select.dataset.taskStatus);
+      if (!task || select.value === task.status) return;
+      if (!window.confirm(`Change ${task.id} from ${prettyStatus(task.status)} to ${prettyStatus(select.value)}? This will be recorded as a human override.`)) {
+        renderInspectorSurface();
+        return;
+      }
+      void perform("Task overridden", () => agenticApp.setManagedRunTaskStatus(activeRunId, task.id, select.value));
+    });
+    elements.generatePlan.addEventListener("click", () => perform("Planning", () => agenticApp.generateManagedRunPlan(activeRunId)));
+    async function launchInteractive(role) {
+      const run = activeRun(); if (!run) return;
+      const routing = run.routing?.[role] || {};
+      const result = await perform(role === "planner" ? "Shaping" : "Taking over", () => agenticApp.startSession({
+        label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
+        command: routing.provider || "codex", argsArray: routing.model ? ["--model", routing.model] : [], cwd: run.repoPath, cols: 120, rows: 36,
+      }));
+      if (result?.session) await onSessionStarted?.(result.session);
+    }
+    elements.shape.addEventListener("click", () => void launchInteractive("planner"));
+    elements.takeover.addEventListener("click", () => void launchInteractive("implementer"));
+    elements.planEditor.addEventListener("input", () => { elements.savePlan.disabled = !elements.planEditor.value.trim(); });
+    elements.savePlan.addEventListener("click", () => perform("Saving", () => agenticApp.saveManagedRunPlan(activeRunId, markdownToPlan(elements.planEditor.value))));
+    elements.approvePlan.addEventListener("click", () => perform("Approved", () => agenticApp.approveManagedRunPlan(activeRunId)));
+    elements.start.addEventListener("click", () => perform("Running", () => agenticApp.startManagedRun(activeRunId)));
+    elements.pause.addEventListener("click", () => perform("Paused", () => agenticApp.pauseManagedRun(activeRunId)));
+    elements.cancel.addEventListener("click", () => perform("Cancelled", () => agenticApp.cancelManagedRun(activeRunId)));
+    elements.accept.addEventListener("click", () => perform("Completed", () => agenticApp.acceptManagedRun(activeRunId)));
+    elements.archive.addEventListener("click", async () => { const archived = await perform("Archived", () => agenticApp.archiveManagedRun(activeRunId)); if (archived) { runs.delete(activeRunId); hide(); } });
+    elements.saveRouting.addEventListener("click", () => perform("Routing saved", () => agenticApp.updateManagedRunRouting(activeRunId, {
+      planner: { provider: elements.routingProvider.value, model: elements.routingPlannerModel.value },
+      implementer: { provider: elements.routingProvider.value, model: elements.routingImplementerModel.value },
+      verifier: { provider: elements.routingProvider.value, model: elements.routingVerifierModel.value },
+      integration_verifier: { provider: elements.routingProvider.value, model: elements.routingIntegrationModel.value },
+    })));
+    agenticApp.onManagedRunChanged((run) => { if (run?.id) upsert(run); });
     agenticApp.onManagedRunWorkerOutput((payload) => {
       if (!payload?.workerId) return;
-      const current = liveOutput.get(payload.workerId) || "";
-      liveOutput.set(payload.workerId, `${current}${payload.data || ""}`.slice(-1_000_000));
-      if (payload.runId === activeRunId && payload.workerId === selectedWorkerId) {
-        elements.workerOutput.textContent = liveOutput.get(payload.workerId);
-        elements.workerOutput.scrollTop = elements.workerOutput.scrollHeight;
-      }
+      liveOutput.set(payload.workerId, `${liveOutput.get(payload.workerId) || ""}${payload.data || ""}`.slice(-1_000_000));
+      const detail = workerDetailCache.get(payload.workerId);
+      if (detail) detail.stdout = liveOutput.get(payload.workerId);
+      if (payload.runId === activeRunId && payload.workerId === selectedWorkerId) renderInspectorSurface();
     });
   }
 
@@ -444,14 +333,14 @@ function createManagedRunsView({ activateView, onSessionStarted, setStatus }) {
     bind();
     const result = await agenticApp.listManagedRuns();
     for (const run of result?.runs || []) runs.set(run.id, run);
-    renderTabs();
+    renderTabs(); renderInboxSurface();
   }
 
-  function isActive() {
-    return Boolean(activeRunId) && !elements.view.classList.contains("hidden");
-  }
-
-  return { hide, initialize, isActive, show };
+  return {
+    hide, initialize,
+    isActive: () => Boolean(activeRunId) && !elements.view.classList.contains("hidden"),
+    show,
+  };
 }
 
 export { createManagedRunsView };

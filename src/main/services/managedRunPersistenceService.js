@@ -1,7 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  createApprovedPlanSnapshot,
+  createRuntimeTasks,
+} = require("./managedRunUtils");
 
-const MANAGED_RUN_SCHEMA_VERSION = 1;
+const MANAGED_RUN_SCHEMA_VERSION = 2;
 const ENCRYPTED_TRANSCRIPT_ENCODING = "electron-safe-storage-v1";
 
 function createManagedRunPersistenceService({
@@ -59,6 +63,9 @@ function createManagedRunPersistenceService({
       ...run,
       workers: run.workers.map((worker) => ({
         ...worker,
+        promptAvailability: worker.prompt && canProtectTranscripts()
+          ? "available"
+          : "not_persisted",
         prompt: protect(worker.prompt),
         stdout: protect(worker.stdout),
         stderr: protect(worker.stderr),
@@ -97,10 +104,23 @@ function createManagedRunPersistenceService({
           workers: (stored.workers || []).map((worker) => ({
             ...worker,
             prompt: restore(worker.prompt),
+            promptAvailability: worker.prompt
+              ? (restore(worker.prompt) ? "available" : "not_persisted")
+              : (worker.promptAvailability || "not_persisted"),
             stdout: restore(worker.stdout),
             stderr: restore(worker.stderr),
           })),
         };
+        if (!run.approvedPlanSnapshot && run.approvedRevision === run.planRevision && run.plan) {
+          run.approvedPlanSnapshot = createApprovedPlanSnapshot(run.plan, {
+            revision: run.approvedRevision,
+            approvedAt: run.approvedAt,
+            provenance: "migrated-best-effort",
+          });
+        }
+        if (run.plan?.tasks && run.tasks === run.plan.tasks) {
+          run.tasks = createRuntimeTasks(run.tasks);
+        }
         if (["planning", "running", "final_verification"].includes(run.status)) {
           run.status = "review_required";
           run.activeWorkerId = null;

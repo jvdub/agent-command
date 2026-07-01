@@ -32,6 +32,8 @@ const IPC_CHANNELS = Object.freeze({
     createManagedRun: "managed-run:create",
     listManagedRuns: "managed-runs:list",
     getManagedRun: "managed-run:get",
+    getManagedRunWorkerDetail: "managed-run:get-worker-detail",
+    openManagedRunFile: "managed-run:open-file",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",
@@ -181,6 +183,16 @@ const agentic = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.listManagedRuns),
     get: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.getManagedRun, runId),
+    getWorkerDetail: (runId, workerId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.getManagedRunWorkerDetail, {
+        runId,
+        workerId,
+      }),
+    openFile: (runId, filePath) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.openManagedRunFile, {
+        runId,
+        filePath,
+      }),
     generatePlan: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunPlan, runId),
     savePlan: (runId, plan) =>

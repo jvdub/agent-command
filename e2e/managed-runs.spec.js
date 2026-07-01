@@ -95,9 +95,36 @@ ${plan.tasks[0].maxAttempts}
       "approved",
     );
     await expect(window.locator("#managed-run-start")).toBeEnabled();
-    await expect(window.locator("#managed-run-task-list")).toContainText(
-      "task-1 · Focused task",
+    await expect(window.locator("#managed-run-journey")).toContainText(
+      "Focused task",
     );
+    await expect(window.locator("#managed-run-current-action")).toContainText(
+      "task-1",
+    );
+    await window.locator('[data-task-id="task-1"]').click();
+    await expect(window.locator("#managed-run-inspector")).toContainText(
+      "Approved task definition",
+    );
+    await expect(window.locator("#managed-run-inspector")).toContainText(
+      "Make one bounded change",
+    );
+    await expect(window.locator("#managed-run-inbox-list")).toContainText(
+      "Nothing needs your attention",
+    );
+    await window.screenshot({
+      path: testInfo.outputPath("managed-run-journey.png"),
+    });
+    await window.locator("#theme-select").selectOption("dark");
+    await window.setViewportSize({ width: 900, height: 720 });
+    await expect(window.locator(".managed-run-workspace")).toBeVisible();
+    await expect(window.locator("#managed-run-inspector")).toBeVisible();
+    await expect(window.locator("#managed-run-journey")).toHaveCSS(
+      "flex-direction",
+      "column",
+    );
+    await window.screenshot({
+      path: testInfo.outputPath("managed-run-journey-dark-narrow.png"),
+    });
   } finally {
     await electronApp.close();
   }
