@@ -2443,24 +2443,34 @@ async function sendTerminalClearCommand(target) {
   await agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
 
+function openTerminalExternalUrl(instance, event, uri) {
+  event?.preventDefault?.();
+
+  Promise.resolve(agenticApp.openExternalUrl(uri))
+    .then(() => {
+      setStatus("Opened", uri);
+    })
+    .catch((error) => {
+      const detail = error?.message || "Unable to open link";
+      setStatus("Error", detail);
+    });
+
+  if (instance.kind === "agent") {
+    markSessionInput(instance.sessionId);
+    scheduleUiRefresh();
+  }
+}
+
+function createTerminalLinkHandler(instance) {
+  return {
+    activate: (event, uri) => openTerminalExternalUrl(instance, event, uri),
+  };
+}
+
 function createWebLinksAddon(instance) {
-  return new WebLinksAddon((event, uri) => {
-    event?.preventDefault?.();
-
-    Promise.resolve(agenticApp.openExternalUrl(uri))
-      .then(() => {
-        setStatus("Opened", uri);
-      })
-      .catch((error) => {
-        const detail = error?.message || "Unable to open link";
-        setStatus("Error", detail);
-      });
-
-    if (instance.kind === "agent") {
-      markSessionInput(instance.sessionId);
-      scheduleUiRefresh();
-    }
-  });
+  return new WebLinksAddon((event, uri) =>
+    openTerminalExternalUrl(instance, event, uri),
+  );
 }
 
 function createFileLinkProvider(sessionId, terminal) {
@@ -2559,6 +2569,10 @@ function createSessionTerminal(sessionId) {
   const terminal = new Terminal({
     ...TERMINAL_OPTIONS,
     theme: activeTerminalTheme,
+    linkHandler: createTerminalLinkHandler({
+      sessionId,
+      kind: "agent",
+    }),
   });
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon({ highlightLimit: 2000 });
@@ -2854,6 +2868,10 @@ function createManualTerminal(sessionId, terminalId) {
   const terminal = new Terminal({
     ...TERMINAL_OPTIONS,
     theme: activeTerminalTheme,
+    linkHandler: createTerminalLinkHandler({
+      sessionId,
+      kind: "manual",
+    }),
   });
   const fitAddon = new FitAddon();
   const webLinksAddon = createWebLinksAddon({
