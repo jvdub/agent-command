@@ -3877,6 +3877,10 @@ document.addEventListener("click", (event) => {
 
 function handleGlobalKeydown(event) {
   if (isShortcutKey(event, "c")) {
+    if (event.target?.closest?.(".xterm")) {
+      return;
+    }
+
     event.preventDefault();
     triggerCopyOrInterruptShortcut();
     return;

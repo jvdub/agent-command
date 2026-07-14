@@ -72,6 +72,54 @@ test("agent and manual terminals accept interactive shell input", async ({}, tes
   }
 });
 
+test("Ctrl+C uses the terminal-owned copy path once", async ({}, testInfo) => {
+  const { electronApp, window } = await launchElectronApp(testInfo);
+
+  try {
+    await startShellSession(window, { label: "Terminal copy" });
+    await writeTerminalCommand(
+      window,
+      "#terminal",
+      "echo CTRL_C_COPY_E2E",
+      "CTRL_C_COPY_E2E",
+    );
+
+    const terminal = window.locator(
+      "#terminal .terminal-instance:not(.hidden)",
+    );
+    const rows = terminal.locator(".xterm-rows > div");
+    const outputRowIndex = await rows.evaluateAll((elements) =>
+      elements.findIndex(
+        (element) => element.textContent?.trim() === "CTRL_C_COPY_E2E",
+      ),
+    );
+    expect(outputRowIndex).toBeGreaterThanOrEqual(0);
+
+    const outputRow = rows.nth(outputRowIndex);
+    const rowBox = await outputRow.boundingBox();
+    const textBox = await outputRow.locator("span").first().boundingBox();
+    expect(rowBox).not.toBeNull();
+    expect(textBox).not.toBeNull();
+
+    const selectionY = rowBox.y + rowBox.height / 2;
+    await window.mouse.move(rowBox.x + 2, selectionY);
+    await window.mouse.down();
+    await window.mouse.move(textBox.x + textBox.width - 2, selectionY, {
+      steps: 12,
+    });
+    await window.mouse.up();
+    await expect(terminal.locator(".xterm-selection div")).not.toHaveCount(0);
+
+    await window.keyboard.press("Control+c");
+
+    await expect(
+      window.locator(".toast").filter({ hasText: "Terminal selection" }),
+    ).toHaveCount(1);
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("manual terminal tabs can be closed and reopened from an empty state", async ({}, testInfo) => {
   test.setTimeout(60_000);
   const { electronApp, window } = await launchElectronApp(testInfo);
