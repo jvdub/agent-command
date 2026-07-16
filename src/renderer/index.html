@@ -238,7 +238,27 @@
                   <p class="eyebrow">Agent Changes</p>
                   <h2>Modified Files</h2>
                 </div>
-                <p id="modified-files-meta" class="status-meta">Checking...</p>
+                <div class="modified-files-actions">
+                  <p id="modified-files-meta" class="status-meta">Checking...</p>
+                  <div class="ask-agent-menu-shell">
+                    <button
+                      type="button"
+                      id="ask-agent-button"
+                      class="secondary ask-agent-button"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                      disabled
+                    >
+                      Ask Agent
+                    </button>
+                    <div
+                      id="ask-agent-menu"
+                      class="ask-agent-menu hidden"
+                      role="menu"
+                      aria-label="Git playbooks"
+                    ></div>
+                  </div>
+                </div>
               </div>
               <div id="modified-files-list" class="modified-files-list">
                 <p class="status-meta">No modified files.</p>
@@ -488,6 +508,43 @@
           Type to search workspace files
         </p>
         <div id="quick-open-results" class="quick-open-results"></div>
+      </section>
+    </div>
+
+    <div id="git-playbook-overlay" class="git-playbook-overlay hidden">
+      <section
+        class="git-playbook-composer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Review Changes playbook"
+      >
+        <header class="git-playbook-header">
+          <div>
+            <p class="eyebrow">Ask Agent</p>
+            <h2 id="git-playbook-title">Review Changes</h2>
+          </div>
+          <button type="button" id="git-playbook-close" class="secondary">
+            Close
+          </button>
+        </header>
+        <label class="git-playbook-prompt-label" for="git-playbook-prompt">
+          Prompt to send to agent
+        </label>
+        <textarea
+          id="git-playbook-prompt"
+          class="git-playbook-prompt"
+          rows="12"
+          spellcheck="true"
+        ></textarea>
+        <p id="git-playbook-status" class="status-meta" aria-live="polite">
+          Review the prompt and send it only when the agent is ready for input.
+        </p>
+        <div class="git-playbook-actions">
+          <button type="button" id="git-playbook-copy" class="secondary">
+            Copy
+          </button>
+          <button type="button" id="git-playbook-send">Send to Agent</button>
+        </div>
       </section>
     </div>
 

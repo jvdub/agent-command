@@ -32,6 +32,7 @@ import {
 import { createToastNotifier } from "./toastNotifications.js";
 import { createTerminalClipboardController } from "./terminalClipboard.js";
 import { createManagedRunsView } from "./managedRunsView.js";
+import { createGitPlaybookController } from "./features/gitPlaybooks/gitPlaybookController.js";
 
 const emptyView = document.querySelector("#empty-view");
 const terminalView = document.querySelector("#terminal-view");
@@ -2414,6 +2415,16 @@ const terminalClipboard = createTerminalClipboardController({
   },
 });
 
+const gitPlaybookController = createGitPlaybookController({
+  document,
+  getSession: () => (activeSessionId ? sessions.get(activeSessionId) : null),
+  getTerminal: getActiveTerminalInstance,
+  writeToSession: (sessionId, input) => agenticApp.writeToSession(sessionId, input),
+  writeClipboardText: (value) => agenticApp.writeClipboardText(value),
+  markSessionInput,
+  scheduleUiRefresh,
+});
+
 function attachTerminalClipboardHandlers(target) {
   terminalClipboard.attachToTarget(target, {
     onKeyDown(event) {
@@ -3004,6 +3015,7 @@ function setTerminalActionsEnabled(session) {
   const enabled = Boolean(session?.isRunning);
   stopSessionButton.disabled = !enabled;
   sendInterruptButton.disabled = !enabled;
+  gitPlaybookController.setSession(session);
 }
 
 function getSessionStatusLabel(session) {
@@ -3188,6 +3200,7 @@ function showEmptyView(shouldRefresh = true) {
   }
 
   activeSessionId = null;
+  gitPlaybookController.clearSession();
   renderSessionFileReferences(null);
   renderManualTerminalTabs(null);
   modifiedFilesMeta.textContent = "";
@@ -3260,6 +3273,7 @@ async function openTerminalView(
     return;
   }
 
+  gitPlaybookController.prepareForSessionChange(sessionId);
   managedRunsViewController?.hide();
 
   if (activeSessionId && activeSessionId !== sessionId && isAgentSearchOpen) {
