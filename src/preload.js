@@ -34,6 +34,9 @@ const IPC_CHANNELS = Object.freeze({
     getManagedRun: "managed-run:get",
     getManagedRunWorkerDetail: "managed-run:get-worker-detail",
     openManagedRunFile: "managed-run:open-file",
+    linkManagedRunShapeSession: "managed-run:link-shape-session",
+    saveManagedRunShape: "managed-run:save-shape",
+    approveManagedRunShape: "managed-run:approve-shape",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",
@@ -193,6 +196,12 @@ const agentic = {
         runId,
         filePath,
       }),
+    linkShapeSession: (runId, sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.linkManagedRunShapeSession, { runId, sessionId }),
+    saveShape: (runId, markdown) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunShape, { runId, markdown }),
+    approveShape: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.approveManagedRunShape, runId),
     generatePlan: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunPlan, runId),
     savePlan: (runId, plan) =>

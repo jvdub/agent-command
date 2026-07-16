@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { randomUUID } = require("crypto");
+const { createHash, randomUUID } = require("crypto");
 const { execFileSync } = require("child_process");
 const {
   addRunEvent,
@@ -68,6 +68,7 @@ function createManagedRunService({
   tokenLedgerService,
   workspaceFileService,
   managedRunWorkspaceService,
+  sessionService,
   publishRun,
 }) {
   function requireRun(runId) {
@@ -211,10 +212,162 @@ function createManagedRunService({
     };
     addRunEvent(run, `Managed Run created from ${workspace.baseRevision.slice(0, 12)}; Shape requires human approval.`);
     runs.set(run.id, run);
+    ensureShapeArtifact(run);
+    run.artifacts.shape.summaryMarkdown = fs.readFileSync(shapePaths(run).summary, "utf8");
+    return saveAndPublish(run);
+  }
+
+  function shapePaths(run) {
+    const directory = path.join(run.runWorkspacePath, "shape");
+    return { directory, summary: path.join(directory, "summary.md") };
+  }
+
+  function ensureShapeArtifact(run) {
+    const paths = shapePaths(run);
+    fs.mkdirSync(paths.directory, { recursive: true });
+    if (!fs.existsSync(paths.summary)) {
+      fs.writeFileSync(
+        paths.summary,
+        `# Shape\n\n## Idea\n\n${run.specification}\n\n## Decisions\n\n`,
+        "utf8",
+      );
+    }
+    run.artifacts ||= {};
+    run.artifacts.shape ||= {
+      summaryPath: "shape/summary.md",
+      summaryRevision: 0,
+      conversationRevision: 0,
+      revisions: [],
+    };
+    return paths;
+  }
+
+  function findShapeSession(run) {
+    return sessionService?.listSessions().find((candidate) => candidate.id === run.shapeSessionId) || null;
+  }
+
+  function linkedShapeSession(run) {
+    if (!run.shapeSessionId) throw new Error("Open and link a Shape conversation first.");
+    const session = findShapeSession(run);
+    if (!session) throw new Error("The linked Shape conversation is no longer available.");
+    return session;
+  }
+
+  function linkShapeSession(runId, sessionId) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") throw new Error("Shape sessions require a native Managed Run.");
+    const session = sessionService?.listSessions().find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error("Shape session not found.");
+    ensureShapeArtifact(run);
+    run.shapeSessionId = session.id;
+    run.phase = "shape";
+    run.status = "shaping";
+    addRunEvent(run, "Persistent Shape conversation linked to this Managed Run.");
+    return saveAndPublish(run);
+  }
+
+  function latestConversation(run) {
+    const shape = run.artifacts.shape;
+    const session = findShapeSession(run);
+    if (session) return String(session.outputBuffer || "");
+    const latestPath = shape.revisions.at(-1)?.conversationPath;
+    return latestPath
+      ? fs.readFileSync(path.join(run.runWorkspacePath, latestPath), "utf8")
+      : "";
+  }
+
+  function persistShapeRevision(run, markdown, source) {
+    const paths = ensureShapeArtifact(run);
+    const shape = run.artifacts.shape;
+    const summary = `${String(markdown || "").trim()}\n`;
+    if (!summary.trim()) throw new Error("A Shape summary is required.");
+    const conversation = latestConversation(run);
+    const summaryHash = createHash("sha256").update(summary).digest("hex");
+    const conversationHash = createHash("sha256").update(conversation).digest("hex");
+    const summaryChanged = summaryHash !== shape.summaryHash;
+    const conversationChanged = conversationHash !== shape.conversationHash;
+    if (summaryChanged) shape.summaryRevision += 1;
+    if (conversationChanged || !shape.conversationRevision) shape.conversationRevision += 1;
+    const summaryRevisionPath = path.join(paths.directory, `summary-r${shape.summaryRevision}.md`);
+    const conversationPath = path.join(paths.directory, `conversation-r${shape.conversationRevision}.txt`);
+    fs.writeFileSync(paths.summary, summary, "utf8");
+    if (summaryChanged || !fs.existsSync(summaryRevisionPath)) fs.writeFileSync(summaryRevisionPath, summary, "utf8");
+    if (conversationChanged || !fs.existsSync(conversationPath)) fs.writeFileSync(conversationPath, conversation, "utf8");
+    shape.summaryMarkdown = summary;
+    shape.summaryHash = summaryHash;
+    shape.conversationHash = conversationHash;
+    if (summaryChanged || conversationChanged || shape.revisions.length === 0) {
+      shape.revisions.push({
+        summaryRevision: shape.summaryRevision,
+        conversationRevision: shape.conversationRevision,
+        summaryPath: `shape/summary-r${shape.summaryRevision}.md`,
+        conversationPath: `shape/conversation-r${shape.conversationRevision}.txt`,
+        source,
+        createdAt: nowIso(),
+      });
+    }
+    return shape;
+  }
+
+  function invalidateShape(run, message) {
+    run.approvals.shape = null;
+    run.phase = "shape";
+    run.status = "shape_approval_required";
+    addRunEvent(run, message, "warning");
+  }
+
+  function reconcileApprovedShape(run) {
+    if (!run.approvals?.shape || !run.artifacts?.shape) return false;
+    const paths = ensureShapeArtifact(run);
+    const summary = fs.readFileSync(paths.summary, "utf8");
+    const summaryHash = createHash("sha256").update(summary).digest("hex");
+    const conversationHash = createHash("sha256").update(latestConversation(run)).digest("hex");
+    if (summaryHash === run.artifacts.shape.summaryHash && conversationHash === run.artifacts.shape.conversationHash) return false;
+    persistShapeRevision(run, summary, "workspace");
+    invalidateShape(run, "Approved Shape changed; Spec is blocked until the new revision is approved.");
+    run.updatedAt = nowIso();
+    return true;
+  }
+
+  function saveShape(runId, markdown) {
+    const run = requireRun(runId);
+    linkedShapeSession(run);
+    persistShapeRevision(run, markdown, "app");
+    invalidateShape(run, `Shape revision ${run.artifacts.shape.summaryRevision} saved; approval required.`);
+    return saveAndPublish(run);
+  }
+
+  function approveShape(runId) {
+    const run = requireRun(runId);
+    const paths = ensureShapeArtifact(run);
+    const shape = run.artifacts.shape;
+    if (!shape.summaryRevision) throw new Error("Save a Shape summary before approval.");
+    const workspaceSummary = fs.readFileSync(paths.summary, "utf8");
+    const workspaceHash = createHash("sha256").update(workspaceSummary).digest("hex");
+    const conversationHash = createHash("sha256").update(latestConversation(run)).digest("hex");
+    if (workspaceHash !== shape.summaryHash || conversationHash !== shape.conversationHash) {
+      persistShapeRevision(run, workspaceSummary, workspaceHash !== shape.summaryHash ? "workspace" : "conversation");
+      invalidateShape(run, "Shape changed after its last saved revision; review the new revision.");
+      saveAndPublish(run);
+      throw new Error("Shape changed after its last saved revision. Review and approve the new revision.");
+    }
+    run.approvals.shape = {
+      summaryRevision: shape.summaryRevision,
+      conversationRevision: shape.conversationRevision,
+      summaryPath: shape.revisions.at(-1).summaryPath,
+      conversationPath: shape.revisions.at(-1).conversationPath,
+      approvedAt: nowIso(),
+    };
+    run.phase = "spec";
+    run.status = "spec_required";
+    addRunEvent(run, `Shape revision ${shape.summaryRevision} approved; Spec is now available.`);
     return saveAndPublish(run);
   }
 
   function list() {
+    let reconciled = false;
+    for (const run of runs.values()) reconciled = reconcileApprovedShape(run) || reconciled;
+    if (reconciled) managedRunPersistenceService.save();
     return Array.from(runs.values())
       .filter((run) => !run.archived)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -222,7 +375,9 @@ function createManagedRunService({
   }
 
   function get(runId) {
-    return summarizeRun(requireRun(runId));
+    const run = requireRun(runId);
+    if (reconcileApprovedShape(run)) managedRunPersistenceService.save();
+    return summarizeRun(run);
   }
 
   function getWorkerDetail(runId, workerId) {
@@ -527,6 +682,7 @@ function createManagedRunService({
   return {
     accept,
     approvePlan,
+    approveShape,
     archive,
     cancel,
     create,
@@ -535,10 +691,12 @@ function createManagedRunService({
     getWorkerDetail,
     inspectRepository,
     list,
+    linkShapeSession,
     openFile,
     pause,
     retry,
     savePlan,
+    saveShape,
     setTaskStatus,
     start,
     updateRouting,

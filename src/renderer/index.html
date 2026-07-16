@@ -420,6 +420,14 @@
           </div>
 
           <div class="managed-run-supporting-panels">
+            <details id="managed-run-shape-panel" class="managed-run-card managed-run-plan-card" open>
+              <summary>Shape conversation and approval</summary>
+              <div class="panel-header compact"><div><p class="eyebrow">Human Gate</p><h2>Shape</h2></div><p id="managed-run-shape-meta" class="status-meta"></p></div>
+              <textarea id="managed-run-shape-editor" class="managed-run-plan-editor" spellcheck="true" placeholder="Capture the shared understanding and decisions from the Shape conversation."></textarea>
+              <p class="status-meta">The canonical editable file is <code>shape/summary.md</code> in the Run Workspace. Saving snapshots both it and the linked conversation.</p>
+              <div class="button-row"><button type="button" id="managed-run-save-shape" class="secondary">Save Shape revision</button><button type="button" id="managed-run-approve-shape">Approve Shape</button></div>
+            </details>
+
             <details id="managed-run-plan-panel" class="managed-run-card managed-run-plan-card">
               <summary>Plan and worker routing</summary>
               <div class="panel-header compact">

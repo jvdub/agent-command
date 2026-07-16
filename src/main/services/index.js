@@ -263,6 +263,7 @@ function registerAllServices(registry) {
       tokenLedgerService,
       workspaceFileService,
       managedRunWorkspaceService,
+      sessionService,
     }) =>
       createManagedRunService({
         runs: managedRuns,
@@ -273,6 +274,7 @@ function registerAllServices(registry) {
         tokenLedgerService,
         workspaceFileService,
         managedRunWorkspaceService,
+        sessionService,
         publishRun: (run) =>
           ptyRuntime.windowManager.sendToRenderer(
             IPC_CHANNELS.events.managedRunChanged,
@@ -288,6 +290,7 @@ function registerAllServices(registry) {
       "tokenLedgerService",
       "workspaceFileService",
       "managedRunWorkspaceService",
+      "sessionService",
     ],
   );
 }

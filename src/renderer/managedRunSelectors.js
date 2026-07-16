@@ -71,7 +71,9 @@ function runProgress(run) {
 function currentAction(run) {
   if (!run) return "Select a Managed Run.";
   if (isNativeWorkflow(run) && run.phase === "shape") {
-    return "Shape the idea and confirm shared understanding.";
+    if (run.status === "shaping") return "Continue the active Shape conversation, then save its shared understanding.";
+    if (run.status === "shape_approval_required") return "Review and approve the saved Shape revision.";
+    return "Open a persistent Shape conversation.";
   }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
   if (run.status === "replan_required") return "Revise the plan before execution can continue.";
@@ -109,7 +111,11 @@ function journeyStations(run) {
       title,
       order: index + 1,
       status: index < currentIndex ? "succeeded" : index === currentIndex ? "active" : "locked",
-      phase: index < currentIndex ? "approved" : index === currentIndex ? "current phase" : "locked",
+      phase: index < currentIndex
+        ? "approved"
+        : index === currentIndex && id === "shape"
+          ? ({ shape_required: "ready to shape", shaping: "conversation active", shape_approval_required: "approval required" }[run.status] || "current phase")
+          : index === currentIndex ? "current phase" : "locked",
       dependencies: index === 0 ? [] : [phases[index - 1][0]],
       attempts: 0,
       segments: [],
@@ -155,6 +161,9 @@ function attentionItems(run) {
     label,
     ...target,
   });
+  if (run.status === "shape_approval_required") {
+    add("shape_approval_required", "action", "Shape awaiting approval", { taskId: "shape", section: "shape" });
+  }
   if (run.status === "approval_required") {
     add("approval_required", "action", "Plan awaiting approval", { section: "plan" });
   }

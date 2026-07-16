@@ -39,12 +39,12 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await expect(window.locator("#managed-run-view")).toBeVisible();
     const baseRevision = git(sourceRepo, ["rev-parse", "HEAD"]);
     await expect(window.locator("#managed-run-current-action")).toContainText(
-      "Shape the idea",
+      "Open a persistent Shape conversation",
     );
     await expect(window.locator("#managed-run-view-meta")).toContainText("target main");
     await expect(window.locator("#managed-run-view-meta")).toContainText(baseRevision.slice(0, 12));
     await expect(window.locator("#managed-run-journey [data-task-id]")).toHaveCount(5);
-    await expect(window.locator('[data-task-id="shape"]')).toContainText("current phase");
+    await expect(window.locator('[data-task-id="shape"]')).toContainText("ready to shape");
     await expect(window.locator('[data-task-id="spec"]')).toContainText("locked");
     await expect(window.locator("#managed-run-shape")).toHaveText("Open Shape");
     await expect(window.locator("#managed-run-generate-plan")).toBeHidden();
@@ -63,6 +63,39 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
       .toMatch(/^\.agentic\/$/m);
     const runDirectories = fs.readdirSync(path.join(sourceRepo, ".agentic", "runs"));
     expect(runDirectories).toHaveLength(1);
+
+    await window.evaluate(async () => {
+      const context = await window.agentic.app.getContext();
+      const listed = await window.agentic.managedRuns.list();
+      const run = listed.runs[0];
+      const started = await window.agentic.sessions.start({
+        label: `Shape: ${run.title}`, command: context.defaultCommand,
+        argsArray: [], cwd: run.worktreePath, cols: 120, rows: 36,
+      });
+      return window.agentic.managedRuns.linkShapeSession(run.id, started.session.id);
+    });
+    await expect(window.locator('[data-task-id="shape"]')).toContainText("conversation active");
+    await window.locator("#managed-run-shape-editor").fill("# Shape\n\n## Decision\n\nUse native workers.\n");
+    await window.locator("#managed-run-save-shape").click();
+    await expect(window.locator('[data-task-id="shape"]')).toContainText("approval required");
+    await window.locator("#managed-run-approve-shape").click();
+    const shaped = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
+    expect(shaped.phase).toBe("spec");
+    expect(shaped.approvals.shape).toMatchObject({ summaryRevision: 1, conversationRevision: 1 });
+    await expect(window.locator('[data-task-id="shape"]')).toContainText("approved");
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("current phase");
+
+    const conversationPath = path.join(sourceRepo, ".agentic", "runs", runDirectories[0], "shape", "conversation-r1.txt");
+    expect(fs.existsSync(conversationPath)).toBe(true);
+
+    await window.locator("#managed-run-shape-editor").fill("# Shape\n\n## Decision\n\nUse a changed native worker boundary.\n");
+    await window.locator("#managed-run-save-shape").click();
+    const invalidated = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
+    expect(invalidated).toMatchObject({ phase: "shape", status: "shape_approval_required" });
+    expect(invalidated.approvals.shape).toBeNull();
+    expect(invalidated.artifacts.shape.summaryRevision).toBe(2);
+    await expect(window.locator('[data-task-id="shape"]')).toContainText("approval required");
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("locked");
   } finally {
     await electronApp.close();
   }

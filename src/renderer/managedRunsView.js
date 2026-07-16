@@ -36,6 +36,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     currentAction: document.querySelector("#managed-run-current-action"),
     progress: document.querySelector("#managed-run-progress"),
     planMeta: document.querySelector("#managed-run-plan-meta"),
+    shapePanel: document.querySelector("#managed-run-shape-panel"),
+    shapeMeta: document.querySelector("#managed-run-shape-meta"),
+    shapeEditor: document.querySelector("#managed-run-shape-editor"),
+    saveShape: document.querySelector("#managed-run-save-shape"),
+    approveShape: document.querySelector("#managed-run-approve-shape"),
     planPanel: document.querySelector("#managed-run-plan-panel"),
     planEditor: document.querySelector("#managed-run-plan-editor"),
     journey: document.querySelector("#managed-run-journey"),
@@ -73,6 +78,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let selectedWorkerId = null;
   let workerDetailState = "idle";
   let renderedPlanKey = "";
+  let renderedShapeKey = "";
   let journeyDrag = null;
 
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
@@ -210,6 +216,15 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.currentAction.textContent = currentAction(run);
     const progress = runProgress(run);
     elements.progress.textContent = `${progress.verified} of ${progress.total} tasks verified · ${progress.attempts} attempts · ${progress.retries} retries`;
+    const shape = run.artifacts?.shape;
+    elements.shapeMeta.textContent = shape?.summaryRevision
+      ? `Summary r${shape.summaryRevision} · conversation r${shape.conversationRevision}${run.approvals?.shape ? " · approved" : " · approval required"}`
+      : run.shapeSessionId ? "Conversation active · save a revision" : "Open Shape to begin";
+    const shapeKey = `${run.id}:${shape?.summaryRevision || 0}`;
+    if (shapeKey !== renderedShapeKey && document.activeElement !== elements.shapeEditor) {
+      elements.shapeEditor.value = shape?.summaryMarkdown || `# Shape\n\n## Idea\n\n${run.specification || ""}\n\n## Decisions\n\n`;
+      renderedShapeKey = shapeKey;
+    }
     elements.planMeta.textContent = run.plan ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}` : "No plan generated";
     if (!run.plan || run.approvedRevision !== run.planRevision) elements.planPanel.open = true;
     const planKey = `${run.id}:${run.planRevision}`;
@@ -235,6 +250,8 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.accept.disabled = run.finalVerification?.verdict !== "pass" || run.status !== "review_required";
     elements.archive.disabled = active;
     elements.shape.disabled = active;
+    elements.saveShape.disabled = !run.shapeSessionId || !elements.shapeEditor.value.trim();
+    elements.approveShape.disabled = run.status !== "shape_approval_required";
     elements.takeover.disabled = active;
     const nativeWorkflow = isNativeWorkflow(run);
     elements.generatePlan.hidden = nativeWorkflow;
@@ -245,6 +262,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.accept.hidden = nativeWorkflow;
     elements.takeover.hidden = nativeWorkflow;
     elements.planPanel.hidden = nativeWorkflow;
+    elements.shapePanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
     elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
   }
@@ -436,6 +454,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       void perform("Task overridden", () => agenticApp.setManagedRunTaskStatus(activeRunId, task.id, select.value));
     });
     elements.generatePlan.addEventListener("click", () => perform("Planning", () => agenticApp.generateManagedRunPlan(activeRunId)));
+    function shapePrompt(run) {
+      return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. The user will save and approve the human-readable Shape summary in ${run.runWorkspacePath}/shape/summary.md.`;
+    }
     async function launchInteractive(role) {
       const run = activeRun(); if (!run) return;
       const routing = run.routing?.[role] || {};
@@ -443,10 +464,20 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
         label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
         command: routing.provider || "codex", argsArray: routing.model ? ["--model", routing.model] : [], cwd: run.worktreePath || run.repoPath, cols: 120, rows: 36,
       }));
-      if (result?.session) await onSessionStarted?.(result.session);
+      if (result?.session) {
+        if (role === "planner") {
+          const linked = await perform("Linking Shape", () => agenticApp.linkManagedRunShapeSession(run.id, result.session.id));
+          if (!linked) return;
+          await agenticApp.writeToSession(result.session.id, `${shapePrompt(run)}\r`);
+        }
+        await onSessionStarted?.(result.session);
+      }
     }
     elements.shape.addEventListener("click", () => void launchInteractive("planner"));
     elements.takeover.addEventListener("click", () => void launchInteractive("implementer"));
+    elements.shapeEditor.addEventListener("input", () => { elements.saveShape.disabled = !activeRun()?.shapeSessionId || !elements.shapeEditor.value.trim(); });
+    elements.saveShape.addEventListener("click", () => perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, elements.shapeEditor.value)));
+    elements.approveShape.addEventListener("click", () => perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId)));
     elements.planEditor.addEventListener("input", () => { elements.savePlan.disabled = !elements.planEditor.value.trim(); });
     elements.savePlan.addEventListener("click", () => perform("Saving", () => agenticApp.saveManagedRunPlan(activeRunId, markdownToPlan(elements.planEditor.value))));
     elements.approvePlan.addEventListener("click", () => perform("Approved", () => agenticApp.approveManagedRunPlan(activeRunId)));
