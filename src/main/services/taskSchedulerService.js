@@ -19,6 +19,8 @@ const VERIFICATION_OUTCOME_SCHEMA = {
         "pass",
         "fix_required",
         "plan_defect",
+        "spec_defect",
+        "ticket_defect",
         "human_decision_required",
         "environment_blocked",
       ],
@@ -97,8 +99,8 @@ Reviewed change-set fingerprint: ${task.attempts?.at(-1)?.reviewedDiff?.fingerpr
 
 ${SAFETY_RULES}
 
-Inspect the current diff and relevant surrounding code. Run appropriate checks without editing. Return exactly one JSON object:
-{"verdict":"pass|fix_required|plan_defect|human_decision_required|environment_blocked","spec":{"verdict":"pass|fail","findings":["finding"]},"standards":{"verdict":"pass|fail","findings":["finding"]},"summary":"evidence-based result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"],"recommendedTier":"economy|standard|premium|null"}`;
+Inspect the current diff and relevant surrounding code. Run appropriate checks without editing. Use spec_defect when the approved behavior or acceptance rules are wrong, ticket_defect when decomposition or dependencies are wrong, plan_defect as the legacy Ticket-planning equivalent, and human_decision_required when the mission itself needs a human product decision. Return exactly one JSON object:
+{"verdict":"pass|fix_required|spec_defect|ticket_defect|plan_defect|human_decision_required|environment_blocked","spec":{"verdict":"pass|fail","findings":["finding"]},"standards":{"verdict":"pass|fail","findings":["finding"]},"summary":"evidence-based result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"],"recommendedTier":"economy|standard|premium|null"}`;
 }
 
 function integrationPrompt(run) {
@@ -117,7 +119,7 @@ Final verification guidance: ${run.workflowKind === "native" ? "Verify the integ
 ${SAFETY_RULES}
 
 Inspect the complete diff, check cross-task interactions, and run appropriate broader checks. Return exactly one JSON object:
-{"verdict":"pass|fix_required|plan_defect|human_decision_required|environment_blocked","summary":"mission-wide result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"]}`;
+{"verdict":"pass|fix_required|spec_defect|ticket_defect|plan_defect|human_decision_required|environment_blocked","summary":"mission-wide result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"]}`;
 }
 
 function createTaskSchedulerService({
@@ -456,6 +458,8 @@ function createTaskSchedulerService({
       "pass",
       "fix_required",
       "plan_defect",
+      "spec_defect",
+      "ticket_defect",
       "human_decision_required",
       "environment_blocked",
     ]);
@@ -555,15 +559,23 @@ function createTaskSchedulerService({
       persistAndPublish(run);
       return;
     }
-    if (outcome.verdict === "plan_defect") {
-      task.status = "replan_required";
-      run.status = "replan_required";
-      addRunEvent(run, `${task.id} exposed a plan defect.`, "warning", {
+    if (["plan_defect", "spec_defect", "ticket_defect", "human_decision_required"].includes(outcome.verdict)) {
+      const targetPhase = outcome.verdict === "human_decision_required"
+        ? "shape"
+        : outcome.verdict === "spec_defect" ? "spec" : "tickets";
+      task.status = "revision_required";
+      run.phase = targetPhase;
+      run.status = `${targetPhase}_revision_required`;
+      run.revisionRequest = {
+        targetPhase,
+        verdict: outcome.verdict,
         taskId: task.id,
-        attemptNumber,
-        workerId: verification.id,
-        phase: "verification",
-        verdict: "plan_defect",
+        reason: String(outcome.feedback || outcome.summary || "Upstream revision required."),
+        requestedAt: new Date().toISOString(),
+      };
+      addRunEvent(run, `${task.id} requires returning to ${targetPhase}.`, "warning", {
+        taskId: task.id, attemptNumber, workerId: verification.id,
+        phase: "verification", verdict: outcome.verdict, targetPhase,
       });
       persistAndPublish(run);
       return;

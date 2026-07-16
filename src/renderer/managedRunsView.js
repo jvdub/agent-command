@@ -51,6 +51,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     generateTickets: document.querySelector("#managed-run-generate-tickets"),
     saveTickets: document.querySelector("#managed-run-save-tickets"),
     approveTickets: document.querySelector("#managed-run-approve-tickets"),
+    ticketReconciliation: document.querySelector("#managed-run-ticket-reconciliation"),
     shapePanel: document.querySelector("#managed-run-shape-panel"),
     shapeMeta: document.querySelector("#managed-run-shape-meta"),
     shapeEditor: document.querySelector("#managed-run-shape-editor"),
@@ -278,6 +279,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     const ticketsKey = `${run.id}:${tickets?.revision || 0}`;
     if (ticketsKey !== renderedTicketsKey && document.activeElement !== elements.ticketsEditor) { elements.ticketsEditor.value = tickets?.markdown || ""; renderedTicketsKey = ticketsKey; }
     elements.previousTickets.textContent = tickets?.previousRevisionMarkdown || tickets?.previousApprovedMarkdown || "No previous revision.";
+    const reconciliation = run.revisionReconciliation;
+    elements.ticketReconciliation.innerHTML = reconciliation?.entries?.length ? `<div class="managed-run-reconciliation"><h4>Preserved verified commits</h4>${reconciliation.entries.map((entry) => {
+      const options = (run.artifacts?.tickets?.projection || []).map((ticket) => `<option value="${escapeHtml(ticket.id)}" ${entry.reversalTicketId === ticket.id ? "selected" : ""}>${escapeHtml(ticket.id)} — ${escapeHtml(ticket.title)}</option>`).join("");
+      return `<div class="managed-run-reconciliation-entry"><p><strong>${escapeHtml(entry.ticketId)}</strong> · ${escapeHtml(entry.compatibility)} · commit ${escapeHtml(entry.commit?.revision?.slice(0, 12) || "recorded")}</p><button type="button" class="secondary" data-revision-retain="${escapeHtml(entry.ticketId)}">${entry.disposition === "retain" ? "Retained" : "Retain"}</button><select data-reversal-for="${escapeHtml(entry.ticketId)}"><option value="">Choose reversal Ticket</option>${options}</select><button type="button" class="secondary" data-revision-reverse="${escapeHtml(entry.ticketId)}">${entry.disposition === "reverse" ? "Reversal selected" : "Reverse with Ticket"}</button></div>`;
+    }).join("")}</div>` : "";
     elements.planMeta.textContent = run.plan ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}` : "No plan generated";
     if (!run.plan || run.approvedRevision !== run.planRevision) elements.planPanel.open = true;
     const planKey = `${run.id}:${run.planRevision}`;
@@ -565,6 +571,16 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generateTickets.addEventListener("click", () => perform("Generating Tickets", () => agenticApp.generateManagedRunTickets(activeRunId)));
     elements.saveTickets.addEventListener("click", () => perform("Tickets saved", () => agenticApp.saveManagedRunTickets(activeRunId, elements.ticketsEditor.value)));
     elements.approveTickets.addEventListener("click", () => perform("Tickets approved", () => agenticApp.approveManagedRunTickets(activeRunId)));
+    elements.ticketReconciliation.addEventListener("click", (event) => {
+      const retain = event.target.closest("[data-revision-retain]");
+      if (retain) void perform("Commit retained", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, retain.dataset.revisionRetain, "retain"));
+      const reverse = event.target.closest("[data-revision-reverse]");
+      if (reverse) {
+        const ticketId = reverse.dataset.revisionReverse;
+        const reversalTicketId = elements.ticketReconciliation.querySelector(`[data-reversal-for="${CSS.escape(ticketId)}"]`)?.value;
+        void perform("Reversal selected", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, ticketId, "reverse", reversalTicketId));
+      }
+    });
     elements.saveShape.addEventListener("click", () => perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, elements.shapeEditor.value)));
     elements.saveDomainProposal.addEventListener("click", () => perform("Domain proposal saved", () => agenticApp.saveManagedRunShapeDomainProposal(activeRunId, elements.domainProposal.value)));
     elements.refreshDomainDiff.addEventListener("click", () => perform("Documentation diff refreshed", () => agenticApp.refreshManagedRunShapeDocumentation(activeRunId, { createProjectDocumentation: elements.createDomainDocs.checked })));

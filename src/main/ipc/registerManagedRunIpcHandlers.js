@@ -61,6 +61,11 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.approveManagedRunTickets, {
     handler: async (_event, runId) => managedRunService.approveTickets(runId),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.decideManagedRunRevisionCommit, {
+    handler: async (_event, payload) => managedRunService.decideRevisionCommit(
+      payload?.runId, payload?.ticketId, payload?.disposition, payload?.reversalTicketId,
+    ),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.generateManagedRunPlan, {
     handler: async (_event, runId) => managedRunService.generatePlan(runId),
   });

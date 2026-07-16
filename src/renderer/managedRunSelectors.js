@@ -125,6 +125,21 @@ function journeyStations(run) {
       ["accept", "Accept"],
     ];
     const currentIndex = Math.max(0, phases.findIndex(([id]) => id === run.phase));
+    const preservedStations = (run.preservedTicketCommits || []).map((ticket, index) => ({
+      id: `preserved-${ticket.id}`, kind: "preserved-task", title: `${ticket.title || ticket.id} (preserved)`,
+      order: index + 3, status: "preserved", phase: `verified commit ${ticket.commit?.revision?.slice(0, 12) || "recorded"}`,
+      dependencies: [], attempts: ticket.evidence?.length || 0, segments: [],
+    }));
+    if (!run.approvedTicketsSnapshot?.tickets?.length && preservedStations.length) {
+      return [
+        { id: "shape", kind: "workflow-phase", title: "Shape", order: 1, status: run.phase === "shape" ? "active" : "succeeded", phase: run.phase === "shape" ? "revision required" : "approved", dependencies: [], attempts: 0, segments: [] },
+        { id: "spec", kind: "workflow-phase", title: "Spec", order: 2, status: run.phase === "spec" ? "active" : "succeeded", phase: run.phase === "spec" ? "revision required" : "approved", dependencies: ["shape"], attempts: 0, segments: [] },
+        ...preservedStations,
+        { id: "tickets", kind: "workflow-phase", title: "Tickets", order: preservedStations.length + 3, status: run.phase === "tickets" ? "active" : "locked", phase: run.phase === "tickets" ? "replacement graph · reconciliation required" : "locked", dependencies: ["spec"], attempts: 0, segments: [] },
+        { id: "implement", kind: "workflow-phase", title: "Implement", order: preservedStations.length + 4, status: "locked", phase: "awaiting revised approvals", dependencies: ["tickets"], attempts: 0, segments: [] },
+        { id: "accept", kind: "workflow-phase", title: "Accept", order: preservedStations.length + 5, status: "locked", phase: "locked", dependencies: ["implement"], attempts: 0, segments: [] },
+      ];
+    }
     if (run.approvedTicketsSnapshot?.tickets?.length) {
       const ticketStations = run.approvedTicketsSnapshot.tickets.map((ticket, index) => {
         const runtime = run.tasks?.find((item) => item.id === ticket.id);

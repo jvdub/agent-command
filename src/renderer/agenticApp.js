@@ -114,6 +114,8 @@ export const agenticApp = Object.freeze({
   generateManagedRunTickets: (runId) => call("managedRuns", "generateTickets", runId),
   saveManagedRunTickets: (runId, markdown) => call("managedRuns", "saveTickets", runId, markdown),
   approveManagedRunTickets: (runId) => call("managedRuns", "approveTickets", runId),
+  decideManagedRunRevisionCommit: (runId, ticketId, disposition, reversalTicketId = null) =>
+    call("managedRuns", "decideRevisionCommit", runId, ticketId, disposition, reversalTicketId),
   generateManagedRunPlan: (runId) =>
     call("managedRuns", "generatePlan", runId),
   saveManagedRunPlan: (runId, plan) =>

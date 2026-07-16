@@ -15,6 +15,7 @@ const {
 } = require("./managedRunUtils");
 const { createManagedRunSpecArtifactService, specPrompt } = require("./managedRunSpecArtifactService");
 const { createManagedRunTicketsArtifactService, ticketsPrompt, validateTicketsMarkdown } = require("./managedRunTicketsArtifactService");
+const { createManagedRunRevisionService } = require("./managedRunRevisionService");
 
 const PLANNING_SAFETY = `Safety rules:
 - Inspect the repository but do not modify files.
@@ -86,6 +87,7 @@ function createManagedRunService({
 }) {
   const specArtifactService = createManagedRunSpecArtifactService();
   const ticketsArtifactService = createManagedRunTicketsArtifactService();
+  const revisionService = createManagedRunRevisionService();
 
   function requireRun(runId) {
     const run = runs.get(runId);
@@ -365,7 +367,7 @@ function createManagedRunService({
     run.approvals.shape = null;
     if (run.artifacts?.spec) run.artifacts.spec.stale = true;
     run.approvals.spec = null;
-    invalidateDownstreamFromSpec(run);
+    invalidateDownstreamFromSpec(run, "shape");
     run.phase = "shape";
     run.status = "shape_approval_required";
     addRunEvent(run, message, "warning");
@@ -473,12 +475,13 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
-  function invalidateDownstreamFromSpec(run) {
+  function invalidateDownstreamFromSpec(run, targetPhase = "spec") {
     for (const phase of ["tickets", "implement", "accept"]) {
       if (run.artifacts?.[phase]) run.artifacts[phase].stale = true;
       run.approvals[phase] = null;
     }
-    run.tasks = [];
+    revisionService.beginRevision(run, targetPhase, `${targetPhase === "shape" ? "Shape" : "Spec"} revision invalidated the approved Ticket graph.`);
+    run.approvedTicketsSnapshot = null;
     run.finalVerification = null;
   }
 
@@ -594,9 +597,12 @@ function createManagedRunService({
   }
 
   function persistTicketsRevision(run, markdown, source) {
+    revisionService.beginRevision(run, "tickets", "Ticket graph revision replaced the approved execution snapshot.");
     const artifact = ticketsArtifactService.persist(run, markdown, source);
     run.approvals.tickets = null; run.approvedTicketsSnapshot = null;
-    run.tasks = []; run.finalVerification = null; run.phase = "tickets"; run.status = "tickets_approval_required";
+    artifact.projection = validateTicketsMarkdown(markdown).tickets;
+    revisionService.reconcile(run, artifact.projection);
+    run.finalVerification = null; run.phase = "tickets"; run.status = "tickets_approval_required";
     return artifact;
   }
 
@@ -644,10 +650,19 @@ function createManagedRunService({
       persistTicketsRevision(run, current, "workspace"); addRunEvent(run, "Tickets changed in the Run Workspace; the new revision requires approval.", "warning");
       saveAndPublish(run); throw new Error("Tickets changed in the Run Workspace. Review and approve the new revision.");
     }
-    artifact.projection = validateTicketsMarkdown(current).tickets; artifact.approvedRevision = artifact.revision; artifact.previousApprovedMarkdown = artifact.markdown;
+    artifact.projection = validateTicketsMarkdown(current).tickets;
+    revisionService.reconcile(run, artifact.projection);
+    revisionService.assertResolved(run);
+    artifact.approvedRevision = artifact.revision; artifact.previousApprovedMarkdown = artifact.markdown;
     run.approvedTicketsSnapshot = ticketsArtifactService.freeze(run);
+    run.approvedTicketsSnapshot.lineage = run.revisionReconciliation ? JSON.parse(JSON.stringify(run.revisionReconciliation)) : null;
     run.approvals.tickets = { revision: artifact.revision, specRevision: run.approvals.spec.revision, approvedAt: run.approvedTicketsSnapshot.approvedAt, action: "approved", path: artifact.revisions.at(-1).path };
-    run.tasks = artifact.projection.map((ticket) => ({ ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes, status: "planned", attempts: [] }));
+    const retained = new Map((run.revisionReconciliation?.entries || []).filter((entry) => entry.disposition === "retain").map((entry) => [entry.ticketId, entry]));
+    const historyTasks = run.executionHistory?.at(-1)?.tasks || [];
+    run.tasks = artifact.projection.map((ticket) => {
+      const preserved = retained.has(ticket.id) ? historyTasks.find((task) => task.id === ticket.id && task.status === "succeeded") : null;
+      return preserved ? { ...preserved, ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes, status: "succeeded", preservedFromRevision: run.revisionReconciliation.previousSnapshotRevision } : { ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes, status: "planned", attempts: [] };
+    });
     run.phase = "implement"; run.status = "implement_ready";
     addRunEvent(run, `Ticket graph revision ${artifact.revision} approved; its exact execution projection is frozen.`);
     const summary = saveAndPublish(run);
@@ -657,6 +672,13 @@ function createManagedRunService({
       saveAndPublish(run);
     });
     return summary;
+  }
+
+  function decideRevisionCommit(runId, ticketId, disposition, reversalTicketId = null) {
+    const run = requireRun(runId);
+    revisionService.decide(run, ticketId, disposition, reversalTicketId);
+    addRunEvent(run, `${ticketId} preserved commit will be ${disposition === "retain" ? "retained" : `reversed by ${reversalTicketId}`}.`, "warning");
+    return saveAndPublish(run);
   }
 
   function list() {
@@ -991,6 +1013,7 @@ function createManagedRunService({
     archive,
     cancel,
     create,
+    decideRevisionCommit,
     generatePlan,
     generateSpec,
     generateTickets,

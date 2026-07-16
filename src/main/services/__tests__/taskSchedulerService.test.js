@@ -139,6 +139,25 @@ const pass = JSON.stringify({
 });
 
 describe("Managed Run deterministic scheduler", () => {
+  test("routes a Spec defect back to the earliest authoring phase", async () => {
+    const run = makeRun();
+    const defect = JSON.stringify({
+      verdict: "spec_defect", summary: "The acceptance rule is contradictory",
+      feedback: "Revise the Spec", checks: [], failedCriteria: ["Behavior works"], risks: [],
+    });
+    const { scheduler } = fakeScheduler([
+      { stdout: '{"summary":"implemented","changedFiles":[],"checks":["manual"],"risks":[]}' },
+      { stdout: defect },
+    ]);
+
+    await scheduler.autoRun(run);
+
+    expect(run.phase).toBe("spec");
+    expect(run.status).toBe("spec_revision_required");
+    expect(run.tasks[0].status).toBe("revision_required");
+    expect(run.revisionRequest).toMatchObject({ targetPhase: "spec", verdict: "spec_defect" });
+  });
+
   test("implements, independently verifies, and runs final verification", async () => {
     const run = makeRun();
     const { scheduler } = fakeScheduler([

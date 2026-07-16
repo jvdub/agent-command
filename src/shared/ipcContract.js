@@ -42,6 +42,7 @@ const IPC_CHANNELS = Object.freeze({
     generateManagedRunTickets: "managed-run:generate-tickets",
     saveManagedRunTickets: "managed-run:save-tickets",
     approveManagedRunTickets: "managed-run:approve-tickets",
+    decideManagedRunRevisionCommit: "managed-run:decide-revision-commit",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",
