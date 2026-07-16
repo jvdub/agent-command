@@ -21,6 +21,10 @@ function taskPhase(task) {
     succeeded: "verified",
     failed: "failed",
     cancelled: "cancelled",
+    external_edit_detected: "paused · external edits",
+    implementation_environment_blocked: "implementation blocked",
+    verification_environment_blocked: "verification blocked",
+    verification_malformed: "verification malformed",
   };
   return phases[task?.status] || prettyStatus(task?.status);
 }
@@ -102,7 +106,7 @@ function currentAction(run) {
     run.tasks?.find((task) => ["implementing", "awaiting_verification", "verifying"].includes(task.status));
   if (activeTask) return `${activeTask.id}: ${taskPhase(activeTask)}.`;
   const attentionTask = run.tasks?.find((task) =>
-    ["human_review_required", "replan_required", "failed"].includes(task.status));
+    ["human_review_required", "replan_required", "failed", "external_edit_detected", "implementation_environment_blocked", "verification_environment_blocked", "verification_malformed"].includes(task.status));
   if (attentionTask) return `${attentionTask.id}: ${taskPhase(attentionTask)}.`;
   const next = run.tasks?.find((task) => ["planned", "retry_required"].includes(task.status));
   if (next) return `${next.id}: ${taskPhase(next)}.`;
@@ -129,10 +133,17 @@ function journeyStations(run) {
         return {
           id: ticket.id, kind: "task", title: ticket.title, order: index + 3,
           status: ready ? "ready" : runtime?.status || "blocked_by_dependency",
-          phase: ready ? "executable frontier" : runtime?.status === "succeeded" ? "verified" : `blocked by ${ticket.dependencies.filter((id) => run.tasks?.find((item) => item.id === id)?.status !== "succeeded").join(", ")}`,
+          phase: ready
+            ? "executable frontier"
+            : runtime?.status === "succeeded"
+              ? "verified"
+              : ["planned", "blocked_by_dependency"].includes(runtime?.status)
+                ? `blocked by ${ticket.dependencies.filter((id) => run.tasks?.find((item) => item.id === id)?.status !== "succeeded").join(", ")}`
+                : taskPhase(runtime),
           dependencies: ticket.dependencies.length ? [...ticket.dependencies] : ["spec"],
           attempts: runtime?.attempts?.length || 0, maxAttempts: ticket.maxAttempts,
           segments: attemptSegments(runtime),
+          feedback: runtime?.attempts?.at(-1)?.verification?.feedback || "",
         };
       });
       return [
@@ -216,7 +227,7 @@ function attentionItems(run) {
   for (const task of run.tasks || []) {
     if (task.status === "replan_required") {
       add("replan_required", "critical", `${task.id} requires replanning`, { taskId: task.id, section: "approved-task" });
-    } else if (["human_review_required", "failed"].includes(task.status)) {
+    } else if (["human_review_required", "failed", "external_edit_detected", "implementation_environment_blocked", "verification_environment_blocked", "verification_malformed"].includes(task.status)) {
       add("human_review_required", "warning", `${task.id} requires review`, {
         taskId: task.id,
         attemptNumber: task.attempts?.at(-1)?.number,

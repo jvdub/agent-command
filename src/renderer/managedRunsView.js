@@ -319,9 +319,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.savePlan.hidden = nativeWorkflow;
     elements.approvePlan.hidden = nativeWorkflow;
     elements.start.hidden = nativeWorkflow && run.phase !== "implement";
-    elements.pause.hidden = nativeWorkflow;
+    elements.pause.hidden = nativeWorkflow && run.phase !== "implement";
     elements.accept.hidden = nativeWorkflow;
-    elements.takeover.hidden = nativeWorkflow;
+    elements.takeover.hidden = nativeWorkflow && !["paused", "review_required"].includes(run.status);
     elements.planPanel.hidden = nativeWorkflow;
     elements.shapePanel.hidden = !nativeWorkflow;
     elements.specPanel.hidden = !nativeWorkflow;
@@ -503,7 +503,21 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
         if (detail?.prompt) { await agenticApp.writeClipboardText(detail.prompt); setStatus("Copied", "Exact worker prompt copied"); }
       }
       const retry = event.target.closest("[data-retry-task]");
-      if (retry) void perform("Retrying", () => agenticApp.retryManagedRunTask(activeRunId, retry.dataset.retryTask));
+      if (retry) return void perform("Retrying", () => agenticApp.retryManagedRunTask(activeRunId, retry.dataset.retryTask));
+      const budget = event.target.closest("[data-save-ticket-budget]");
+      if (budget) {
+        const input = elements.inspector.querySelector(`[data-ticket-budget="${budget.dataset.saveTicketBudget}"]`);
+        return void perform("Budget saved", () => agenticApp.updateManagedRunTicketBudget(activeRunId, budget.dataset.saveTicketBudget, Number(input?.value)));
+      }
+      const recovery = event.target.closest("[data-ticket-recovery]");
+      if (recovery) {
+        const action = recovery.dataset.ticketRecovery;
+        const confirmed = action !== "restore_verified_base" || window.confirm("Discard the entire uncommitted failed change set and restore the previous verified Ticket Commit? This requires separate confirmation.");
+        if (!confirmed) return;
+        void perform("Ticket recovery", () => agenticApp.recoverManagedRunTicket(activeRunId, recovery.dataset.ticketId, action, confirmed)).then((result) => {
+          if (result && action === "takeover") void launchInteractive("implementer");
+        });
+      }
     });
     elements.inspector.addEventListener("change", (event) => {
       const select = event.target.closest("[data-task-status]");

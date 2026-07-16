@@ -81,8 +81,13 @@ function registerHandlers(registry, services) {
     handler: async (_event, runId) => managedRunService.cancel(runId),
   });
   registry.register("managed-runs", IPC_CHANNELS.invoke.retryManagedRunTask, {
-    handler: async (_event, payload) =>
-      managedRunService.retry(payload?.runId, payload?.taskId || null),
+    handler: async (_event, payload) => managedRunService.retry(payload?.runId, payload?.taskId || null),
+  });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.updateManagedRunTicketBudget, {
+    handler: async (_event, payload) => managedRunService.updateTicketAttemptBudget(payload?.runId, payload?.taskId, payload?.maxAttempts),
+  });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.recoverManagedRunTicket, {
+    handler: async (_event, payload) => managedRunService.recoverTicket(payload?.runId, payload?.taskId, payload?.action, payload?.confirmed),
   });
   registry.register("managed-runs", IPC_CHANNELS.invoke.updateManagedRunRouting, {
     handler: async (_event, payload) =>

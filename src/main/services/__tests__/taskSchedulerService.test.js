@@ -92,7 +92,7 @@ function fakeScheduler(outputs, localOutcomes = []) {
           finishedAt: "2026-01-01T00:00:01.000Z",
           usage: configured.usage || {},
           git: { status: "", diffStat: "", changedFiles: [] },
-        }),
+        }).then((result) => { configured.afterResolve?.(); return result; }),
       };
     }),
   };
@@ -277,4 +277,74 @@ test("a native frontier Ticket is implemented, verified on two axes, and committ
   expect(git(["show", "--pretty=format:", "--name-only", "HEAD"])).toBe("slice.txt");
   expect(git(["rev-list", "--count", `${baseRevision}..HEAD`])).toBe("1");
   expect(workerProcessService.run.mock.calls.map((call) => call[0].launch.permissionMode)).toEqual(["workspace-write", "read-only"]);
+});
+
+
+function nativeRepositoryRun(taskOverrides = []) {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "native-chain-"));
+  const git = (args) => execFileSync("git", ["-c", `safe.directory=${cwd}`, ...args], { cwd, encoding: "utf8" }).trim();
+  git(["init", "--initial-branch=main"]); git(["config", "user.name", "Ticket Test"]); git(["config", "user.email", "ticket@example.com"]);
+  fs.writeFileSync(path.join(cwd, "base.txt"), "base\n"); git(["add", "base.txt"]); git(["commit", "-m", "Initial commit"]);
+  const run = makeRun();
+  Object.assign(run, { workflowKind: "native", worktreePath: cwd, repoPath: cwd, runWorkspacePath: fs.mkdtempSync(path.join(os.tmpdir(), "native-chain-evidence-")), baseRevision: git(["rev-parse", "HEAD"]), phase: "implement", status: "running", specification: "Deliver dependent slices", approvals: { spec: { revision: 1 } }, approvedTicketsSnapshot: { revision: 1 }, artifacts: { spec: { markdown: "# Spec\n\n## Testing Decisions\nExisting service seam" }, shape: { domain: { canonicalTerms: ["Ticket Commit"] } } } });
+  run.tasks = taskOverrides.map((override, index) => ({ id: `ticket-${index + 1}`, title: `Deliver slice ${index + 1}`, objective: `Deliver slice ${index + 1}`, successCriteria: ["Visible"], dependencies: index ? [`ticket-${index}`] : [], relevantScope: [], contextNotes: [], verificationGuidance: [], testSeams: ["service"], tddPolicy: "test-first", tddException: "None", implementationTier: "standard", verificationTier: "standard", maxAttempts: 3, status: "planned", attempts: [], ...override }));
+  return { cwd, git, run };
+}
+
+const implementationResult = (file, label) => JSON.stringify({ summary: label, changedFiles: [file], redEvidence: [`${label} red`], greenEvidence: [`${label} green`], alternativeVerificationEvidence: [], checks: ["focused: pass"], risks: [] });
+const axisPass = JSON.stringify({ verdict: "pass", spec: { verdict: "pass", findings: [] }, standards: { verdict: "pass", findings: [] }, summary: "passed", checks: ["focused: pass"], failedCriteria: [], feedback: "", risks: [] });
+const fixVerdict = (feedback) => JSON.stringify({ verdict: "fix_required", spec: { verdict: "fail", findings: [feedback] }, standards: { verdict: "pass", findings: [] }, summary: "fix", checks: [], failedCriteria: ["Visible"], feedback, risks: [] });
+
+test("executes a dependent Ticket chain serially from each previous Ticket Commit", async () => {
+  const { cwd, git, run } = nativeRepositoryRun([{}, {}]);
+  const { scheduler } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "first.txt"), "first\n"), stdout: implementationResult("first.txt", "first") }, { stdout: axisPass },
+    { effect: () => { if (!fs.existsSync(path.join(cwd, "first.txt"))) throw new Error("missing prior commit"); fs.writeFileSync(path.join(cwd, "second.txt"), "second\n"); }, stdout: implementationResult("second.txt", "second") }, { stdout: axisPass },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.tasks.map((task) => task.status)).toEqual(["succeeded", "succeeded"]);
+  expect(git(["rev-list", "--count", `${run.baseRevision}..HEAD`])).toBe("2");
+  expect(run.status).toBe("integration_required");
+});
+
+test("a fix-required verdict carries the diff into a fresh bounded attempt", async () => {
+  const { cwd, git, run } = nativeRepositoryRun([{}]);
+  const { scheduler } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "bad\n"), stdout: implementationResult("slice.txt", "first") }, { stdout: fixVerdict("replace bad output") },
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "good\n"), stdout: implementationResult("slice.txt", "retry") }, { stdout: axisPass },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.tasks[0].attempts).toHaveLength(2);
+  expect(run.tasks[0].status).toBe("succeeded");
+  expect(git(["show", "HEAD:slice.txt"])).toBe("good");
+});
+
+test("exhausted retries preserve the failed diff and evidence without a Ticket Commit", async () => {
+  const { cwd, git, run } = nativeRepositoryRun([{ maxAttempts: 3 }]);
+  const outputs = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) outputs.push(
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), `failed-${attempt}\n`), stdout: implementationResult("slice.txt", `attempt ${attempt}`) },
+    { stdout: fixVerdict(`failure ${attempt}`) },
+  );
+  const { scheduler } = fakeScheduler(outputs);
+  await scheduler.autoRun(run);
+  expect(run.tasks[0].status).toBe("human_review_required");
+  expect(run.tasks[0].attempts).toHaveLength(3);
+  expect(run.tasks[0].commit).toBeUndefined();
+  expect(fs.readFileSync(path.join(cwd, "slice.txt"), "utf8")).toBe("failed-3\n");
+  expect(git(["rev-parse", "HEAD"])).toBe(run.baseRevision);
+});
+
+
+test("unexpected edits between bounded attempts pause without staging or guessing", async () => {
+  const { cwd, git, run } = nativeRepositoryRun([{}]);
+  const { scheduler } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "worker diff\n"), stdout: implementationResult("slice.txt", "first") },
+    { stdout: fixVerdict("retry it"), afterResolve: () => fs.writeFileSync(path.join(cwd, "external.txt"), "unexpected\n") },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.status).toBe("paused");
+  expect(run.tasks[0].status).toBe("external_edit_detected");
+  expect(git(["status", "--porcelain"])).toContain("external.txt");
+  expect(git(["rev-parse", "HEAD"])).toBe(run.baseRevision);
 });

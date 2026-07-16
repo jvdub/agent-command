@@ -282,6 +282,7 @@ function registerAllServices(registry) {
       tokenLedgerService,
       workspaceFileService,
       managedRunWorkspaceService,
+      managedRunTicketExecutionService,
       sessionService,
       shapeDomainDocumentService,
     }) =>
@@ -294,6 +295,7 @@ function registerAllServices(registry) {
         tokenLedgerService,
         workspaceFileService,
         managedRunWorkspaceService,
+        managedRunTicketExecutionService,
         sessionService,
         shapeDomainDocumentService,
         publishRun: (run) =>
@@ -311,6 +313,7 @@ function registerAllServices(registry) {
       "tokenLedgerService",
       "workspaceFileService",
       "managedRunWorkspaceService",
+      "managedRunTicketExecutionService",
       "sessionService",
       "shapeDomainDocumentService",
     ],

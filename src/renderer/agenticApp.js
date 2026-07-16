@@ -123,8 +123,9 @@ export const agenticApp = Object.freeze({
   startManagedRun: (runId) => call("managedRuns", "start", runId),
   pauseManagedRun: (runId) => call("managedRuns", "pause", runId),
   cancelManagedRun: (runId) => call("managedRuns", "cancel", runId),
-  retryManagedRunTask: (runId, taskId) =>
-    call("managedRuns", "retryTask", runId, taskId),
+  retryManagedRunTask: (runId, taskId) => call("managedRuns", "retryTask", runId, taskId),
+  updateManagedRunTicketBudget: (runId, taskId, maxAttempts) => call("managedRuns", "updateTicketBudget", runId, taskId, maxAttempts),
+  recoverManagedRunTicket: (runId, taskId, action, confirmed = false) => call("managedRuns", "recoverTicket", runId, taskId, action, confirmed),
   updateManagedRunRouting: (runId, routing) =>
     call("managedRuns", "updateRouting", runId, routing),
   acceptManagedRun: (runId) => call("managedRuns", "accept", runId),

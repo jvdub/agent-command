@@ -71,6 +71,7 @@ function createManagedRunService({
   tokenLedgerService,
   workspaceFileService,
   managedRunWorkspaceService,
+  managedRunTicketExecutionService,
   sessionService,
   shapeDomainDocumentService = {
     inspect: () => ({ hasConvention: false, recognizedPaths: [], canonicalTerms: [] }),
@@ -797,7 +798,7 @@ function createManagedRunService({
   function start(runId) {
     const run = requireRun(runId);
     if (run.workflowKind === "native") {
-      if (run.phase !== "implement" || run.status !== "implement_ready" || !run.approvedTicketsSnapshot) throw new Error("An approved executable Ticket frontier is required.");
+      if (run.phase !== "implement" || !["implement_ready", "paused"].includes(run.status) || !run.approvedTicketsSnapshot) throw new Error("An approved executable Ticket frontier is required.");
       run.status = "running";
       addRunEvent(run, "The user started one executable frontier Ticket.");
       const summary = saveAndPublish(run);
@@ -836,6 +837,7 @@ function createManagedRunService({
 
   function pause(runId) {
     const run = requireRun(runId);
+    run.pauseRequested = workerProcessService.hasActiveWorker(run.id);
     run.status = "paused";
     addRunEvent(run, "Managed Run paused; the active worker may finish but no new worker will start.");
     return saveAndPublish(run);
@@ -857,14 +859,59 @@ function createManagedRunService({
           ["failed", "human_review_required", "replan_required"].includes(item.status),
         );
     if (!task) throw new Error("No task is available to retry.");
-    task.maxAttempts = Math.max(task.maxAttempts, task.attempts.length + 1);
+    if (run.workflowKind === "native" && task.attempts.length >= task.maxAttempts) throw new Error("Increase the Ticket attempt budget while paused before retrying.");
+    if (run.workflowKind !== "native") task.maxAttempts = Math.max(task.maxAttempts, task.attempts.length + 1);
     task.status = "retry_required";
     run.finalVerification = null;
-    run.status = "ready";
+    run.status = run.workflowKind === "native" ? "running" : "ready";
     addRunEvent(run, `${task.id} queued for an explicitly approved retry.`);
     saveAndPublish(run);
     void getTaskSchedulerService().autoRun(run);
     return summarizeRun(run);
+  }
+
+  function updateTicketAttemptBudget(runId, taskId, maxAttempts) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") throw new Error("Attempt budgets require native Tickets.");
+    if (workerProcessService.hasActiveWorker(run.id)) throw new Error("Pause and wait for the active worker before changing an attempt budget.");
+    const task = run.tasks.find((candidate) => candidate.id === taskId);
+    if (!task) throw new Error("Managed Run Ticket not found.");
+    if (run.status !== "paused" && task.attempts.length > 0) throw new Error("Attempt budgets may change only before execution or while paused.");
+    const budget = Number(maxAttempts);
+    if (!Number.isInteger(budget) || budget < task.attempts.length + 1 || budget > 10) throw new Error("Attempt budget must allow one future attempt and cannot exceed 10.");
+    task.maxAttempts = budget;
+    addRunEvent(run, `${task.id} attempt budget changed by the user to ${budget}.`, "warning", { humanOverride: true, taskId });
+    return saveAndPublish(run);
+  }
+
+  async function recoverTicket(runId, taskId, action, confirmed = false) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") throw new Error("Ticket recovery requires a native Managed Run.");
+    if (workerProcessService.hasActiveWorker(run.id)) throw new Error("Pause and wait for the active worker before recovery.");
+    const task = run.tasks.find((candidate) => candidate.id === taskId);
+    if (!task) throw new Error("Managed Run Ticket not found.");
+    if (action === "takeover") {
+      task.manualTakeover = true;
+      task.status = "retry_required";
+      run.status = "paused";
+      addRunEvent(run, `${task.id} paused for manual takeover.`, "warning", { humanOverride: true, taskId });
+      return saveAndPublish(run);
+    }
+    if (action === "return_to_tickets") {
+      run.phase = "tickets"; run.status = "tickets_approval_required";
+      run.approvals.tickets = null; run.approvedTicketsSnapshot = null;
+      addRunEvent(run, `${task.id} returned to Tickets authoring; verified Ticket Commits remain in the Run Worktree.`, "warning", { humanOverride: true, taskId });
+      return saveAndPublish(run);
+    }
+    if (action === "restore_verified_base") {
+      if (confirmed !== true) throw new Error("Separately confirm discarding the uncommitted failed change set.");
+      const recovery = await managedRunTicketExecutionService.restoreVerifiedBase(run.worktreePath, run.lastVerifiedCommit || run.baseRevision);
+      task.recoveries ||= []; task.recoveries.push({ action, ...recovery });
+      task.status = "retry_required"; run.status = "paused";
+      addRunEvent(run, `${task.id} restored to verified commit ${recovery.revision.slice(0, 12)} after explicit confirmation.`, "warning", { humanOverride: true, taskId });
+      return saveAndPublish(run);
+    }
+    throw new Error("Unsupported Ticket recovery action.");
   }
 
   function updateRouting(runId, routing) {
@@ -956,6 +1003,7 @@ function createManagedRunService({
     openFile,
     pause,
     retry,
+    recoverTicket,
     savePlan,
     saveShape,
     saveShapeDomainProposal,
@@ -964,6 +1012,7 @@ function createManagedRunService({
     setTaskStatus,
     start,
     updateRouting,
+    updateTicketAttemptBudget,
   };
 }
 

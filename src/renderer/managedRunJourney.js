@@ -130,6 +130,7 @@ function renderJourney(run, selectedTaskId, options = {}) {
           <span class="journey-station-title">${escapeHtml(station.title)}</span>
           <span class="journey-station-meta">${escapeHtml(station.phase)}${station.kind === "task" ? ` &middot; ${station.attempts}/${station.maxAttempts || "-"} attempts` : ""}</span>
           <span class="journey-dependencies">${escapeHtml(dependencyText)}</span>
+          ${station.feedback ? `<span class="journey-feedback">${escapeHtml(station.feedback)}</span>` : ""}
           <span class="journey-attempt-trail">${renderAttemptTrail(station)}</span>
         </span>
       </button>`;

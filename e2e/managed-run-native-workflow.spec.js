@@ -88,10 +88,39 @@ premium
 tracer-bullet
 ### Wide Change
 None
+
+## Ticket \`ticket-c\`: Exhausted dependent slice
+### Behavior
+A user sees the final dependent slice.
+### Acceptance Criteria
+- The final slice is independently demonstrable.
+### Blockers
+- ticket-b
+### Test Seams
+- Existing Electron workflow seam
+### TDD Policy
+test-first
+### TDD Exception
+None
+### Verification Guidance
+- Run the deterministic Electron check
+### Relevant Context
+- Preserve failed evidence when exhausted
+### Implementation Tier
+standard
+### Verification Tier
+standard
+### Retry Limit
+3
+### Slice Kind
+tracer-bullet
+### Wide Change
+None
 `;
 
 const IMPLEMENTATION_RESULT = JSON.stringify({ summary: "implemented one slice", changedFiles: ["ticket-output.txt"], redEvidence: ["ticket output was absent"], greenEvidence: ["ticket output exists"], alternativeVerificationEvidence: [], checks: ["deterministic check: pass"], risks: [] });
 const TICKET_VERIFICATION_RESULT = JSON.stringify({ verdict: "pass", spec: { verdict: "pass", findings: [] }, standards: { verdict: "pass", findings: [] }, summary: "both axes passed", checks: ["deterministic check: pass"], failedCriteria: [], feedback: "", risks: [] });
+const TICKET_FIX_RESULT = JSON.stringify({ verdict: "fix_required", spec: { verdict: "fail", findings: ["retry fixture"] }, standards: { verdict: "pass", findings: [] }, summary: "fix required", checks: [], failedCriteria: ["visible"], feedback: "correct the deterministic fixture", risks: [] });
 
 function git(cwd, args) {
   return execFileSync("git", ["-c", `safe.directory=${cwd}`, "-C", cwd, ...args], {
@@ -114,7 +143,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
   fs.writeFileSync(path.join(sourceRepo, "local-only.txt"), "keep me\n", "utf8");
 
   const fakeSpecWorker = testInfo.outputPath("fake-spec-worker.js");
-  fs.writeFileSync(fakeSpecWorker, `const fs = require("fs"); const path = require("path"); let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => { if (input.includes("fresh read-only Ticket worker")) return process.stdout.write(${JSON.stringify(TICKETS_MARKDOWN)}); if (input.includes("implementation worker")) { fs.writeFileSync(path.join(process.cwd(), "ticket-output.txt"), "reviewed output\n"); return process.stdout.write(${JSON.stringify(IMPLEMENTATION_RESULT)}); } if (input.includes("independent read-only verification worker")) return process.stdout.write(${JSON.stringify(TICKET_VERIFICATION_RESULT)}); process.stdout.write(${JSON.stringify(SPEC_MARKDOWN)}); });\n`, "utf8");
+  fs.writeFileSync(fakeSpecWorker, `const fs = require("fs"); const path = require("path"); let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => { if (input.includes("fresh read-only Ticket worker")) return process.stdout.write(${JSON.stringify(TICKETS_MARKDOWN)}); const id = input.match(/Task ID: (ticket-[a-z])/u)?.[1]; const attempt = Number(input.match(/Attempt: (\d+)/u)?.[1] || input.match(/attempt (\d+)/iu)?.[1] || 1); if (input.includes("implementation worker")) { const file = id + "-output.txt"; fs.writeFileSync(path.join(process.cwd(), file), id + " attempt " + attempt + "\n"); return process.stdout.write(JSON.stringify({ ...JSON.parse(${JSON.stringify(IMPLEMENTATION_RESULT)}), summary: id + " attempt " + attempt, changedFiles: [file] })); } if (input.includes("independent read-only verification worker")) return process.stdout.write(id === "ticket-c" || (id === "ticket-b" && input.includes("ticket-b attempt 1")) ? ${JSON.stringify(TICKET_FIX_RESULT)} : ${JSON.stringify(TICKET_VERIFICATION_RESULT)}); process.stdout.write(${JSON.stringify(SPEC_MARKDOWN)}); });\n`, "utf8");
   const { electronApp, window } = await launchElectronApp(
     testInfo,
     "native-run-appdata",
@@ -210,14 +239,17 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await window.locator("#managed-run-tickets-editor").fill(TICKETS_MARKDOWN);
     await window.locator("#managed-run-save-tickets").click();
     await window.locator("#managed-run-approve-tickets").click();
-    await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("verified");
+    await expect(window.locator('[data-task-id="ticket-c"]')).toContainText("human review");
     ticketRun = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
-    expect(ticketRun.approvedTicketsSnapshot).toMatchObject({ revision: 2, tickets: [{ id: "ticket-a" }, { id: "ticket-b", dependencies: ["ticket-a"] }] });
-    expect(ticketRun.tasks[0].attempts[0]).toMatchObject({ verification: { spec: { verdict: "pass" }, standards: { verdict: "pass" }, diffFingerprint: expect.any(String) }, commit: { changedFiles: ["ticket-output.txt"] } });
-    expect(git(worktreePath, ["show", "--pretty=format:", "--name-only", ticketRun.tasks[0].commit.revision])).toBe("ticket-output.txt");
+    expect(ticketRun.approvedTicketsSnapshot).toMatchObject({ revision: 2, tickets: [{ id: "ticket-a" }, { id: "ticket-b", dependencies: ["ticket-a"] }, { id: "ticket-c", dependencies: ["ticket-b"] }] });
+    expect(ticketRun.tasks[0].attempts[0]).toMatchObject({ verification: { spec: { verdict: "pass" }, standards: { verdict: "pass" }, diffFingerprint: expect.any(String) }, commit: { changedFiles: ["ticket-a-output.txt"] } });
+    expect(ticketRun.tasks[1].attempts).toHaveLength(2);
+    expect(ticketRun.tasks[2]).toMatchObject({ status: "human_review_required", commit: undefined });
+    expect(ticketRun.tasks[2].attempts).toHaveLength(3);
+    expect(git(worktreePath, ["status", "--porcelain"])).toContain("ticket-c-output.txt");
     expect(git(sourceRepo, ["rev-parse", "HEAD"])).toBe(baseRevision);
     await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("verified");
-    await expect(window.locator('[data-task-id="ticket-b"]')).toContainText("executable frontier");
+    await expect(window.locator('[data-task-id="ticket-b"]')).toContainText("verified");
 
     await window.locator("#managed-run-spec-editor").fill(SPEC_MARKDOWN.replace("Persist and approve", "Edit and re-approve"));
     await window.locator("#managed-run-save-spec").click();

@@ -82,6 +82,8 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
   ) || task.attempts?.at(-1);
   const latestVerification = selectedAttempt?.verification;
   const canRetry = ["failed", "human_review_required", "replan_required"].includes(task.status);
+  const recoveryStates = ["human_review_required", "external_edit_detected", "implementation_environment_blocked", "verification_environment_blocked", "verification_malformed"];
+  const canRecover = run.workflowKind === "native" && recoveryStates.includes(task.status);
   return `
     <div class="inspector-heading"><p class="eyebrow">${run.workflowKind === "native" ? "Selected Ticket" : "Selected Task"}</p><h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3><p class="managed-run-state">${escapeHtml(taskPhase(task))}</p></div>
     <details open data-inspector-section="overview"><summary>Overview</summary>
@@ -91,6 +93,8 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
         ${["planned", "retry_required", "human_review_required", "succeeded", "cancelled", "failed"].map((status) => `<option value="${status}" ${status === task.status ? "selected" : ""}>${escapeHtml(status.replaceAll("_", " "))}</option>`).join("")}
       </select></label>
       ${canRetry ? `<button type="button" class="secondary inspector-retry-task" data-retry-task="${escapeHtml(task.id)}">Retry task</button>` : ""}
+      ${run.workflowKind === "native" ? `<label><span>Attempt budget</span><input type="number" min="${(task.attempts?.length || 0) + 1}" max="10" value="${task.maxAttempts}" data-ticket-budget="${escapeHtml(task.id)}" /></label><button type="button" class="secondary" data-save-ticket-budget="${escapeHtml(task.id)}">Save budget</button>` : ""}
+      ${canRecover ? `<div class="button-row"><button type="button" class="secondary" data-ticket-recovery="takeover" data-ticket-id="${escapeHtml(task.id)}">Manual takeover</button><button type="button" class="secondary" data-ticket-recovery="return_to_tickets" data-ticket-id="${escapeHtml(task.id)}">Return to Tickets</button><button type="button" class="danger" data-ticket-recovery="restore_verified_base" data-ticket-id="${escapeHtml(task.id)}">Restore verified commit…</button></div>` : ""}
     </details>
     <details open data-inspector-section="approved-task"><summary>Approved ${run.workflowKind === "native" ? "Ticket" : "task"} definition</summary>
       <p class="inspector-provenance">Approved revision ${escapeHtml(run.workflowKind === "native" ? run.approvedTicketsSnapshot?.revision || "unapproved" : run.approvedPlanSnapshot?.revision || run.approvedRevision || "unapproved")} · ${escapeHtml(run.workflowKind === "native" ? "frozen Ticket graph" : run.approvedPlanSnapshot?.provenance || "current plan")}</p>

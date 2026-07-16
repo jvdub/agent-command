@@ -273,12 +273,39 @@ function createTaskSchedulerService({
     }
   }
 
-  async function executeTask(run, task) {
-    if (run.workflowKind === "native") {
-      task.repositoryState = await managedRunTicketExecutionService.assertCleanBase(
-        run.worktreePath, run.lastVerifiedCommit || run.baseRevision,
-      );
+  async function prepareNativeAttempt(run, task) {
+    try {
+      if (task.attempts.length === 0) {
+        task.repositoryState = await managedRunTicketExecutionService.assertCleanBase(
+          run.worktreePath, run.lastVerifiedCommit || run.baseRevision,
+        );
+        return true;
+      }
+      const current = await managedRunTicketExecutionService.capture(run.worktreePath);
+      const previous = task.attempts.at(-1)?.reviewedDiff;
+      let expectedFingerprint = previous?.fingerprint;
+      if (task.manualTakeover && previous) {
+        task.takeoverBases ||= [];
+        task.takeoverBases.push({ ...current, acceptedAt: new Date().toISOString(), provenance: "human_takeover" });
+        expectedFingerprint = current.fingerprint;
+        task.manualTakeover = false;
+        addRunEvent(run, `${task.id} recorded the separately chosen manual-takeover diff as a new bounded attempt base.`, "warning", { humanOverride: true, taskId: task.id });
+      }
+      if (!previous || current.headRevision !== (run.lastVerifiedCommit || run.baseRevision) || current.refsFingerprint !== task.repositoryState?.refsFingerprint || current.fingerprint !== expectedFingerprint) {
+        task.status = "external_edit_detected"; run.status = "paused";
+        addRunEvent(run, `${task.id} paused because the failed change set changed outside its bounded retry.`, "warning");
+        persistAndPublish(run); return false;
+      }
+      return true;
+    } catch (error) {
+      task.status = "external_edit_detected"; run.status = "paused";
+      addRunEvent(run, `${task.id} paused before implementation: ${error.message}`, "warning");
+      persistAndPublish(run); return false;
     }
+  }
+
+  async function executeTask(run, task) {
+    if (run.workflowKind === "native" && !await prepareNativeAttempt(run, task)) return;
     const attemptNumber = task.attempts.length + 1;
     task.status = "implementing";
     run.status = "running";
@@ -307,6 +334,13 @@ function createTaskSchedulerService({
 
     if (implementation.status !== "succeeded") {
       attempt.finishedAt = implementation.finishedAt;
+      if (run.workflowKind === "native" && implementation.status !== "cancelled") {
+        task.status = "implementation_environment_blocked";
+        attempt.verification = { verdict: "environment_blocked", summary: "Implementation worker did not exit successfully.", feedback: implementation.stderr.slice(-2000) || `Exit code ${implementation.exitCode}`, checks: [], failedCriteria: [], risks: [] };
+        attempt.evidencePath = await managedRunTicketExecutionService.writeEvidence(run.runWorkspacePath, task, attempt);
+        stopForReview(run, `${task.id} stopped at implementation: ${attempt.verification.feedback}`);
+        return;
+      }
       if (attemptNumber < task.maxAttempts && implementation.status !== "cancelled") {
         task.status = "retry_required";
         attempt.verification = {
@@ -401,7 +435,7 @@ function createTaskSchedulerService({
         persistAndPublish(run);
         return;
       }
-      task.status = "human_review_required";
+      task.status = run.workflowKind === "native" ? "verification_environment_blocked" : "human_review_required";
       stopForReview(run, `${task.id} verifier failed to produce usable evidence.`);
       return;
     }
@@ -414,7 +448,7 @@ function createTaskSchedulerService({
         `${task.id} verifier`,
       );
     } catch (error) {
-      task.status = "human_review_required";
+      task.status = run.workflowKind === "native" ? "verification_malformed" : "human_review_required";
       stopForReview(run, `${task.id} verifier output was malformed: ${error.message}`);
       return;
     }
@@ -444,6 +478,12 @@ function createTaskSchedulerService({
       standards: outcome.standards || { verdict: "fail", findings: ["Verifier omitted Standards assessment."] },
       diffFingerprint: attempt.reviewedDiff?.fingerprint || null,
     };
+
+    if (run.workflowKind === "native" && outcome.verdict !== "pass") {
+      attempt.evidencePath = await managedRunTicketExecutionService.writeEvidence(
+        run.runWorkspacePath, task, attempt,
+      );
+    }
 
     if (outcome.verdict === "pass") {
       if (run.workflowKind === "native" && (attempt.verification.spec.verdict !== "pass" || attempt.verification.standards.verdict !== "pass")) {
@@ -588,15 +628,18 @@ function createTaskSchedulerService({
         const task = nextExecutableTask(run);
         if (task) {
           await executeTask(run, task);
-          if (run.workflowKind === "native" && task.status === "succeeded") {
-            run.status = "implement_ready";
-            persistAndPublish(run);
-            break;
+          if (run.pauseRequested) {
+            run.pauseRequested = false; run.status = "paused"; persistAndPublish(run); break;
           }
+          if (RUN_TERMINAL_STATES.has(run.status)) break;
           continue;
         }
         if (run.tasks.every((candidate) => candidate.status === "succeeded")) {
-          await executeFinalVerification(run);
+          if (run.workflowKind === "native") {
+            run.status = "integration_required";
+            addRunEvent(run, "Every Ticket Commit succeeded; mission-wide integration verification is required.");
+            persistAndPublish(run);
+          } else await executeFinalVerification(run);
           break;
         }
         stopForReview(run, "No executable task remains; dependencies or task state require review.");

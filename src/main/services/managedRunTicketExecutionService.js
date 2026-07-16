@@ -93,6 +93,15 @@ function createManagedRunTicketExecutionService() {
     return { revision, message, changedFiles, reviewedFingerprint, reviewedTree };
   }
 
+  async function restoreVerifiedBase(cwd, expectedRevision) {
+    const discarded = await capture(cwd);
+    await git(cwd, ["reset", "--hard", expectedRevision]);
+    await git(cwd, ["clean", "-fd"]);
+    const restored = await capture(cwd);
+    if (restored.headRevision !== expectedRevision || restored.changedFiles.length) throw new Error("Run Worktree restoration did not produce the verified clean base.");
+    return { discarded, restoredAt: new Date().toISOString(), revision: expectedRevision };
+  }
+
   async function workerEnvironment(runWorkspacePath) {
     const directory = path.join(runWorkspacePath, "worker-guard");
     await fs.promises.mkdir(directory, { recursive: true });
@@ -133,8 +142,8 @@ function createManagedRunTicketExecutionService() {
       ticketId: ticket.id, attempt: attempt.number,
       tdd: {
         policy: ticket.tddPolicy, exception: ticket.tddException,
-        red: attempt.artifacts.redEvidence, green: attempt.artifacts.greenEvidence,
-        alternative: attempt.artifacts.alternativeVerificationEvidence,
+        red: attempt.artifacts?.redEvidence || [], green: attempt.artifacts?.greenEvidence || [],
+        alternative: attempt.artifacts?.alternativeVerificationEvidence || [],
       },
       reviewedDiff: attempt.reviewedDiff,
       verification: attempt.verification,
@@ -144,7 +153,7 @@ function createManagedRunTicketExecutionService() {
     return relativePath;
   }
 
-  return { assertCleanBase, capture, commitReviewed, workerEnvironment, writeEvidence };
+  return { assertCleanBase, capture, commitReviewed, restoreVerifiedBase, workerEnvironment, writeEvidence };
 }
 
 module.exports = { createManagedRunTicketExecutionService };
