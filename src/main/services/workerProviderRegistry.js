@@ -12,6 +12,7 @@ function readProviderConfiguration(env = process.env) {
     providers: {
       codex: {
         command: env.AGENTIC_MANAGED_CODEX_COMMAND || "codex",
+        commandArgs: JSON.parse(env.AGENTIC_MANAGED_CODEX_COMMAND_ARGS || "[]"),
         defaultModel: env.AGENTIC_MANAGED_CODEX_DEFAULT_MODEL || "",
         tierModels: {
           economy: env.AGENTIC_MANAGED_CODEX_ECONOMY_MODEL || "",
@@ -21,6 +22,7 @@ function readProviderConfiguration(env = process.env) {
       },
       claude: {
         command: env.AGENTIC_MANAGED_CLAUDE_COMMAND || "claude",
+        commandArgs: JSON.parse(env.AGENTIC_MANAGED_CLAUDE_COMMAND_ARGS || "[]"),
         defaultModel: env.AGENTIC_MANAGED_CLAUDE_DEFAULT_MODEL || "",
         tierModels: {
           economy: env.AGENTIC_MANAGED_CLAUDE_ECONOMY_MODEL || "",
@@ -30,6 +32,7 @@ function readProviderConfiguration(env = process.env) {
       },
       opencode: {
         command: env.AGENTIC_MANAGED_OPENCODE_COMMAND || "opencode",
+        commandArgs: JSON.parse(env.AGENTIC_MANAGED_OPENCODE_COMMAND_ARGS || "[]"),
         defaultModel: env.AGENTIC_MANAGED_OPENCODE_DEFAULT_MODEL || "",
         tierModels: {
           economy: env.AGENTIC_MANAGED_OPENCODE_ECONOMY_MODEL || "",
@@ -67,6 +70,7 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
       defaultModel: provider.defaultModel,
       usesDefaultModel,
       command: provider.command,
+      commandArgs: [...provider.commandArgs],
     };
   }
 
@@ -76,10 +80,10 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
     }
     const resolved = resolveSelection(selection);
     const writable = role === "implementer";
-    let args;
+    let args = [...resolved.commandArgs];
 
     if (resolved.provider === "codex") {
-      args = ["--ask-for-approval", "never"];
+      args.push("--ask-for-approval", "never");
       if (!resolved.usesDefaultModel) {
         args.push("--model", resolved.model);
       }
@@ -91,7 +95,7 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
         "-",
       );
     } else if (resolved.provider === "claude") {
-      args = ["-p", "--output-format", "json"];
+      args.push("-p", "--output-format", "json");
       if (!resolved.usesDefaultModel) {
         args.push("--model", resolved.model);
       }
@@ -102,7 +106,7 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
         writable ? "30" : "20",
       );
     } else {
-      args = ["run", "--agent", writable ? "build" : "plan"];
+      args.push("run", "--agent", writable ? "build" : "plan");
       if (!resolved.usesDefaultModel) {
         args.push("--model", resolved.model);
       }

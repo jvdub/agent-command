@@ -108,6 +108,9 @@ export const agenticApp = Object.freeze({
     call("managedRuns", "saveShapeDomainProposal", runId, markdown),
   refreshManagedRunShapeDocumentation: (runId, options = {}) =>
     call("managedRuns", "refreshShapeDocumentation", runId, options),
+  generateManagedRunSpec: (runId) => call("managedRuns", "generateSpec", runId),
+  saveManagedRunSpec: (runId, markdown) => call("managedRuns", "saveSpec", runId, markdown),
+  approveManagedRunSpec: (runId, options = {}) => call("managedRuns", "approveSpec", runId, options),
   generateManagedRunPlan: (runId) =>
     call("managedRuns", "generatePlan", runId),
   saveManagedRunPlan: (runId, plan) =>

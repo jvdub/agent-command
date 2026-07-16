@@ -3,7 +3,7 @@ const { _electron: electron } = require("@playwright/test");
 
 const rootDir = path.resolve(__dirname, "..", "..");
 
-async function launchElectronApp(testInfo, name = "appdata") {
+async function launchElectronApp(testInfo, name = "appdata", options = {}) {
   const appDataDir = testInfo.outputPath(name);
   const electronApp = await electron.launch({
     args: [
@@ -17,6 +17,7 @@ async function launchElectronApp(testInfo, name = "appdata") {
       ...process.env,
       APPDATA: appDataDir,
       LOCALAPPDATA: appDataDir,
+      ...(options.env || {}),
     },
   });
   const window = await electronApp.firstWindow();

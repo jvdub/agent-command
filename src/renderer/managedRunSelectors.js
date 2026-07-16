@@ -75,6 +75,11 @@ function currentAction(run) {
     if (run.status === "shape_approval_required") return "Review and approve the saved Shape revision.";
     return "Open a persistent Shape conversation.";
   }
+  if (isNativeWorkflow(run) && run.phase === "spec") {
+    if (run.status === "spec_generating") return "A fresh read-only worker is synthesizing the Spec.";
+    if (run.status === "spec_approval_required") return run.artifacts?.spec?.stale ? "Review the stale Spec revision and confirm its test seams." : "Review the Spec revision and explicitly confirm its test seams.";
+    return "Generate a Spec from the approved Shape context.";
+  }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
   if (run.status === "replan_required") return "Revise the plan before execution can continue.";
   if (run.status === "final_verification") return "Final integration verification is running.";
@@ -115,7 +120,9 @@ function journeyStations(run) {
         ? "approved"
         : index === currentIndex && id === "shape"
           ? ({ shape_required: "ready to shape", shaping: "conversation active", shape_approval_required: "approval required" }[run.status] || "current phase")
-          : index === currentIndex ? "current phase" : "locked",
+          : index === currentIndex && id === "spec"
+            ? ({ spec_required: "ready to generate", spec_generating: "generating", spec_approval_required: run.artifacts?.spec?.stale ? "stale · approval required" : "approval required" }[run.status] || "current phase")
+            : index === currentIndex ? "current phase" : "locked",
       dependencies: index === 0 ? [] : [phases[index - 1][0]],
       attempts: 0,
       segments: [],
@@ -161,6 +168,9 @@ function attentionItems(run) {
     label,
     ...target,
   });
+  if (run.status === "spec_approval_required") {
+    add("spec_approval_required", "action", run.artifacts?.spec?.stale ? "Stale Spec awaiting approval" : "Spec awaiting approval", { taskId: "spec", section: "evidence" });
+  }
   if (run.status === "shape_approval_required") {
     add("shape_approval_required", "action", "Shape awaiting approval", { taskId: "shape", section: "shape" });
   }

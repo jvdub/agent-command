@@ -435,6 +435,15 @@
               <div class="button-row"><button type="button" id="managed-run-save-shape" class="secondary">Save Shape revision</button><button type="button" id="managed-run-approve-shape">Approve Shape</button></div>
             </details>
 
+            <details id="managed-run-spec-panel" class="managed-run-card managed-run-plan-card" open>
+              <summary>Spec revisions and approval</summary>
+              <div class="panel-header compact"><div><p class="eyebrow">Human Gate</p><h2>Spec</h2></div><p id="managed-run-spec-meta" class="status-meta"></p></div>
+              <textarea id="managed-run-spec-editor" class="managed-run-plan-editor" spellcheck="true" placeholder="Generate a Spec from approved Shape context or edit the current Markdown revision."></textarea>
+              <label><input id="managed-run-confirm-test-seams" type="checkbox" /> I explicitly confirm the observable test seams in this Spec.</label>
+              <details><summary>Compare previous approved revision</summary><pre id="managed-run-previous-spec" class="managed-run-worker-output">No previous approved revision.</pre></details>
+              <div class="button-row"><button type="button" id="managed-run-generate-spec" class="secondary">Generate fresh Spec</button><button type="button" id="managed-run-save-spec" class="secondary">Save Spec revision</button><button type="button" id="managed-run-approve-spec">Approve Spec</button></div>
+            </details>
+
             <details id="managed-run-plan-panel" class="managed-run-card managed-run-plan-card">
               <summary>Plan and worker routing</summary>
               <div class="panel-header compact">

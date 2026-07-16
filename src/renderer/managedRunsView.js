@@ -36,6 +36,14 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     currentAction: document.querySelector("#managed-run-current-action"),
     progress: document.querySelector("#managed-run-progress"),
     planMeta: document.querySelector("#managed-run-plan-meta"),
+    specPanel: document.querySelector("#managed-run-spec-panel"),
+    specMeta: document.querySelector("#managed-run-spec-meta"),
+    specEditor: document.querySelector("#managed-run-spec-editor"),
+    previousSpec: document.querySelector("#managed-run-previous-spec"),
+    confirmTestSeams: document.querySelector("#managed-run-confirm-test-seams"),
+    generateSpec: document.querySelector("#managed-run-generate-spec"),
+    saveSpec: document.querySelector("#managed-run-save-spec"),
+    approveSpec: document.querySelector("#managed-run-approve-spec"),
     shapePanel: document.querySelector("#managed-run-shape-panel"),
     shapeMeta: document.querySelector("#managed-run-shape-meta"),
     shapeEditor: document.querySelector("#managed-run-shape-editor"),
@@ -85,6 +93,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let workerDetailState = "idle";
   let renderedPlanKey = "";
   let renderedShapeKey = "";
+  let renderedSpecKey = "";
   let renderedDomainKey = "";
   let journeyDrag = null;
 
@@ -245,6 +254,17 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       elements.shapeEditor.value = shape?.summaryMarkdown || `# Shape\n\n## Idea\n\n${run.specification || ""}\n\n## Decisions\n\n`;
       renderedShapeKey = shapeKey;
     }
+    const spec = run.artifacts?.spec;
+    elements.specMeta.textContent = spec?.revision
+      ? `Revision ${spec.revision}${run.approvals?.spec?.revision === spec.revision ? " · approved" : spec.stale ? " · stale" : " · approval required"} · Shape r${spec.upstreamShapeRevision}`
+      : run.status === "spec_generating" ? "Fresh read-only worker generating…" : "No Spec generated";
+    const specKey = `${run.id}:${spec?.revision || 0}`;
+    if (specKey !== renderedSpecKey && document.activeElement !== elements.specEditor) {
+      elements.specEditor.value = spec?.markdown || "";
+      renderedSpecKey = specKey;
+      elements.confirmTestSeams.checked = Boolean(run.approvals?.spec?.revision === spec?.revision);
+    }
+    elements.previousSpec.textContent = spec?.previousApprovedMarkdown || "No previous approved revision.";
     elements.planMeta.textContent = run.plan ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}` : "No plan generated";
     if (!run.plan || run.approvedRevision !== run.planRevision) elements.planPanel.open = true;
     const planKey = `${run.id}:${run.planRevision}`;
@@ -259,7 +279,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     renderEvents(run);
     const usage = run.usage || {};
     elements.usage.textContent = `${usage.workerCount || 0} workers · ${usage.hasTokenData ? `${(usage.inputTokens || 0) + (usage.outputTokens || 0)} tokens` : "token data unavailable"}`;
-    const active = Boolean(run.activeWorkerId) || ["planning", "running", "final_verification"].includes(run.status);
+    const active = Boolean(run.activeWorkerId) || ["planning", "spec_generating", "running", "final_verification"].includes(run.status);
     elements.generatePlan.disabled = active;
     elements.savePlan.disabled = active || !elements.planEditor.value.trim();
     elements.approvePlan.disabled = run.status !== "approval_required";
@@ -271,6 +291,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.archive.disabled = active;
     elements.shape.disabled = active;
     elements.saveShape.disabled = !run.shapeSessionId || !elements.shapeEditor.value.trim();
+    elements.generateSpec.disabled = active || !run.approvals?.shape;
+    elements.saveSpec.disabled = active || !run.approvals?.shape || !elements.specEditor.value.trim();
+    elements.approveSpec.disabled = run.status !== "spec_approval_required";
     elements.approveShape.disabled = run.status !== "shape_approval_required";
     elements.takeover.disabled = active;
     const nativeWorkflow = isNativeWorkflow(run);
@@ -283,6 +306,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.takeover.hidden = nativeWorkflow;
     elements.planPanel.hidden = nativeWorkflow;
     elements.shapePanel.hidden = !nativeWorkflow;
+    elements.specPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
     elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
   }
@@ -500,6 +524,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.shape.addEventListener("click", () => void launchInteractive("planner"));
     elements.takeover.addEventListener("click", () => void launchInteractive("implementer"));
     elements.shapeEditor.addEventListener("input", () => { elements.saveShape.disabled = !activeRun()?.shapeSessionId || !elements.shapeEditor.value.trim(); });
+    elements.specEditor.addEventListener("input", () => { elements.saveSpec.disabled = !elements.specEditor.value.trim(); });
+    elements.generateSpec.addEventListener("click", () => perform("Generating Spec", () => agenticApp.generateManagedRunSpec(activeRunId)));
+    elements.saveSpec.addEventListener("click", () => perform("Spec saved", () => agenticApp.saveManagedRunSpec(activeRunId, elements.specEditor.value)));
+    elements.approveSpec.addEventListener("click", () => perform("Spec approved", () => agenticApp.approveManagedRunSpec(activeRunId, { testSeamsConfirmed: elements.confirmTestSeams.checked })));
     elements.saveShape.addEventListener("click", () => perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, elements.shapeEditor.value)));
     elements.saveDomainProposal.addEventListener("click", () => perform("Domain proposal saved", () => agenticApp.saveManagedRunShapeDomainProposal(activeRunId, elements.domainProposal.value)));
     elements.refreshDomainDiff.addEventListener("click", () => perform("Documentation diff refreshed", () => agenticApp.refreshManagedRunShapeDocumentation(activeRunId, { createProjectDocumentation: elements.createDomainDocs.checked })));

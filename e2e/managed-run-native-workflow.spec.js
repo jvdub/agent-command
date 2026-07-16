@@ -4,6 +4,33 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { launchElectronApp } = require("./helpers/electronApp");
 
+const SPEC_MARKDOWN = `# Spec
+
+## Problem
+Managed Runs need an approved contract.
+
+## Solution
+Persist and approve revisioned Spec Markdown.
+
+## User Stories
+- As a user, I can edit a generated Spec.
+- As a reviewer, I can compare approved revisions.
+- As an implementer, I can trust confirmed test seams.
+
+## Implementation Decisions
+- Keep canonical Markdown in the Run Workspace.
+
+## Testing Decisions
+- Existing seam: Managed Run service.
+- Confirmed observable seam: Electron workflow.
+
+## Exclusions
+- Ticket execution.
+
+## Further Notes
+- Preserve Shape provenance.
+`;
+
 function git(cwd, args) {
   return execFileSync("git", ["-c", `safe.directory=${cwd}`, "-C", cwd, ...args], {
     cwd: process.cwd(),
@@ -24,9 +51,12 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
   git(sourceRepo, ["commit", "-m", "Initial commit"]);
   fs.writeFileSync(path.join(sourceRepo, "local-only.txt"), "keep me\n", "utf8");
 
+  const fakeSpecWorker = testInfo.outputPath("fake-spec-worker.js");
+  fs.writeFileSync(fakeSpecWorker, `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(SPEC_MARKDOWN)}));\n`, "utf8");
   const { electronApp, window } = await launchElectronApp(
     testInfo,
     "native-run-appdata",
+    { env: { AGENTIC_MANAGED_CODEX_COMMAND: process.execPath, AGENTIC_MANAGED_CODEX_COMMAND_ARGS: JSON.stringify([fakeSpecWorker]) } },
   );
 
   try {
@@ -97,6 +127,23 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await window.locator('[data-task-id="shape"]').click();
     await expect(window.locator("#managed-run-inspector")).toContainText("Shape evidence");
     await expect(window.locator("#managed-run-inspector")).toContainText("Document Shape domain decisions");
+
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("ready to generate");
+    await window.locator("#managed-run-generate-spec").click();
+    await expect(window.locator("#managed-run-spec-editor")).toHaveValue(SPEC_MARKDOWN);
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("approval required");
+    await window.locator("#managed-run-confirm-test-seams").check();
+    await window.locator("#managed-run-approve-spec").click();
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("approved");
+    await expect(window.locator('[data-task-id="tickets"]')).toContainText("current phase");
+    await window.locator('[data-task-id="spec"]').click();
+    await expect(window.locator("#managed-run-inspector")).toContainText("Test seams explicitly confirmed");
+
+    await window.locator("#managed-run-spec-editor").fill(SPEC_MARKDOWN.replace("Persist and approve", "Edit and re-approve"));
+    await window.locator("#managed-run-save-spec").click();
+    await expect(window.locator("#managed-run-previous-spec")).toContainText("Persist and approve");
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("approval required");
+    await expect(window.locator('[data-task-id="tickets"]')).toContainText("locked");
 
     const conversationPath = path.join(sourceRepo, ".agentic", "runs", runDirectories[0], "shape", "conversation-r1.txt");
     expect(fs.existsSync(conversationPath)).toBe(true);

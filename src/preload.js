@@ -39,6 +39,9 @@ const IPC_CHANNELS = Object.freeze({
     approveManagedRunShape: "managed-run:approve-shape",
     saveManagedRunShapeDomainProposal: "managed-run:save-shape-domain-proposal",
     refreshManagedRunShapeDocumentation: "managed-run:refresh-shape-documentation",
+    generateManagedRunSpec: "managed-run:generate-spec",
+    saveManagedRunSpec: "managed-run:save-spec",
+    approveManagedRunSpec: "managed-run:approve-spec",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",
@@ -208,6 +211,12 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunShapeDomainProposal, { runId, markdown }),
     refreshShapeDocumentation: (runId, options = {}) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.refreshManagedRunShapeDocumentation, { runId, options }),
+    generateSpec: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunSpec, runId),
+    saveSpec: (runId, markdown) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunSpec, { runId, markdown }),
+    approveSpec: (runId, options = {}) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.approveManagedRunSpec, { runId, options }),
     generatePlan: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunPlan, runId),
     savePlan: (runId, plan) =>

@@ -11,7 +11,9 @@ const {
   nowIso,
   summarizeRun,
   validateAndNormalizePlan,
+  unwrapProviderOutput,
 } = require("./managedRunUtils");
+const { createManagedRunSpecArtifactService, specPrompt } = require("./managedRunSpecArtifactService");
 
 const PLANNING_SAFETY = `Safety rules:
 - Inspect the repository but do not modify files.
@@ -80,6 +82,8 @@ function createManagedRunService({
   },
   publishRun,
 }) {
+  const specArtifactService = createManagedRunSpecArtifactService();
+
   function requireRun(runId) {
     const run = runs.get(runId);
     if (!run) throw new Error("Managed Run not found.");
@@ -356,6 +360,9 @@ function createManagedRunService({
 
   function invalidateShape(run, message) {
     run.approvals.shape = null;
+    if (run.artifacts?.spec) run.artifacts.spec.stale = true;
+    run.approvals.spec = null;
+    invalidateDownstreamFromSpec(run);
     run.phase = "shape";
     run.status = "shape_approval_required";
     addRunEvent(run, message, "warning");
@@ -460,6 +467,126 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function invalidateDownstreamFromSpec(run) {
+    for (const phase of ["tickets", "implement", "accept"]) {
+      if (run.artifacts?.[phase]) run.artifacts[phase].stale = true;
+      run.approvals[phase] = null;
+    }
+    run.tasks = [];
+    run.finalVerification = null;
+  }
+
+  function persistSpecRevision(run, markdown, source) {
+    const artifact = specArtifactService.persist(run, markdown, source);
+    run.approvals.spec = null;
+    invalidateDownstreamFromSpec(run);
+    run.phase = "spec";
+    run.status = "spec_approval_required";
+    return artifact;
+  }
+
+  async function runReadOnlyPlannerWorker(run, {
+    prompt, cwd, promptKind, startingStatus, startMessage,
+    failureStatus, failureMessage, definitionRevision = null,
+  }) {
+    if (workerProcessService.hasActiveWorker(run.id)) throw new Error("A worker is already active for this Managed Run.");
+    const launch = workerProviderRegistry.buildLaunch({ role: "planner", selection: run.routing.planner });
+    if (launch.permissionMode !== "read-only") throw new Error(`${promptKind} requires a read-only worker.`);
+    const execution = workerProcessService.run({ runId: run.id, launch, prompt, cwd });
+    const placeholder = {
+      id: execution.workerId, runId: run.id, taskId: null, role: "planner",
+      provider: launch.provider, tier: launch.tier, model: launch.model,
+      modelFlagUsed: launch.modelFlagUsed, permissionMode: launch.permissionMode,
+      commandPreview: launch.preview, prompt, promptAvailability: "available",
+      promptKind, promptVersion: 1, promptCreatedAt: nowIso(), definitionRevision,
+      attemptNumber: null, stdout: "", stderr: "", exitCode: null,
+      status: "running", startedAt: nowIso(), finishedAt: null, usage: null, git: null,
+    };
+    run.workers.push(placeholder);
+    run.activeWorkerId = placeholder.id;
+    run.status = startingStatus;
+    addRunEvent(run, `${startMessage}: ${launch.preview}`);
+    saveAndPublish(run);
+    const worker = await execution.completion;
+    const index = run.workers.findIndex((candidate) => candidate.id === worker.id);
+    if (index >= 0) run.workers[index] = { ...placeholder, ...worker };
+    run.activeWorkerId = null;
+    tokenLedgerService.record(run.usage, worker);
+    if (worker.status !== "succeeded") {
+      run.status = failureStatus;
+      addRunEvent(run, failureMessage, "error");
+      saveAndPublish(run);
+      return null;
+    }
+    return worker;
+  }
+
+  async function generateSpec(runId) {
+    const run = requireRun(runId);
+    if (!run.approvals.shape) throw new Error("Approved Shape context is required before Spec generation.");
+    const shapeSummary = fs.readFileSync(path.join(run.runWorkspacePath, run.approvals.shape.summaryPath), "utf8");
+    const conversation = fs.readFileSync(path.join(run.runWorkspacePath, run.approvals.shape.conversationPath), "utf8");
+    const domainDocuments = (run.artifacts.shape.domain?.recognizedPaths || []).map((relativePath) => {
+      const target = path.join(run.worktreePath, relativePath);
+      return fs.existsSync(target) ? `# ${relativePath}\n${fs.readFileSync(target, "utf8")}` : "";
+    }).filter(Boolean).join("\n\n");
+    const prompt = specPrompt(run, shapeSummary, conversation, domainDocuments);
+    const worker = await runReadOnlyPlannerWorker(run, {
+      prompt, cwd: run.worktreePath, promptKind: "spec_generation",
+      startingStatus: "spec_generating", startMessage: "Starting fresh read-only Spec worker",
+      failureStatus: "spec_required", failureMessage: "Spec worker failed; inspect its output and retry.",
+      definitionRevision: run.artifacts.spec?.revision || null,
+    });
+    if (!worker) return summarizeRun(run);
+    try {
+      persistSpecRevision(run, unwrapProviderOutput(worker.stdout), "worker");
+      addRunEvent(run, `Spec revision ${run.artifacts.spec.revision} generated for test-seam confirmation.`);
+    } catch (error) {
+      run.status = "spec_required";
+      addRunEvent(run, `Spec output was invalid: ${error.message}`, "error");
+    }
+    return saveAndPublish(run);
+  }
+
+  function saveSpec(runId, markdown) {
+    const run = requireRun(runId);
+    if (!run.approvals.shape) throw new Error("Approved Shape context is required.");
+    persistSpecRevision(run, markdown, "human");
+    addRunEvent(run, `Spec revision ${run.artifacts.spec.revision} saved; approval required.`);
+    return saveAndPublish(run);
+  }
+
+  function approveSpec(runId, options = {}) {
+    const run = requireRun(runId);
+    const artifact = run.artifacts.spec;
+    if (!artifact?.revision) throw new Error("Generate or save a Spec before approval.");
+    if (options.testSeamsConfirmed !== true) throw new Error("Explicitly confirm the Spec's observable test seams before approval.");
+    const current = specArtifactService.readCurrent(run);
+    const currentHash = specArtifactService.fingerprint(current);
+    if (currentHash !== artifact.hash) {
+      persistSpecRevision(run, current, "workspace");
+      addRunEvent(run, "Spec changed in the Run Workspace; the new revision requires approval.", "warning");
+      saveAndPublish(run);
+      throw new Error("Spec changed in the Run Workspace. Review and approve the new revision.");
+    }
+    artifact.approvedRevision = artifact.revision;
+    artifact.previousApprovedMarkdown = artifact.markdown;
+    run.approvals.spec = {
+      revision: artifact.revision,
+      approvedAt: nowIso(),
+      action: "approved",
+      upstreamShapeRevision: run.approvals.shape.summaryRevision,
+      upstreamShapeSummaryRevision: run.approvals.shape.summaryRevision,
+      upstreamShapeConversationRevision: run.approvals.shape.conversationRevision,
+      testSeamsConfirmed: true,
+      path: artifact.revisions.at(-1).path,
+    };
+    run.phase = "tickets";
+    run.status = "tickets_required";
+    addRunEvent(run, `Spec revision ${artifact.revision} approved; Tickets is now available.`);
+    return saveAndPublish(run);
+  }
+
   function list() {
     let reconciled = false;
     for (const run of runs.values()) reconciled = reconcileApprovedShape(run) || reconciled;
@@ -515,62 +642,14 @@ function createManagedRunService({
 
   async function generatePlan(runId) {
     const run = requireRun(runId);
-    if (workerProcessService.hasActiveWorker(run.id)) {
-      throw new Error("A worker is already active for this Managed Run.");
-    }
-    run.status = "planning";
-    const launch = workerProviderRegistry.buildLaunch({
-      role: "planner",
-      selection: run.routing.planner,
-    });
     const prompt = planningPrompt(run);
-    const execution = workerProcessService.run({
-      runId: run.id,
-      launch,
-      prompt,
-      cwd: run.repoPath,
-    });
-    const placeholder = {
-      id: execution.workerId,
-      runId: run.id,
-      taskId: null,
-      role: "planner",
-      provider: launch.provider,
-      tier: launch.tier,
-      model: launch.model,
-      modelFlagUsed: launch.modelFlagUsed,
-      permissionMode: launch.permissionMode,
-      commandPreview: launch.preview,
-      prompt,
-      promptAvailability: "available",
-      promptKind: "planning",
-      promptVersion: 1,
-      promptCreatedAt: nowIso(),
+    const worker = await runReadOnlyPlannerWorker(run, {
+      prompt, cwd: run.repoPath, promptKind: "planning",
+      startingStatus: "planning", startMessage: "Starting planner",
+      failureStatus: "review_required", failureMessage: "Planning worker failed; inspect its output and retry.",
       definitionRevision: run.planRevision || null,
-      attemptNumber: null,
-      stdout: "",
-      stderr: "",
-      exitCode: null,
-      status: "running",
-      startedAt: nowIso(),
-      finishedAt: null,
-      usage: null,
-      git: null,
-    };
-    run.workers.push(placeholder);
-    run.activeWorkerId = placeholder.id;
-    addRunEvent(run, `Starting planner: ${launch.preview}`);
-    saveAndPublish(run);
-    const worker = await execution.completion;
-    const index = run.workers.findIndex((item) => item.id === worker.id);
-    if (index >= 0) run.workers[index] = { ...placeholder, ...worker };
-    run.activeWorkerId = null;
-    tokenLedgerService.record(run.usage, worker);
-    if (worker.status !== "succeeded") {
-      run.status = "review_required";
-      addRunEvent(run, "Planning worker failed; inspect its output and retry.", "error");
-      return saveAndPublish(run);
-    }
+    });
+    if (!worker) return summarizeRun(run);
     try {
       const plan = validateAndNormalizePlan(extractStructuredJson(worker.stdout), {
         requireInspection: true,
@@ -779,10 +858,12 @@ function createManagedRunService({
     accept,
     approvePlan,
     approveShape,
+    approveSpec,
     archive,
     cancel,
     create,
     generatePlan,
+    generateSpec,
     get,
     getWorkerDetail,
     inspectRepository,
@@ -795,6 +876,7 @@ function createManagedRunService({
     savePlan,
     saveShape,
     saveShapeDomainProposal,
+    saveSpec,
     setTaskStatus,
     start,
     updateRouting,
