@@ -34,6 +34,8 @@ const IPC_CHANNELS = Object.freeze({
     linkManagedRunShapeSession: "managed-run:link-shape-session",
     saveManagedRunShape: "managed-run:save-shape",
     approveManagedRunShape: "managed-run:approve-shape",
+    saveManagedRunShapeDomainProposal: "managed-run:save-shape-domain-proposal",
+    refreshManagedRunShapeDocumentation: "managed-run:refresh-shape-documentation",
     generateManagedRunPlan: "managed-run:generate-plan",
     saveManagedRunPlan: "managed-run:save-plan",
     approveManagedRunPlan: "managed-run:approve-plan",

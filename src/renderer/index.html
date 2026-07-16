@@ -425,6 +425,13 @@
               <div class="panel-header compact"><div><p class="eyebrow">Human Gate</p><h2>Shape</h2></div><p id="managed-run-shape-meta" class="status-meta"></p></div>
               <textarea id="managed-run-shape-editor" class="managed-run-plan-editor" spellcheck="true" placeholder="Capture the shared understanding and decisions from the Shape conversation."></textarea>
               <p class="status-meta">The canonical editable file is <code>shape/summary.md</code> in the Run Workspace. Saving snapshots both it and the linked conversation.</p>
+              <div class="managed-run-routing-panel">
+                <p id="managed-run-domain-meta" class="status-meta"></p>
+                <textarea id="managed-run-domain-proposal" class="managed-run-plan-editor" spellcheck="true" placeholder="When this repository has no domain-document convention, keep proposed glossary and architecture decisions here until creation is approved."></textarea>
+                <label><input id="managed-run-create-domain-docs" type="checkbox" /> Approve creating <code>docs/domain.md</code> when no convention exists</label>
+                <div class="button-row"><button type="button" id="managed-run-save-domain-proposal" class="secondary">Save domain proposal</button><button type="button" id="managed-run-refresh-domain-diff" class="secondary">Refresh documentation diff</button></div>
+                <pre id="managed-run-domain-diff" class="managed-run-worker-output">No tracked domain-document changes.</pre>
+              </div>
               <div class="button-row"><button type="button" id="managed-run-save-shape" class="secondary">Save Shape revision</button><button type="button" id="managed-run-approve-shape">Approve Shape</button></div>
             </details>
 

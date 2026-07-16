@@ -69,6 +69,15 @@ function createManagedRunService({
   workspaceFileService,
   managedRunWorkspaceService,
   sessionService,
+  shapeDomainDocumentService = {
+    inspect: () => ({ hasConvention: false, recognizedPaths: [], canonicalTerms: [] }),
+    preview: () => ({ changedPaths: [], diff: "", fingerprint: createHash("sha256").update("").digest("hex") }),
+    materializeProposal: () => ({ materialized: false }),
+    saveProposal: () => ({ proposalPath: "shape/domain-proposal.md" }),
+    commitApproved: () => null,
+    startGuard: () => ({ guarded: false }),
+    stopGuard: () => false,
+  },
   publishRun,
 }) {
   function requireRun(runId) {
@@ -239,6 +248,14 @@ function createManagedRunService({
       conversationRevision: 0,
       revisions: [],
     };
+    run.artifacts.shape.domain ||= {
+      ...shapeDomainDocumentService?.inspect(run.worktreePath),
+      proposalPath: "shape/domain-proposal.md",
+      proposalMarkdown: "",
+      diff: "",
+      fingerprint: null,
+      changedPaths: [],
+    };
     return paths;
   }
 
@@ -253,6 +270,33 @@ function createManagedRunService({
     return session;
   }
 
+  function guardShapeWorktree(run, allowNewConvention = false) {
+    try {
+      shapeDomainDocumentService.startGuard(
+        run.worktreePath,
+        (rejectedPaths, error) => {
+          if (error) {
+            sessionService?.stopSessionById?.(run.shapeSessionId);
+            run.status = "shape_required";
+            run.shapeSessionId = null;
+            addRunEvent(run, `Shape conversation stopped because its write guard failed: ${error.message}`, "warning");
+          } else {
+            addRunEvent(run, `Shape rejected and restored out-of-policy writes: ${rejectedPaths.join(", ")}.`, "warning");
+          }
+          saveAndPublish(run);
+        },
+        { allowNewConvention },
+      );
+    } catch (error) {
+      if (run.status === "shaping") {
+        run.status = "shape_required";
+        run.shapeSessionId = null;
+      }
+      addRunEvent(run, `Shape write guard blocked the conversation: ${error.message}`, "warning");
+      throw new Error(`Shape cannot start without its domain-document write guard: ${error.message}`);
+    }
+  }
+
   function linkShapeSession(runId, sessionId) {
     const run = requireRun(runId);
     if (run.workflowKind !== "native") throw new Error("Shape sessions require a native Managed Run.");
@@ -262,7 +306,8 @@ function createManagedRunService({
     run.shapeSessionId = session.id;
     run.phase = "shape";
     run.status = "shaping";
-    addRunEvent(run, "Persistent Shape conversation linked to this Managed Run.");
+    guardShapeWorktree(run);
+    addRunEvent(run, "Persistent Shape conversation linked with a domain-document write guard.");
     return saveAndPublish(run);
   }
 
@@ -329,15 +374,47 @@ function createManagedRunService({
     return true;
   }
 
+  function refreshShapeDocumentation(runId, options = {}) {
+    const run = requireRun(runId);
+    const shape = ensureShapeArtifact(run) && run.artifacts.shape;
+    const materialized = shapeDomainDocumentService.materializeProposal(
+      run.worktreePath, run.runWorkspacePath, options.createProjectDocumentation === true,
+    );
+    const inspection = shapeDomainDocumentService.inspect(run.worktreePath);
+    const allowNewConvention = materialized.materialized || shape.domain?.newConventionApproved === true;
+    const preview = shapeDomainDocumentService.preview(run.worktreePath, { allowNewConvention });
+    shape.domain = { ...shape.domain, ...inspection, ...preview, newConventionApproved: allowNewConvention };
+    guardShapeWorktree(run, allowNewConvention);
+    addRunEvent(run, preview.changedPaths.length
+      ? `Shape documentation diff refreshed (${preview.changedPaths.join(", ")}).`
+      : "Shape documentation diff refreshed; no tracked changes.");
+    return saveAndPublish(run);
+  }
+
+  function saveShapeDomainProposal(runId, markdown) {
+    const run = requireRun(runId);
+    const shape = ensureShapeArtifact(run) && run.artifacts.shape;
+    shapeDomainDocumentService.saveProposal(run.runWorkspacePath, markdown);
+    shape.domain.proposalMarkdown = `${String(markdown || "").trim()}\n`;
+    addRunEvent(run, "Proposed domain documentation saved in the Run Workspace.");
+    return saveAndPublish(run);
+  }
+
   function saveShape(runId, markdown) {
     const run = requireRun(runId);
     linkedShapeSession(run);
     persistShapeRevision(run, markdown, "app");
     invalidateShape(run, `Shape revision ${run.artifacts.shape.summaryRevision} saved; approval required.`);
+    const preview = shapeDomainDocumentService.preview(run.worktreePath);
+    run.artifacts.shape.domain = {
+      ...run.artifacts.shape.domain,
+      ...shapeDomainDocumentService.inspect(run.worktreePath),
+      ...preview,
+    };
     return saveAndPublish(run);
   }
 
-  function approveShape(runId) {
+  function approveShape(runId, options = {}) {
     const run = requireRun(runId);
     const paths = ensureShapeArtifact(run);
     const shape = run.artifacts.shape;
@@ -351,15 +428,34 @@ function createManagedRunService({
       saveAndPublish(run);
       throw new Error("Shape changed after its last saved revision. Review and approve the new revision.");
     }
+    const materialized = shapeDomainDocumentService.materializeProposal(
+      run.worktreePath, run.runWorkspacePath, options.createProjectDocumentation === true,
+    );
+    const allowNewConvention = materialized.materialized || shape.domain?.newConventionApproved === true;
+    const documentation = shapeDomainDocumentService.preview(run.worktreePath, { allowNewConvention });
+    if (documentation.fingerprint !== shape.domain?.fingerprint) {
+      shape.domain = { ...shape.domain, ...shapeDomainDocumentService.inspect(run.worktreePath), ...documentation };
+      invalidateShape(run, "Shape documentation changed after review; review the exact diff before approval.");
+      saveAndPublish(run);
+      throw new Error("Shape documentation changed after review. Review the refreshed diff and approve again.");
+    }
+    const shapeCommit = shapeDomainDocumentService.commitApproved(
+      run.worktreePath, documentation.fingerprint, { allowNewConvention },
+    );
+    shapeDomainDocumentService.stopGuard?.(run.worktreePath);
+    shape.domain = { ...shape.domain, ...shapeDomainDocumentService.inspect(run.worktreePath), ...documentation };
     run.approvals.shape = {
       summaryRevision: shape.summaryRevision,
       conversationRevision: shape.conversationRevision,
       summaryPath: shape.revisions.at(-1).summaryPath,
       conversationPath: shape.revisions.at(-1).conversationPath,
+      documentationFingerprint: documentation.fingerprint,
+      documentationCommit: shapeCommit,
       approvedAt: nowIso(),
     };
     run.phase = "spec";
     run.status = "spec_required";
+    if (shapeCommit) addRunEvent(run, `Shape documentation committed as ${shapeCommit.revision.slice(0, 12)}.`, "info", { shapeCommit });
     addRunEvent(run, `Shape revision ${shape.summaryRevision} approved; Spec is now available.`);
     return saveAndPublish(run);
   }
@@ -692,11 +788,13 @@ function createManagedRunService({
     inspectRepository,
     list,
     linkShapeSession,
+    refreshShapeDocumentation,
     openFile,
     pause,
     retry,
     savePlan,
     saveShape,
+    saveShapeDomainProposal,
     setTaskStatus,
     start,
     updateRouting,

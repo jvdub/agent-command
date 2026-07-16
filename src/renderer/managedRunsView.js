@@ -41,6 +41,12 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     shapeEditor: document.querySelector("#managed-run-shape-editor"),
     saveShape: document.querySelector("#managed-run-save-shape"),
     approveShape: document.querySelector("#managed-run-approve-shape"),
+    domainMeta: document.querySelector("#managed-run-domain-meta"),
+    domainProposal: document.querySelector("#managed-run-domain-proposal"),
+    createDomainDocs: document.querySelector("#managed-run-create-domain-docs"),
+    saveDomainProposal: document.querySelector("#managed-run-save-domain-proposal"),
+    refreshDomainDiff: document.querySelector("#managed-run-refresh-domain-diff"),
+    domainDiff: document.querySelector("#managed-run-domain-diff"),
     planPanel: document.querySelector("#managed-run-plan-panel"),
     planEditor: document.querySelector("#managed-run-plan-editor"),
     journey: document.querySelector("#managed-run-journey"),
@@ -79,6 +85,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let workerDetailState = "idle";
   let renderedPlanKey = "";
   let renderedShapeKey = "";
+  let renderedDomainKey = "";
   let journeyDrag = null;
 
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
@@ -217,6 +224,19 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     const progress = runProgress(run);
     elements.progress.textContent = `${progress.verified} of ${progress.total} tasks verified · ${progress.attempts} attempts · ${progress.retries} retries`;
     const shape = run.artifacts?.shape;
+    const domain = shape?.domain;
+    elements.domainMeta.textContent = domain?.hasConvention
+      ? `Recognized: ${(domain.recognizedPaths || []).join(", ")}${domain.canonicalTerms?.length ? ` · canonical terms: ${domain.canonicalTerms.join(", ")}` : ""}`
+      : "No project domain-document convention detected; proposals remain in the Run Workspace.";
+    elements.domainDiff.textContent = domain?.diff || "No tracked domain-document changes.";
+    const domainKey = `${run.id}:${domain?.fingerprint || "none"}:${domain?.proposalMarkdown || ""}`;
+    if (domainKey !== renderedDomainKey && document.activeElement !== elements.domainProposal) {
+      elements.domainProposal.value = domain?.proposalMarkdown || "";
+      renderedDomainKey = domainKey;
+    }
+    elements.createDomainDocs.checked = Boolean(domain?.newConventionApproved);
+    elements.createDomainDocs.hidden = Boolean(domain?.hasConvention);
+    elements.createDomainDocs.closest("label").hidden = Boolean(domain?.hasConvention);
     elements.shapeMeta.textContent = shape?.summaryRevision
       ? `Summary r${shape.summaryRevision} · conversation r${shape.conversationRevision}${run.approvals?.shape ? " · approved" : " · approval required"}`
       : run.shapeSessionId ? "Conversation active · save a revision" : "Open Shape to begin";
@@ -455,7 +475,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     });
     elements.generatePlan.addEventListener("click", () => perform("Planning", () => agenticApp.generateManagedRunPlan(activeRunId)));
     function shapePrompt(run) {
-      return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. The user will save and approve the human-readable Shape summary in ${run.runWorkspacePath}/shape/summary.md.`;
+      const domain = run.artifacts?.shape?.domain;
+      const domainPolicy = domain?.hasConvention
+        ? `You may edit only these recognized domain documents: ${(domain.recognizedPaths || []).join(", ")}. Preserve these canonical terms: ${(domain.canonicalTerms || []).join(", ") || "none detected"}.`
+        : `No domain-document convention exists. Do not create project files; propose domain material only in ${run.runWorkspacePath}/shape/domain-proposal.md until the user approves creation.`;
+      return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. The user will save and approve the human-readable Shape summary in ${run.runWorkspacePath}/shape/summary.md. ${domainPolicy} Never edit application code during Shape.`;
     }
     async function launchInteractive(role) {
       const run = activeRun(); if (!run) return;
@@ -477,7 +501,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.takeover.addEventListener("click", () => void launchInteractive("implementer"));
     elements.shapeEditor.addEventListener("input", () => { elements.saveShape.disabled = !activeRun()?.shapeSessionId || !elements.shapeEditor.value.trim(); });
     elements.saveShape.addEventListener("click", () => perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, elements.shapeEditor.value)));
-    elements.approveShape.addEventListener("click", () => perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId)));
+    elements.saveDomainProposal.addEventListener("click", () => perform("Domain proposal saved", () => agenticApp.saveManagedRunShapeDomainProposal(activeRunId, elements.domainProposal.value)));
+    elements.refreshDomainDiff.addEventListener("click", () => perform("Documentation diff refreshed", () => agenticApp.refreshManagedRunShapeDocumentation(activeRunId, { createProjectDocumentation: elements.createDomainDocs.checked })));
+    elements.approveShape.addEventListener("click", () => perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId, { createProjectDocumentation: elements.createDomainDocs.checked })));
     elements.planEditor.addEventListener("input", () => { elements.savePlan.disabled = !elements.planEditor.value.trim(); });
     elements.savePlan.addEventListener("click", () => perform("Saving", () => agenticApp.saveManagedRunPlan(activeRunId, markdownToPlan(elements.planEditor.value))));
     elements.approvePlan.addEventListener("click", () => perform("Approved", () => agenticApp.approveManagedRunPlan(activeRunId)));

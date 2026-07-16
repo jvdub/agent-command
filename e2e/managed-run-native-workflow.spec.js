@@ -19,7 +19,8 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
   git(sourceRepo, ["config", "user.email", "managed-run@example.com"]);
   git(sourceRepo, ["config", "user.name", "Managed Run E2E"]);
   fs.writeFileSync(path.join(sourceRepo, "README.md"), "# Native run\n", "utf8");
-  git(sourceRepo, ["add", "README.md"]);
+  fs.writeFileSync(path.join(sourceRepo, "CONTEXT.md"), "# Language\n\n**Managed Run**: durable workflow\n", "utf8");
+  git(sourceRepo, ["add", "README.md", "CONTEXT.md"]);
   git(sourceRepo, ["commit", "-m", "Initial commit"]);
   fs.writeFileSync(path.join(sourceRepo, "local-only.txt"), "keep me\n", "utf8");
 
@@ -59,6 +60,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     expect(worktreePath).toBeTruthy();
     expect(git(worktreePath, ["rev-parse", "HEAD"])).toBe(baseRevision);
     expect(fs.existsSync(path.join(worktreePath, "local-only.txt"))).toBe(false);
+    fs.appendFileSync(path.join(worktreePath, "CONTEXT.md"), "\n**Shape Commit**: approved domain documentation\n", "utf8");
     expect(fs.readFileSync(path.join(sourceRepo, ".git", "info", "exclude"), "utf8"))
       .toMatch(/^\.agentic\/$/m);
     const runDirectories = fs.readdirSync(path.join(sourceRepo, ".agentic", "runs"));
@@ -77,13 +79,24 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await expect(window.locator('[data-task-id="shape"]')).toContainText("conversation active");
     await window.locator("#managed-run-shape-editor").fill("# Shape\n\n## Decision\n\nUse native workers.\n");
     await window.locator("#managed-run-save-shape").click();
+    await expect(window.locator("#managed-run-domain-meta")).toContainText("CONTEXT.md");
+    await expect(window.locator("#managed-run-domain-meta")).toContainText("Managed Run");
+    await expect(window.locator("#managed-run-domain-diff")).toContainText("Shape Commit");
     await expect(window.locator('[data-task-id="shape"]')).toContainText("approval required");
     await window.locator("#managed-run-approve-shape").click();
     const shaped = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
     expect(shaped.phase).toBe("spec");
-    expect(shaped.approvals.shape).toMatchObject({ summaryRevision: 1, conversationRevision: 1 });
+    expect(shaped.approvals.shape).toMatchObject({
+      summaryRevision: 1, conversationRevision: 1,
+      documentationCommit: { message: "Document Shape domain decisions", paths: ["CONTEXT.md"] },
+    });
+    expect(fs.readFileSync(path.join(sourceRepo, "CONTEXT.md"), "utf8")).not.toContain("Shape Commit");
+    expect(git(worktreePath, ["show", "--name-only", "--format=", "HEAD"])).toBe("CONTEXT.md");
     await expect(window.locator('[data-task-id="shape"]')).toContainText("approved");
     await expect(window.locator('[data-task-id="spec"]')).toContainText("current phase");
+    await window.locator('[data-task-id="shape"]').click();
+    await expect(window.locator("#managed-run-inspector")).toContainText("Shape evidence");
+    await expect(window.locator("#managed-run-inspector")).toContainText("Document Shape domain decisions");
 
     const conversationPath = path.join(sourceRepo, ".agentic", "runs", runDirectories[0], "shape", "conversation-r1.txt");
     expect(fs.existsSync(conversationPath)).toBe(true);

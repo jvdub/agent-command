@@ -43,6 +43,19 @@ function renderFiles(task, selectedAttempt) {
 
 function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDetailState = "idle" }) {
   if (!run || !taskId) return '<p class="managed-inspector-empty">Select a task to inspect its definition, prompts, attempts, and evidence.</p>';
+  if (run.workflowKind === "native" && ["shape", "spec", "tickets", "implement", "accept"].includes(taskId)) {
+    const shape = run.artifacts?.shape;
+    const approval = run.approvals?.shape;
+    const commit = approval?.documentationCommit;
+    const evidence = taskId === "shape" ? `<details open data-inspector-section="evidence"><summary>Shape evidence</summary>
+      <p class="inspector-provenance">Summary revision ${escapeHtml(shape?.summaryRevision || "unsaved")} · ${approval ? "approved" : "approval required"}</p>
+      <h4>Domain documentation</h4>${list(shape?.domain?.changedPaths)}
+      ${commit ? `<p class="managed-run-state">Committed ${escapeHtml(commit.revision.slice(0, 12))}</p><p>${escapeHtml(commit.message)}</p>${list(commit.paths)}` : '<p class="status-meta">No approved Shape documentation commit.</p>'}
+      <details><summary>Reviewed documentation diff</summary><pre class="managed-run-worker-output">${escapeHtml(shape?.domain?.diff || "No tracked domain-document changes.")}</pre></details>
+    </details>` : "";
+    return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
+      <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : approval ? "approved" : "locked")}</p>${evidence}`;
+  }
   if (taskId === "final-verification") {
     const worker = run.workers?.find((candidate) => candidate.id === run.finalVerification?.workerId) ||
       [...(run.workers || [])].reverse().find((candidate) => candidate.role === "integration_verifier");

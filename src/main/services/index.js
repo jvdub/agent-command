@@ -27,6 +27,7 @@ const { createWorkerProcessService } = require("./workerProcessService");
 const { createLocalInferenceService } = require("./localInferenceService");
 const { createTaskSchedulerService } = require("./taskSchedulerService");
 const { createManagedRunService } = require("./managedRunService");
+const { createShapeDomainDocumentService } = require("./shapeDomainDocumentService");
 const { createTokenLedgerService } = require("./tokenLedgerService");
 const { IPC_CHANNELS } = require("../../shared/ipcContract");
 
@@ -252,6 +253,13 @@ function registerAllServices(registry) {
   );
 
   registry.register(
+    "shapeDomainDocumentService",
+    "Shape Domain Document Service",
+    () => createShapeDomainDocumentService(),
+    [],
+  );
+
+  registry.register(
     "managedRunService",
     "Managed Run Service",
     ({
@@ -264,6 +272,7 @@ function registerAllServices(registry) {
       workspaceFileService,
       managedRunWorkspaceService,
       sessionService,
+      shapeDomainDocumentService,
     }) =>
       createManagedRunService({
         runs: managedRuns,
@@ -275,6 +284,7 @@ function registerAllServices(registry) {
         workspaceFileService,
         managedRunWorkspaceService,
         sessionService,
+        shapeDomainDocumentService,
         publishRun: (run) =>
           ptyRuntime.windowManager.sendToRenderer(
             IPC_CHANNELS.events.managedRunChanged,
@@ -291,6 +301,7 @@ function registerAllServices(registry) {
       "workspaceFileService",
       "managedRunWorkspaceService",
       "sessionService",
+      "shapeDomainDocumentService",
     ],
   );
 }

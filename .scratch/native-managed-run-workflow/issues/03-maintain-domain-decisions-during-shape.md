@@ -4,14 +4,14 @@
 
 **Blocked by:** 02 — Shape an idea through an interactive approval gate.
 
-**Status:** ready-for-agent
+**Status:** implemented
 
-- [ ] Shape detects an existing single- or multi-context domain-document convention and uses its canonical terminology.
-- [ ] Shape write permission is constrained to recognized glossary and architectural-decision documentation rather than application code.
-- [ ] When no convention exists, proposed domain material remains in the Run Workspace until the user approves creating project documentation.
-- [ ] The Shape gate presents the exact tracked documentation diff alongside the shaping artifact.
-- [ ] Approval binds to a diff fingerprint and is invalidated if the documentation changes before commit.
-- [ ] Agentic Command, not the shaping worker, commits approved tracked documentation changes on the run branch.
-- [ ] The commit follows documented repository conventions, a clearly established history convention, or a sensible fallback in that order.
-- [ ] The workflow canvas and evidence view show the approved Shape commit without treating it as an implementation Ticket.
-- [ ] Tests demonstrate that attempted writes outside recognized documentation are rejected and that the source checkout remains untouched.
+- [x] Shape detects an existing single- or multi-context domain-document convention and uses its canonical terminology.
+- [x] Shape write permission is constrained to recognized glossary and architectural-decision documentation rather than application code.
+- [x] When no convention exists, proposed domain material remains in the Run Workspace until the user approves creating project documentation.
+- [x] The Shape gate presents the exact tracked documentation diff alongside the shaping artifact.
+- [x] Approval binds to a diff fingerprint and is invalidated if the documentation changes before commit.
+- [x] Agentic Command, not the shaping worker, commits approved tracked documentation changes on the run branch.
+- [x] The commit follows documented repository conventions, a clearly established history convention, or a sensible fallback in that order.
+- [x] The workflow canvas and evidence view show the approved Shape commit without treating it as an implementation Ticket.
+- [x] Tests demonstrate that attempted writes outside recognized documentation are rejected and that the source checkout remains untouched.
