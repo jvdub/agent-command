@@ -21,6 +21,7 @@ const {
 const { createSessionService } = require("./sessionService");
 const { createWorkspaceFileService } = require("./workspaceFileService");
 const { createManagedRunPersistenceService } = require("./managedRunPersistenceService");
+const { createManagedRunWorkspaceService } = require("./managedRunWorkspaceService");
 const { createWorkerProviderRegistry } = require("./workerProviderRegistry");
 const { createWorkerProcessService } = require("./workerProcessService");
 const { createLocalInferenceService } = require("./localInferenceService");
@@ -174,6 +175,15 @@ function registerAllServices(registry) {
   );
 
   registry.register(
+    "managedRunWorkspaceService",
+    "Managed Run Workspace Service",
+    ({ app, path }) => createManagedRunWorkspaceService({
+      worktreeRoot: path.join(app.getPath("userData"), "managed-run-worktrees"),
+    }),
+    [],
+  );
+
+  registry.register(
     "workerProviderRegistry",
     "Managed Worker Provider Registry",
     () => createWorkerProviderRegistry(),
@@ -252,6 +262,7 @@ function registerAllServices(registry) {
       taskSchedulerService,
       tokenLedgerService,
       workspaceFileService,
+      managedRunWorkspaceService,
     }) =>
       createManagedRunService({
         runs: managedRuns,
@@ -261,6 +272,7 @@ function registerAllServices(registry) {
         getTaskSchedulerService: () => taskSchedulerService,
         tokenLedgerService,
         workspaceFileService,
+        managedRunWorkspaceService,
         publishRun: (run) =>
           ptyRuntime.windowManager.sendToRenderer(
             IPC_CHANNELS.events.managedRunChanged,
@@ -275,6 +287,7 @@ function registerAllServices(registry) {
       "taskSchedulerService",
       "tokenLedgerService",
       "workspaceFileService",
+      "managedRunWorkspaceService",
     ],
   );
 }

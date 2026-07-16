@@ -67,6 +67,7 @@ function createManagedRunService({
   getTaskSchedulerService,
   tokenLedgerService,
   workspaceFileService,
+  managedRunWorkspaceService,
   publishRun,
 }) {
   function requireRun(runId) {
@@ -96,19 +97,32 @@ function createManagedRunService({
         isEmpty: false,
       };
     }
+    const isGitRepository = fs.existsSync(path.join(repoPath, ".git"));
+    let git = null;
+    if (isGitRepository) {
+      try {
+        git = managedRunWorkspaceService.inspect(repoPath);
+      } catch {
+        git = null;
+      }
+    }
     return {
       repoPath,
       isDirectory: true,
-      isGitRepository: fs.existsSync(path.join(repoPath, ".git")),
+      isGitRepository,
       isEmpty: fs.readdirSync(repoPath).length === 0,
+      hasCommittedBase: Boolean(git?.baseRevision),
+      baseRevision: git?.baseRevision || null,
+      baseBranch: git?.baseBranch || null,
+      sourceWasDirty: Boolean(git?.sourceWasDirty),
     };
   }
 
   function create(input) {
     const repository = inspectRepository(input?.repoPath);
-    const repoPath = repository.repoPath;
-    const specification = String(input?.specification || "").trim();
-    if (!specification) throw new Error("A specification is required.");
+    const sourceRepoPath = repository.repoPath;
+    const specification = String(input?.idea || input?.specification || "").trim();
+    if (!specification) throw new Error("An idea is required.");
     if (!repository.isDirectory) {
       throw new Error("Repository path must be a readable directory.");
     }
@@ -120,7 +134,7 @@ function createManagedRunService({
       }
       try {
         execFileSync("git", ["init"], {
-          cwd: repoPath,
+          cwd: sourceRepoPath,
           windowsHide: true,
           stdio: "pipe",
         });
@@ -135,12 +149,39 @@ function createManagedRunService({
     }
     const now = nowIso();
     const provider = String(input?.provider || "codex");
+    const id = randomUUID();
+    const title = String(input?.title || specification.split(/\r?\n/u)[0]).slice(0, 120);
+    let workspace;
+    try {
+      workspace = managedRunWorkspaceService.create({
+        runId: id,
+        title,
+        sourceRepoPath,
+        runWorkspacePath: input?.runWorkspacePath,
+        trackRunWorkspace: input?.trackRunWorkspace === true,
+        baseRef: input?.baseRef,
+      });
+    } catch (error) {
+      throw new Error(`Managed Run requires a committed Git base: ${error.message}`);
+    }
     const run = {
-      id: randomUUID(),
-      title: String(input?.title || specification.split(/\r?\n/u)[0]).slice(0, 120),
-      repoPath,
+      id,
+      title,
+      workflowVersion: 1,
+      phase: "shape",
+      repoPath: workspace.worktreePath,
+      sourceRepoPath,
+      runWorkspacePath: workspace.runWorkspacePath,
+      worktreePath: workspace.worktreePath,
+      baseRevision: workspace.baseRevision,
+      baseBranch: workspace.baseBranch,
+      branchName: workspace.branchName,
+      sourceWasDirty: workspace.sourceWasDirty,
+      trackRunWorkspace: workspace.trackRunWorkspace,
       specification,
-      status: "draft",
+      status: "shape_required",
+      artifacts: {},
+      approvals: {},
       plan: null,
       planSource: null,
       planRevision: 0,
@@ -163,7 +204,7 @@ function createManagedRunService({
       createdAt: now,
       updatedAt: now,
     };
-    addRunEvent(run, "Managed Run created; planning requires a capable worker and human approval.");
+    addRunEvent(run, `Managed Run created from ${workspace.baseRevision.slice(0, 12)}; Shape requires human approval.`);
     runs.set(run.id, run);
     return saveAndPublish(run);
   }

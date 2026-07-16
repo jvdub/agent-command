@@ -130,8 +130,8 @@
               </div>
             </label>
             <label>
-              <span>Specification</span>
-              <textarea id="managed-run-spec-input" rows="7" placeholder="Paste the approved story, bug specification, or /grill-me result."></textarea>
+              <span>Idea</span>
+              <textarea id="managed-run-spec-input" rows="7" placeholder="Describe the idea, problem, or existing artifact you want to shape."></textarea>
             </label>
             <label>
               <span>Worker Provider</span>
@@ -148,6 +148,12 @@
               <label><span>Implementation</span><input id="managed-run-implementation-model" autocomplete="off" /></label>
               <label><span>Verification</span><input id="managed-run-verification-model" autocomplete="off" /></label>
               <label><span>Final integration</span><input id="managed-run-integration-model" autocomplete="off" /></label>
+              <label><span>Base revision</span><input id="managed-run-base-ref" placeholder="Default: HEAD" autocomplete="off" /></label>
+              <label><span>Run Workspace override</span><input id="managed-run-workspace-input" placeholder="Default: .agentic/runs/&lt;run-id&gt;" autocomplete="off" /></label>
+              <label class="managed-run-track-workspace-label">
+                <input id="managed-run-track-workspace" type="checkbox" />
+                <span>Track Run Workspace instead of excluding it locally</span>
+              </label>
             </details>
             <div class="button-row">
               <button type="submit">Create Managed Run</button>

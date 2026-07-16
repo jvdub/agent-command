@@ -66,6 +66,9 @@ function runProgress(run) {
 
 function currentAction(run) {
   if (!run) return "Select a Managed Run.";
+  if (run.workflowVersion === 1 && run.phase === "shape") {
+    return "Shape the idea and confirm shared understanding.";
+  }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
   if (run.status === "replan_required") return "Revise the plan before execution can continue.";
   if (run.status === "final_verification") return "Final integration verification is running.";
@@ -87,6 +90,27 @@ function currentAction(run) {
 }
 
 function journeyStations(run) {
+  if (run?.workflowVersion === 1) {
+    const phases = [
+      ["shape", "Shape"],
+      ["spec", "Spec"],
+      ["tickets", "Tickets"],
+      ["implement", "Implement"],
+      ["accept", "Accept"],
+    ];
+    const currentIndex = Math.max(0, phases.findIndex(([id]) => id === run.phase));
+    return phases.map(([id, title], index) => ({
+      id,
+      kind: "workflow-phase",
+      title,
+      order: index + 1,
+      status: index < currentIndex ? "succeeded" : index === currentIndex ? "active" : "locked",
+      phase: index < currentIndex ? "approved" : index === currentIndex ? "current phase" : "locked",
+      dependencies: index === 0 ? [] : [phases[index - 1][0]],
+      attempts: 0,
+      segments: [],
+    }));
+  }
   const stations = (run?.tasks || []).map((task) => ({
     id: task.id,
     kind: "task",

@@ -5,7 +5,7 @@ const {
   createRuntimeTasks,
 } = require("./managedRunUtils");
 
-const MANAGED_RUN_SCHEMA_VERSION = 2;
+const MANAGED_RUN_SCHEMA_VERSION = 3;
 const ENCRYPTED_TRANSCRIPT_ENCODING = "electron-safe-storage-v1";
 
 function createManagedRunPersistenceService({
@@ -97,6 +97,7 @@ function createManagedRunPersistenceService({
     if (!fs.existsSync(target)) return;
     try {
       const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
+      if (parsed?.schemaVersion !== MANAGED_RUN_SCHEMA_VERSION) return;
       if (!Array.isArray(parsed?.runs)) return;
       for (const stored of parsed.runs) {
         const run = {

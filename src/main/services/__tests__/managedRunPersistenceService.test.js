@@ -73,7 +73,7 @@ describe("Managed Run persistence", () => {
     expect(restored.get("run-1").activeWorkerId).toBeNull();
   });
 
-  test("migrates an approved legacy plan to an explicitly best-effort snapshot", () => {
+  test("ignores persisted legacy workflows", () => {
     const app = { getPath: () => userDataDir };
     const target = path.join(userDataDir, "managed-runs.json");
     fs.writeFileSync(
@@ -112,12 +112,8 @@ describe("Managed Run persistence", () => {
       platform: "win32",
     }).load();
 
-    expect(MANAGED_RUN_SCHEMA_VERSION).toBe(2);
-    expect(restored.get("legacy").approvedPlanSnapshot).toMatchObject({
-      revision: 3,
-      provenance: "migrated-best-effort",
-    });
-    expect(restored.get("legacy").approvedPlanSnapshot.tasks[0]).not.toHaveProperty("status");
+    expect(MANAGED_RUN_SCHEMA_VERSION).toBe(3);
+    expect(restored.has("legacy")).toBe(false);
   });
 
   test("marks prompts unavailable when protected storage cannot persist them", () => {

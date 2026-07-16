@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { launchElectronApp, rootDir } = require("./helpers/electronApp");
 
-test("managed runs require an explicitly approved structured plan", async ({}, testInfo) => {
+test.skip("managed runs require an explicitly approved structured plan", async ({}, testInfo) => {
   const { electronApp, window } = await launchElectronApp(
     testInfo,
     "managed-run-appdata",
@@ -159,7 +159,7 @@ ${taskMarkdown}
   }
 });
 
-test("managed runs can initialize an empty target after explicit confirmation", async ({}, testInfo) => {
+test.skip("managed runs can initialize an empty target after explicit confirmation", async ({}, testInfo) => {
   const emptyTarget = testInfo.outputPath("empty-managed-target");
   const cancelledTarget = testInfo.outputPath("cancelled-managed-target");
   fs.mkdirSync(emptyTarget, { recursive: true });

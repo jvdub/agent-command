@@ -78,7 +78,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
 
   function journeySignature(run) {
-    return (run.tasks || []).map((task) => `${task.id}:${(task.dependencies || []).join(",")}`).join("|");
+    return run.workflowVersion === 1
+      ? `workflow:${run.phase}`
+      : (run.tasks || []).map((task) => `${task.id}:${(task.dependencies || []).join(",")}`).join("|");
   }
 
   function applyJourneyView() {
@@ -162,6 +164,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   }
 
   function defaultSelection(run) {
+    if (run.workflowVersion === 1) {
+      selectedTaskId = run.phase || "shape";
+      return;
+    }
     if (selectedTaskId && (selectedTaskId === "final-verification" || run.tasks?.some((task) => task.id === selectedTaskId))) return;
     selectedTaskId = run.tasks?.find((task) => ["implementing", "verifying", "human_review_required", "retry_required"].includes(task.status))?.id || run.tasks?.[0]?.id || "final-verification";
   }
@@ -197,7 +203,8 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     if (!run) return;
     defaultSelection(run);
     elements.viewTitle.textContent = run.title;
-    elements.viewMeta.textContent = `${prettyStatus(run.status)} · ${run.repoPath}`;
+    const displayPath = run.sourceRepoPath || run.repoPath;
+    elements.viewMeta.textContent = `${prettyStatus(run.status)} · ${displayPath}`;
     elements.currentAction.textContent = currentAction(run);
     const progress = runProgress(run);
     elements.progress.textContent = `${progress.verified} of ${progress.total} tasks verified · ${progress.attempts} attempts · ${progress.retries} retries`;
@@ -227,6 +234,17 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.archive.disabled = active;
     elements.shape.disabled = active;
     elements.takeover.disabled = active;
+    const nativeWorkflow = run.workflowVersion === 1;
+    elements.generatePlan.hidden = nativeWorkflow;
+    elements.savePlan.hidden = nativeWorkflow;
+    elements.approvePlan.hidden = nativeWorkflow;
+    elements.start.hidden = nativeWorkflow;
+    elements.pause.hidden = nativeWorkflow;
+    elements.accept.hidden = nativeWorkflow;
+    elements.takeover.hidden = nativeWorkflow;
+    elements.planPanel.hidden = nativeWorkflow;
+    elements.shape.hidden = !nativeWorkflow;
+    elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
   }
 
   function show(runId, target = {}) {
@@ -298,13 +316,22 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       const repository = await perform("Checking repository", () => agenticApp.inspectManagedRunRepository(elements.repoInput.value));
       if (!repository?.isDirectory) return setStatus("Error", "Repository path must be a readable directory.");
       let initializeGit = false;
+      if (repository.sourceWasDirty) {
+        const proceed = window.confirm(
+          "This checkout has uncommitted changes. They will remain untouched and will not be included; the Managed Run starts from the selected committed base.",
+        );
+        if (!proceed) return;
+      }
       if (!repository.isGitRepository) {
         initializeGit = window.confirm("This folder is not a Git repository. Initialize Git here and continue?");
         if (!initializeGit) return;
       }
       const run = await perform("Creating", () => agenticApp.createManagedRun({
         title: elements.titleInput.value, repoPath: elements.repoInput.value,
-        specification: elements.specInput.value, provider: elements.providerInput.value,
+        idea: elements.specInput.value, provider: elements.providerInput.value,
+        baseRef: document.querySelector("#managed-run-base-ref")?.value || "HEAD",
+        runWorkspacePath: document.querySelector("#managed-run-workspace-input")?.value || "",
+        trackRunWorkspace: Boolean(document.querySelector("#managed-run-track-workspace")?.checked),
         planningModel: elements.planningModel.value, implementationModel: elements.implementationModel.value,
         verificationModel: elements.verificationModel.value, integrationModel: elements.integrationModel.value,
         initializeGit,
@@ -410,7 +437,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       const routing = run.routing?.[role] || {};
       const result = await perform(role === "planner" ? "Shaping" : "Taking over", () => agenticApp.startSession({
         label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
-        command: routing.provider || "codex", argsArray: routing.model ? ["--model", routing.model] : [], cwd: run.repoPath, cols: 120, rows: 36,
+        command: routing.provider || "codex", argsArray: routing.model ? ["--model", routing.model] : [], cwd: run.worktreePath || run.repoPath, cols: 120, rows: 36,
       }));
       if (result?.session) await onSessionStarted?.(result.session);
     }
