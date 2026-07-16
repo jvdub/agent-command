@@ -4,15 +4,15 @@
 
 **Blocked by:** 04 — Generate and approve a revisioned Spec.
 
-**Status:** ready-for-agent
+**Status:** implemented
 
-- [ ] Ticket generation uses a fresh read-only worker with the approved Spec, confirmed test seams, applicable domain decisions, and repository context.
-- [ ] Each ordinary Ticket is a narrow end-to-end behavior that fits one fresh implementation context and can be demonstrated or verified independently.
-- [ ] Layer-only Tickets are rejected unless they identify a legitimate prerequisite refactor, broad mechanical migration, or indivisible infrastructure exception.
-- [ ] Wide changes use a validated expand–migrate–contract dependency shape that keeps the repository green where practical.
-- [ ] Every Ticket records behavior, acceptance criteria, blockers, test seams, TDD policy or exception, verification guidance, relevant context, capability tiers, and retry limits.
-- [ ] The user can edit Ticket Markdown, merge or split proposed slices, change blockers, and compare revisions before approval.
-- [ ] Agentic Command validates identifiers, required fields, dependency references, and cycles before allowing approval.
-- [ ] Approval freezes a structured execution projection derived from the exact approved Markdown revision.
-- [ ] The workflow canvas expands the Tickets station into the approved dependency graph and clearly shows the executable frontier.
-- [ ] The deterministic Electron seam demonstrates draft revision, graph correction, approval, projection validation, and visible dependency layout.
+- [x] Ticket generation uses a fresh read-only worker with the approved Spec, confirmed test seams, applicable domain decisions, and repository context.
+- [x] Each ordinary Ticket is a narrow end-to-end behavior that fits one fresh implementation context and can be demonstrated or verified independently.
+- [x] Layer-only Tickets are rejected unless they identify a legitimate prerequisite refactor, broad mechanical migration, or indivisible infrastructure exception.
+- [x] Wide changes use a validated expand–migrate–contract dependency shape that keeps the repository green where practical.
+- [x] Every Ticket records behavior, acceptance criteria, blockers, test seams, TDD policy or exception, verification guidance, relevant context, capability tiers, and retry limits.
+- [x] The user can edit Ticket Markdown, merge or split proposed slices, change blockers, and compare revisions before approval.
+- [x] Agentic Command validates identifiers, required fields, dependency references, and cycles before allowing approval.
+- [x] Approval freezes a structured execution projection derived from the exact approved Markdown revision.
+- [x] The workflow canvas expands the Tickets station into the approved dependency graph and clearly shows the executable frontier.
+- [x] The deterministic Electron seam demonstrates draft revision, graph correction, approval, projection validation, and visible dependency layout.

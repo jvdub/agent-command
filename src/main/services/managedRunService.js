@@ -14,6 +14,7 @@ const {
   unwrapProviderOutput,
 } = require("./managedRunUtils");
 const { createManagedRunSpecArtifactService, specPrompt } = require("./managedRunSpecArtifactService");
+const { createManagedRunTicketsArtifactService, ticketsPrompt, validateTicketsMarkdown } = require("./managedRunTicketsArtifactService");
 
 const PLANNING_SAFETY = `Safety rules:
 - Inspect the repository but do not modify files.
@@ -83,6 +84,7 @@ function createManagedRunService({
   publishRun,
 }) {
   const specArtifactService = createManagedRunSpecArtifactService();
+  const ticketsArtifactService = createManagedRunTicketsArtifactService();
 
   function requireRun(runId) {
     const run = runs.get(runId);
@@ -587,6 +589,66 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function persistTicketsRevision(run, markdown, source) {
+    const artifact = ticketsArtifactService.persist(run, markdown, source);
+    run.approvals.tickets = null; run.approvedTicketsSnapshot = null;
+    run.tasks = []; run.finalVerification = null; run.phase = "tickets"; run.status = "tickets_approval_required";
+    return artifact;
+  }
+
+  async function generateTickets(runId) {
+    const run = requireRun(runId);
+    if (!run.approvals.spec) throw new Error("An approved Spec is required before Ticket generation.");
+    const specMarkdown = await fs.promises.readFile(
+      path.join(run.runWorkspacePath, run.approvals.spec.path), "utf8",
+    );
+    const domainDocuments = (await Promise.all(
+      (run.artifacts.shape?.domain?.recognizedPaths || []).map(async (relativePath) => {
+        try {
+          const content = await fs.promises.readFile(path.join(run.worktreePath, relativePath), "utf8");
+          return `# ${relativePath}\n${content}`;
+        } catch (error) {
+          if (error.code === "ENOENT") return "";
+          throw error;
+        }
+      }),
+    )).filter(Boolean).join("\n\n");
+    const worker = await runReadOnlyPlannerWorker(run, {
+      prompt: ticketsPrompt(run, specMarkdown, domainDocuments), cwd: run.worktreePath,
+      promptKind: "tickets_generation", startingStatus: "tickets_generating",
+      startMessage: "Starting fresh read-only Ticket worker", failureStatus: "tickets_required",
+      failureMessage: "Ticket worker failed; inspect its output and retry.", definitionRevision: run.artifacts.tickets?.revision || null,
+    });
+    if (!worker) return summarizeRun(run);
+    try { persistTicketsRevision(run, unwrapProviderOutput(worker.stdout), "worker"); addRunEvent(run, `Ticket graph revision ${run.artifacts.tickets.revision} generated for review.`); }
+    catch (error) { run.status = "tickets_required"; addRunEvent(run, `Ticket output was invalid: ${error.message}`, "error"); }
+    return saveAndPublish(run);
+  }
+
+  function saveTickets(runId, markdown) {
+    const run = requireRun(runId);
+    if (!run.approvals.spec) throw new Error("An approved Spec is required.");
+    persistTicketsRevision(run, markdown, "human"); addRunEvent(run, `Ticket graph revision ${run.artifacts.tickets.revision} saved; approval required.`);
+    return saveAndPublish(run);
+  }
+
+  function approveTickets(runId) {
+    const run = requireRun(runId); const artifact = run.artifacts.tickets;
+    if (!artifact?.revision) throw new Error("Generate or save Tickets before approval.");
+    const current = ticketsArtifactService.readCurrent(run);
+    if (ticketsArtifactService.fingerprint(current) !== artifact.hash) {
+      persistTicketsRevision(run, current, "workspace"); addRunEvent(run, "Tickets changed in the Run Workspace; the new revision requires approval.", "warning");
+      saveAndPublish(run); throw new Error("Tickets changed in the Run Workspace. Review and approve the new revision.");
+    }
+    artifact.projection = validateTicketsMarkdown(current).tickets; artifact.approvedRevision = artifact.revision; artifact.previousApprovedMarkdown = artifact.markdown;
+    run.approvedTicketsSnapshot = ticketsArtifactService.freeze(run);
+    run.approvals.tickets = { revision: artifact.revision, specRevision: run.approvals.spec.revision, approvedAt: run.approvedTicketsSnapshot.approvedAt, action: "approved", path: artifact.revisions.at(-1).path };
+    run.tasks = artifact.projection.map((ticket) => ({ ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes, status: "planned", attempts: [] }));
+    run.phase = "implement"; run.status = "implement_ready";
+    addRunEvent(run, `Ticket graph revision ${artifact.revision} approved; its exact execution projection is frozen.`);
+    return saveAndPublish(run);
+  }
+
   function list() {
     let reconciled = false;
     for (const run of runs.values()) reconciled = reconcileApprovedShape(run) || reconciled;
@@ -859,11 +921,13 @@ function createManagedRunService({
     approvePlan,
     approveShape,
     approveSpec,
+    approveTickets,
     archive,
     cancel,
     create,
     generatePlan,
     generateSpec,
+    generateTickets,
     get,
     getWorkerDetail,
     inspectRepository,
@@ -877,6 +941,7 @@ function createManagedRunService({
     saveShape,
     saveShapeDomainProposal,
     saveSpec,
+    saveTickets,
     setTaskStatus,
     start,
     updateRouting,

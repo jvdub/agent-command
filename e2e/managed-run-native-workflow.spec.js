@@ -31,6 +31,65 @@ Persist and approve revisioned Spec Markdown.
 - Preserve Shape provenance.
 `;
 
+const TICKETS_MARKDOWN = `# Tickets
+
+## Ticket \`ticket-a\`: First visible slice
+### Behavior
+A user sees the first slice.
+### Acceptance Criteria
+- The first slice is independently demonstrable.
+### Blockers
+- None
+### Test Seams
+- Existing Managed Run service seam
+### TDD Policy
+test-first
+### TDD Exception
+None
+### Verification Guidance
+- Run the focused service test
+### Relevant Context
+- Preserve the approved Spec
+### Implementation Tier
+standard
+### Verification Tier
+standard
+### Retry Limit
+3
+### Slice Kind
+tracer-bullet
+### Wide Change
+None
+
+## Ticket \`ticket-b\`: Dependent visible slice
+### Behavior
+A user sees the dependent slice.
+### Acceptance Criteria
+- The dependent slice is independently demonstrable.
+### Blockers
+- ticket-a
+### Test Seams
+- Existing Electron workflow seam
+### TDD Policy
+test-first
+### TDD Exception
+None
+### Verification Guidance
+- Run the deterministic Electron check
+### Relevant Context
+- Build on the first slice
+### Implementation Tier
+standard
+### Verification Tier
+premium
+### Retry Limit
+2
+### Slice Kind
+tracer-bullet
+### Wide Change
+None
+`;
+
 function git(cwd, args) {
   return execFileSync("git", ["-c", `safe.directory=${cwd}`, "-C", cwd, ...args], {
     cwd: process.cwd(),
@@ -52,7 +111,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
   fs.writeFileSync(path.join(sourceRepo, "local-only.txt"), "keep me\n", "utf8");
 
   const fakeSpecWorker = testInfo.outputPath("fake-spec-worker.js");
-  fs.writeFileSync(fakeSpecWorker, `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(SPEC_MARKDOWN)}));\n`, "utf8");
+  fs.writeFileSync(fakeSpecWorker, `let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(input.includes("fresh read-only Ticket worker") ? ${JSON.stringify(TICKETS_MARKDOWN)} : ${JSON.stringify(SPEC_MARKDOWN)}));\n`, "utf8");
   const { electronApp, window } = await launchElectronApp(
     testInfo,
     "native-run-appdata",
@@ -138,6 +197,20 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await expect(window.locator('[data-task-id="tickets"]')).toContainText("current phase");
     await window.locator('[data-task-id="spec"]').click();
     await expect(window.locator("#managed-run-inspector")).toContainText("Test seams explicitly confirmed");
+
+    await window.locator("#managed-run-generate-tickets").click();
+    await expect(window.locator("#managed-run-tickets-editor")).toHaveValue(TICKETS_MARKDOWN);
+    await window.locator("#managed-run-tickets-editor").fill(TICKETS_MARKDOWN.replace("- None", "- ticket-b"));
+    await window.locator("#managed-run-save-tickets").click();
+    let ticketRun = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
+    expect(ticketRun.artifacts.tickets.revision).toBe(1);
+    await window.locator("#managed-run-tickets-editor").fill(TICKETS_MARKDOWN);
+    await window.locator("#managed-run-save-tickets").click();
+    await window.locator("#managed-run-approve-tickets").click();
+    ticketRun = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
+    expect(ticketRun.approvedTicketsSnapshot).toMatchObject({ revision: 2, tickets: [{ id: "ticket-a" }, { id: "ticket-b", dependencies: ["ticket-a"] }] });
+    await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("executable frontier");
+    await expect(window.locator('[data-task-id="ticket-b"]')).toContainText("blocked by ticket-a");
 
     await window.locator("#managed-run-spec-editor").fill(SPEC_MARKDOWN.replace("Persist and approve", "Edit and re-approve"));
     await window.locator("#managed-run-save-spec").click();

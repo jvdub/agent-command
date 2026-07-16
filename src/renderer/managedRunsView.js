@@ -44,6 +44,13 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     generateSpec: document.querySelector("#managed-run-generate-spec"),
     saveSpec: document.querySelector("#managed-run-save-spec"),
     approveSpec: document.querySelector("#managed-run-approve-spec"),
+    ticketsPanel: document.querySelector("#managed-run-tickets-panel"),
+    ticketsMeta: document.querySelector("#managed-run-tickets-meta"),
+    ticketsEditor: document.querySelector("#managed-run-tickets-editor"),
+    previousTickets: document.querySelector("#managed-run-previous-tickets"),
+    generateTickets: document.querySelector("#managed-run-generate-tickets"),
+    saveTickets: document.querySelector("#managed-run-save-tickets"),
+    approveTickets: document.querySelector("#managed-run-approve-tickets"),
     shapePanel: document.querySelector("#managed-run-shape-panel"),
     shapeMeta: document.querySelector("#managed-run-shape-meta"),
     shapeEditor: document.querySelector("#managed-run-shape-editor"),
@@ -94,6 +101,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let renderedPlanKey = "";
   let renderedShapeKey = "";
   let renderedSpecKey = "";
+  let renderedTicketsKey = "";
   let renderedDomainKey = "";
   let journeyDrag = null;
 
@@ -101,7 +109,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
 
   function journeySignature(run) {
     return isNativeWorkflow(run)
-      ? `workflow:${run.phase}`
+      ? `workflow:${run.phase}:${(run.approvedTicketsSnapshot?.tickets || []).map((ticket) => `${ticket.id}:${ticket.dependencies.join(",")}`).join("|")}`
       : (run.tasks || []).map((task) => `${task.id}:${(task.dependencies || []).join(",")}`).join("|");
   }
 
@@ -265,6 +273,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       elements.confirmTestSeams.checked = Boolean(run.approvals?.spec?.revision === spec?.revision);
     }
     elements.previousSpec.textContent = spec?.previousApprovedMarkdown || "No previous approved revision.";
+    const tickets = run.artifacts?.tickets;
+    elements.ticketsMeta.textContent = tickets?.revision ? `Revision ${tickets.revision}${run.approvals?.tickets?.revision === tickets.revision ? " · approved" : tickets.stale ? " · stale" : " · approval required"} · Spec r${tickets.upstreamSpecRevision}` : run.status === "tickets_generating" ? "Fresh read-only worker generating…" : "No Tickets generated";
+    const ticketsKey = `${run.id}:${tickets?.revision || 0}`;
+    if (ticketsKey !== renderedTicketsKey && document.activeElement !== elements.ticketsEditor) { elements.ticketsEditor.value = tickets?.markdown || ""; renderedTicketsKey = ticketsKey; }
+    elements.previousTickets.textContent = tickets?.previousRevisionMarkdown || tickets?.previousApprovedMarkdown || "No previous revision.";
     elements.planMeta.textContent = run.plan ? `Revision ${run.planRevision}${run.approvedRevision === run.planRevision ? " · approved" : " · approval required"}` : "No plan generated";
     if (!run.plan || run.approvedRevision !== run.planRevision) elements.planPanel.open = true;
     const planKey = `${run.id}:${run.planRevision}`;
@@ -279,7 +292,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     renderEvents(run);
     const usage = run.usage || {};
     elements.usage.textContent = `${usage.workerCount || 0} workers · ${usage.hasTokenData ? `${(usage.inputTokens || 0) + (usage.outputTokens || 0)} tokens` : "token data unavailable"}`;
-    const active = Boolean(run.activeWorkerId) || ["planning", "spec_generating", "running", "final_verification"].includes(run.status);
+    const active = Boolean(run.activeWorkerId) || ["planning", "spec_generating", "tickets_generating", "running", "final_verification"].includes(run.status);
     elements.generatePlan.disabled = active;
     elements.savePlan.disabled = active || !elements.planEditor.value.trim();
     elements.approvePlan.disabled = run.status !== "approval_required";
@@ -294,6 +307,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generateSpec.disabled = active || !run.approvals?.shape;
     elements.saveSpec.disabled = active || !run.approvals?.shape || !elements.specEditor.value.trim();
     elements.approveSpec.disabled = run.status !== "spec_approval_required";
+    elements.generateTickets.disabled = active || !run.approvals?.spec;
+    elements.saveTickets.disabled = active || !run.approvals?.spec || !elements.ticketsEditor.value.trim();
+    elements.approveTickets.disabled = run.status !== "tickets_approval_required";
     elements.approveShape.disabled = run.status !== "shape_approval_required";
     elements.takeover.disabled = active;
     const nativeWorkflow = isNativeWorkflow(run);
@@ -307,6 +323,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.planPanel.hidden = nativeWorkflow;
     elements.shapePanel.hidden = !nativeWorkflow;
     elements.specPanel.hidden = !nativeWorkflow;
+    elements.ticketsPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
     elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
   }
@@ -528,6 +545,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generateSpec.addEventListener("click", () => perform("Generating Spec", () => agenticApp.generateManagedRunSpec(activeRunId)));
     elements.saveSpec.addEventListener("click", () => perform("Spec saved", () => agenticApp.saveManagedRunSpec(activeRunId, elements.specEditor.value)));
     elements.approveSpec.addEventListener("click", () => perform("Spec approved", () => agenticApp.approveManagedRunSpec(activeRunId, { testSeamsConfirmed: elements.confirmTestSeams.checked })));
+    elements.ticketsEditor.addEventListener("input", () => { elements.saveTickets.disabled = !elements.ticketsEditor.value.trim(); });
+    elements.generateTickets.addEventListener("click", () => perform("Generating Tickets", () => agenticApp.generateManagedRunTickets(activeRunId)));
+    elements.saveTickets.addEventListener("click", () => perform("Tickets saved", () => agenticApp.saveManagedRunTickets(activeRunId, elements.ticketsEditor.value)));
+    elements.approveTickets.addEventListener("click", () => perform("Tickets approved", () => agenticApp.approveManagedRunTickets(activeRunId)));
     elements.saveShape.addEventListener("click", () => perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, elements.shapeEditor.value)));
     elements.saveDomainProposal.addEventListener("click", () => perform("Domain proposal saved", () => agenticApp.saveManagedRunShapeDomainProposal(activeRunId, elements.domainProposal.value)));
     elements.refreshDomainDiff.addEventListener("click", () => perform("Documentation diff refreshed", () => agenticApp.refreshManagedRunShapeDocumentation(activeRunId, { createProjectDocumentation: elements.createDomainDocs.checked })));

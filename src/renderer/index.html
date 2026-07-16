@@ -444,6 +444,14 @@
               <div class="button-row"><button type="button" id="managed-run-generate-spec" class="secondary">Generate fresh Spec</button><button type="button" id="managed-run-save-spec" class="secondary">Save Spec revision</button><button type="button" id="managed-run-approve-spec">Approve Spec</button></div>
             </details>
 
+            <details id="managed-run-tickets-panel" class="managed-run-card managed-run-plan-card" open>
+              <summary>Ticket graph revisions and approval</summary>
+              <div class="panel-header compact"><div><p class="eyebrow">Human Gate</p><h2>Tickets</h2></div><p id="managed-run-tickets-meta" class="status-meta"></p></div>
+              <textarea id="managed-run-tickets-editor" class="managed-run-plan-editor" spellcheck="true" placeholder="Generate vertical tracer-bullet Tickets from the approved Spec or edit the dependency graph Markdown."></textarea>
+              <details><summary>Compare previous revision</summary><pre id="managed-run-previous-tickets" class="managed-run-worker-output">No previous revision.</pre></details>
+              <div class="button-row"><button type="button" id="managed-run-generate-tickets" class="secondary">Generate fresh Tickets</button><button type="button" id="managed-run-save-tickets" class="secondary">Save Ticket revision</button><button type="button" id="managed-run-approve-tickets">Approve Tickets</button></div>
+            </details>
+
             <details id="managed-run-plan-panel" class="managed-run-card managed-run-plan-card">
               <summary>Plan and worker routing</summary>
               <div class="panel-header compact">

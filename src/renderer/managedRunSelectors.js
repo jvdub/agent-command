@@ -80,6 +80,11 @@ function currentAction(run) {
     if (run.status === "spec_approval_required") return run.artifacts?.spec?.stale ? "Review the stale Spec revision and confirm its test seams." : "Review the Spec revision and explicitly confirm its test seams.";
     return "Generate a Spec from the approved Shape context.";
   }
+  if (isNativeWorkflow(run) && run.phase === "tickets") {
+    if (run.status === "tickets_generating") return "A fresh read-only worker is generating the Ticket graph.";
+    if (run.status === "tickets_approval_required") return run.artifacts?.tickets?.stale ? "Review the stale Ticket graph and approve its corrected dependencies." : "Review, edit, and approve the Ticket dependency graph.";
+    return "Generate tracer-bullet Tickets from the approved Spec.";
+  }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
   if (run.status === "replan_required") return "Revise the plan before execution can continue.";
   if (run.status === "final_verification") return "Final integration verification is running.";
@@ -110,6 +115,28 @@ function journeyStations(run) {
       ["accept", "Accept"],
     ];
     const currentIndex = Math.max(0, phases.findIndex(([id]) => id === run.phase));
+    if (run.approvedTicketsSnapshot?.tickets?.length) {
+      const ticketStations = run.approvedTicketsSnapshot.tickets.map((ticket, index) => {
+        const runtime = run.tasks?.find((item) => item.id === ticket.id);
+        const blockersSatisfied = ticket.dependencies.every((id) => run.tasks?.find((item) => item.id === id)?.status === "succeeded");
+        const ready = ["planned", "blocked_by_dependency"].includes(runtime?.status || "planned") && blockersSatisfied;
+        return {
+          id: ticket.id, kind: "task", title: ticket.title, order: index + 3,
+          status: ready ? "ready" : runtime?.status || "blocked_by_dependency",
+          phase: ready ? "executable frontier" : runtime?.status === "succeeded" ? "verified" : `blocked by ${ticket.dependencies.filter((id) => run.tasks?.find((item) => item.id === id)?.status !== "succeeded").join(", ")}`,
+          dependencies: ticket.dependencies.length ? [...ticket.dependencies] : ["spec"],
+          attempts: runtime?.attempts?.length || 0, maxAttempts: ticket.maxAttempts,
+          segments: attemptSegments(runtime),
+        };
+      });
+      return [
+        { id: "shape", kind: "workflow-phase", title: "Shape", order: 1, status: "succeeded", phase: "approved", dependencies: [], attempts: 0, segments: [] },
+        { id: "spec", kind: "workflow-phase", title: "Spec", order: 2, status: "succeeded", phase: "approved", dependencies: ["shape"], attempts: 0, segments: [] },
+        ...ticketStations,
+        { id: "implement", kind: "workflow-phase", title: "Implement", order: ticketStations.length + 3, status: run.phase === "implement" ? "active" : "locked", phase: "approved Ticket graph", dependencies: ticketStations.map((ticket) => ticket.id), attempts: 0, segments: [] },
+        { id: "accept", kind: "workflow-phase", title: "Accept", order: ticketStations.length + 4, status: run.phase === "accept" ? "active" : "locked", phase: "locked", dependencies: ["implement"], attempts: 0, segments: [] },
+      ];
+    }
     return phases.map(([id, title], index) => ({
       id,
       kind: "workflow-phase",
@@ -168,6 +195,9 @@ function attentionItems(run) {
     label,
     ...target,
   });
+  if (run.status === "tickets_approval_required") {
+    add("tickets_approval_required", "action", run.artifacts?.tickets?.stale ? "Stale Ticket graph awaiting approval" : "Ticket graph awaiting approval", { taskId: "tickets", section: "evidence" });
+  }
   if (run.status === "spec_approval_required") {
     add("spec_approval_required", "action", run.artifacts?.spec?.stale ? "Stale Spec awaiting approval" : "Spec awaiting approval", { taskId: "spec", section: "evidence" });
   }
