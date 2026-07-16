@@ -37,9 +37,12 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await window.locator("#managed-run-form button[type='submit']").click();
 
     await expect(window.locator("#managed-run-view")).toBeVisible();
+    const baseRevision = git(sourceRepo, ["rev-parse", "HEAD"]);
     await expect(window.locator("#managed-run-current-action")).toContainText(
       "Shape the idea",
     );
+    await expect(window.locator("#managed-run-view-meta")).toContainText("target main");
+    await expect(window.locator("#managed-run-view-meta")).toContainText(baseRevision.slice(0, 12));
     await expect(window.locator("#managed-run-journey [data-task-id]")).toHaveCount(5);
     await expect(window.locator('[data-task-id="shape"]')).toContainText("current phase");
     await expect(window.locator('[data-task-id="spec"]')).toContainText("locked");
@@ -52,6 +55,12 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     expect(git(sourceRepo, ["status", "--porcelain"])).toContain("local-only.txt");
     const worktrees = git(sourceRepo, ["worktree", "list", "--porcelain"]);
     expect(worktrees).toContain("branch refs/heads/agentic/native-workflow-");
+    const worktreePath = worktrees.match(/worktree (.*managed-run-worktrees[^\r\n]*)/u)?.[1];
+    expect(worktreePath).toBeTruthy();
+    expect(git(worktreePath, ["rev-parse", "HEAD"])).toBe(baseRevision);
+    expect(fs.existsSync(path.join(worktreePath, "local-only.txt"))).toBe(false);
+    expect(fs.readFileSync(path.join(sourceRepo, ".git", "info", "exclude"), "utf8"))
+      .toMatch(/^\.agentic\/$/m);
     const runDirectories = fs.readdirSync(path.join(sourceRepo, ".agentic", "runs"));
     expect(runDirectories).toHaveLength(1);
   } finally {

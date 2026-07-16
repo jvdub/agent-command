@@ -24,6 +24,21 @@ function slugify(value) {
     .slice(0, 48) || "managed-run";
 }
 
+function documentedBranchPrefix(sourceRepoPath) {
+  for (const relativePath of ["AGENTS.md", "CONTRIBUTING.md", path.join(".github", "CONTRIBUTING.md")]) {
+    const target = path.join(sourceRepoPath, relativePath);
+    if (!fs.existsSync(target)) continue;
+    const lines = fs.readFileSync(target, "utf8").split(/\r?\n/u);
+    for (const line of lines) {
+      const explicit = line.match(/branch(?:es)?\s+(?:name\s+)?prefix\s*[:=]\s*[`"]?([a-z0-9._-]+\/)/iu);
+      const prose = line.match(/branch(?:es)?[^\n]*?(?:start with|use)[^`"]*[`"]([a-z0-9._-]+\/)[`"]/iu);
+      const prefix = explicit?.[1] || prose?.[1];
+      if (prefix) return prefix.toLowerCase();
+    }
+  }
+  return null;
+}
+
 function appendLocalExclude(sourceRepoPath, entry) {
   const commonDirValue = runGit(sourceRepoPath, ["rev-parse", "--git-common-dir"]);
   const commonDir = path.resolve(sourceRepoPath, commonDirValue);
@@ -42,24 +57,30 @@ function appendLocalExclude(sourceRepoPath, entry) {
 function createManagedRunWorkspaceService({ worktreeRoot }) {
   if (!worktreeRoot) throw new Error("Managed Run worktree root is required.");
 
-  function inspect(sourceRepoPath, baseRef = "HEAD") {
+  function inspect(sourceRepoPath, baseRef = "HEAD", targetBranch = "") {
     const sourcePath = path.resolve(String(sourceRepoPath || "").trim());
     const requestedBase = String(baseRef || "HEAD").trim();
     const baseRevision = runGit(sourcePath, ["rev-parse", requestedBase]);
-    const resolvedBranch = runGit(sourcePath, ["rev-parse", "--abbrev-ref", requestedBase]);
-    const baseBranch = resolvedBranch === "HEAD" ? null : resolvedBranch;
+    const currentBranch = runGit(sourcePath, ["branch", "--show-current"]);
+    const selectedTargetBranch = String(targetBranch || currentBranch).trim();
+    if (!selectedTargetBranch) {
+      throw new Error("A target branch is required when the source checkout is detached.");
+    }
+    runGit(sourcePath, ["show-ref", "--verify", `refs/heads/${selectedTargetBranch}`]);
     return {
       sourceRepoPath: sourcePath,
       baseRevision,
-      baseBranch,
+      baseBranch: currentBranch || null,
+      targetBranch: selectedTargetBranch,
       sourceWasDirty: Boolean(runGit(sourcePath, ["status", "--porcelain"])),
     };
   }
 
   function create(input) {
-    const repository = inspect(input.sourceRepoPath, input.baseRef);
+    const repository = inspect(input.sourceRepoPath, input.baseRef, input.targetBranch);
     const shortId = slugify(String(input.runId).slice(0, 8));
-    const branchName = input.branchName || `agentic/${slugify(input.title)}-${shortId}`;
+    const branchPrefix = documentedBranchPrefix(repository.sourceRepoPath) || "agentic/";
+    const branchName = input.branchName || `${branchPrefix}${slugify(input.title)}-${shortId}`;
     const worktreePath = path.join(path.resolve(worktreeRoot), String(input.runId));
     const requestedWorkspace = String(input.runWorkspacePath || "").trim();
     const runWorkspacePath = requestedWorkspace
@@ -106,5 +127,6 @@ function createManagedRunWorkspaceService({ worktreeRoot }) {
 
 module.exports = {
   createManagedRunWorkspaceService,
+  documentedBranchPrefix,
   slugify,
 };

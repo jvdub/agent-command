@@ -3,6 +3,7 @@ import { currentAction, journeyStations } from "../managedRunSelectors.js";
 test("projects a new run as the five-phase workflow with Shape active", () => {
   const run = {
     id: "run-native",
+    workflowKind: "native",
     workflowVersion: 1,
     phase: "shape",
     status: "shape_required",

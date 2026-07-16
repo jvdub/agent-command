@@ -114,6 +114,7 @@ function createManagedRunService({
       hasCommittedBase: Boolean(git?.baseRevision),
       baseRevision: git?.baseRevision || null,
       baseBranch: git?.baseBranch || null,
+      targetBranch: git?.targetBranch || null,
       sourceWasDirty: Boolean(git?.sourceWasDirty),
     };
   }
@@ -160,6 +161,8 @@ function createManagedRunService({
         runWorkspacePath: input?.runWorkspacePath,
         trackRunWorkspace: input?.trackRunWorkspace === true,
         baseRef: input?.baseRef,
+        targetBranch: input?.targetBranch,
+        branchName: input?.branchName,
       });
     } catch (error) {
       throw new Error(`Managed Run requires a committed Git base: ${error.message}`);
@@ -167,6 +170,7 @@ function createManagedRunService({
     const run = {
       id,
       title,
+      workflowKind: "native",
       workflowVersion: 1,
       phase: "shape",
       repoPath: workspace.worktreePath,
@@ -175,6 +179,7 @@ function createManagedRunService({
       worktreePath: workspace.worktreePath,
       baseRevision: workspace.baseRevision,
       baseBranch: workspace.baseBranch,
+      targetBranch: workspace.targetBranch,
       branchName: workspace.branchName,
       sourceWasDirty: workspace.sourceWasDirty,
       trackRunWorkspace: workspace.trackRunWorkspace,

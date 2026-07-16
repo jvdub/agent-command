@@ -1,5 +1,9 @@
 const ATTENTION_PRIORITY = Object.freeze({ critical: 0, warning: 1, action: 2 });
 
+function isNativeWorkflow(run) {
+  return run?.workflowKind === "native";
+}
+
 function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
@@ -66,7 +70,7 @@ function runProgress(run) {
 
 function currentAction(run) {
   if (!run) return "Select a Managed Run.";
-  if (run.workflowVersion === 1 && run.phase === "shape") {
+  if (isNativeWorkflow(run) && run.phase === "shape") {
     return "Shape the idea and confirm shared understanding.";
   }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
@@ -90,7 +94,7 @@ function currentAction(run) {
 }
 
 function journeyStations(run) {
-  if (run?.workflowVersion === 1) {
+  if (isNativeWorkflow(run)) {
     const phases = [
       ["shape", "Shape"],
       ["spec", "Spec"],
@@ -181,6 +185,7 @@ function attentionItems(run) {
 
 export {
   attentionItems,
+  isNativeWorkflow,
   attemptSegments,
   currentAction,
   journeyStations,

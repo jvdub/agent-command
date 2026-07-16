@@ -53,6 +53,34 @@ describe("Managed Run workspace creation", () => {
       .toMatch(/^\.agentic\/$/m);
   });
 
+  test("keeps the target branch when a different base commit is selected", () => {
+    fs.writeFileSync(path.join(sourceRepo, "second.txt"), "second\n", "utf8");
+    git(sourceRepo, ["add", "second.txt"]);
+    git(sourceRepo, ["commit", "-m", "Second commit"]);
+    const firstRevision = git(sourceRepo, ["rev-parse", "HEAD~1"]);
+
+    const workspace = createManagedRunWorkspaceService({ worktreeRoot }).create({
+      runId: "run-old-base",
+      title: "Older base",
+      sourceRepoPath: sourceRepo,
+      baseRef: firstRevision,
+    });
+
+    expect(workspace.baseRevision).toBe(firstRevision);
+    expect(workspace.targetBranch).toBe("main");
+    expect(git(workspace.worktreePath, ["rev-parse", "HEAD"])).toBe(firstRevision);
+  });
+
+  test("uses a documented branch prefix before the fallback", () => {
+    fs.writeFileSync(path.join(sourceRepo, "CONTRIBUTING.md"), "Branch prefix: feature/\n", "utf8");
+    const workspace = createManagedRunWorkspaceService({ worktreeRoot }).create({
+      runId: "run-prefix",
+      title: "Guided naming",
+      sourceRepoPath: sourceRepo,
+    });
+    expect(workspace.branchName).toBe("feature/guided-naming-run-pref");
+  });
+
   test("honors a custom artifact workspace without excluding it", () => {
     const customWorkspace = path.join(root, "tracked-run-artifacts");
     const workspace = createManagedRunWorkspaceService({ worktreeRoot }).create({

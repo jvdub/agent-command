@@ -3,7 +3,7 @@ import { markdownToPlan, planToMarkdown } from "./managedRunPlanMarkdown.js";
 import { allAttentionItems, renderInbox } from "./managedRunInbox.js";
 import { renderInspector } from "./managedRunInspector.js";
 import { layoutJourney, renderJourney } from "./managedRunJourney.js";
-import { currentAction, runProgress } from "./managedRunSelectors.js";
+import { currentAction, isNativeWorkflow, runProgress } from "./managedRunSelectors.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -78,7 +78,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
 
   function journeySignature(run) {
-    return run.workflowVersion === 1
+    return isNativeWorkflow(run)
       ? `workflow:${run.phase}`
       : (run.tasks || []).map((task) => `${task.id}:${(task.dependencies || []).join(",")}`).join("|");
   }
@@ -164,7 +164,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   }
 
   function defaultSelection(run) {
-    if (run.workflowVersion === 1) {
+    if (isNativeWorkflow(run)) {
       selectedTaskId = run.phase || "shape";
       return;
     }
@@ -204,7 +204,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     defaultSelection(run);
     elements.viewTitle.textContent = run.title;
     const displayPath = run.sourceRepoPath || run.repoPath;
-    elements.viewMeta.textContent = `${prettyStatus(run.status)} · ${displayPath}`;
+    const base = run.baseRevision ? run.baseRevision.slice(0, 12) : "unknown base";
+    const target = run.targetBranch || run.baseBranch || "unknown target";
+    elements.viewMeta.textContent = `${prettyStatus(run.status)} · ${displayPath} · target ${target} @ ${base}`;
     elements.currentAction.textContent = currentAction(run);
     const progress = runProgress(run);
     elements.progress.textContent = `${progress.verified} of ${progress.total} tasks verified · ${progress.attempts} attempts · ${progress.retries} retries`;
@@ -234,7 +236,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.archive.disabled = active;
     elements.shape.disabled = active;
     elements.takeover.disabled = active;
-    const nativeWorkflow = run.workflowVersion === 1;
+    const nativeWorkflow = isNativeWorkflow(run);
     elements.generatePlan.hidden = nativeWorkflow;
     elements.savePlan.hidden = nativeWorkflow;
     elements.approvePlan.hidden = nativeWorkflow;
@@ -329,7 +331,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       const run = await perform("Creating", () => agenticApp.createManagedRun({
         title: elements.titleInput.value, repoPath: elements.repoInput.value,
         idea: elements.specInput.value, provider: elements.providerInput.value,
+        targetBranch: document.querySelector("#managed-run-target-branch")?.value || repository.targetBranch,
         baseRef: document.querySelector("#managed-run-base-ref")?.value || "HEAD",
+        branchName: document.querySelector("#managed-run-branch-name")?.value || "",
         runWorkspacePath: document.querySelector("#managed-run-workspace-input")?.value || "",
         trackRunWorkspace: Boolean(document.querySelector("#managed-run-track-workspace")?.checked),
         planningModel: elements.planningModel.value, implementationModel: elements.implementationModel.value,
