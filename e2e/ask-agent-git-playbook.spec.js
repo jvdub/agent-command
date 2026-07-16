@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { test, expect, _electron: electron } = require("@playwright/test");
 
-test("user can review, edit, copy, and send the Review Changes playbook", async ({
+test("user can inspect all Git playbooks and send Review Changes", async ({
 }, testInfo) => {
   const rootDir = path.resolve(__dirname, "..");
   const appDataDir = testInfo.outputPath("appdata");
@@ -52,6 +52,90 @@ test("user can review, edit, copy, and send the Review Changes playbook", async 
     const askAgentButton = window.getByRole("button", { name: "Ask Agent" });
     await expect(askAgentButton).toBeEnabled();
     await askAgentButton.click();
+    for (const [playbookName, requiredGuidance] of [
+      [
+        "Commit Changes",
+        [
+          "staged, unstaged, and untracked",
+          "coherent",
+          "repository conventions",
+          "proportionate",
+          "Semantic",
+          "stage the in-scope repair changes",
+          "do not push it",
+        ],
+      ],
+      [
+        "Commit and Push",
+        [
+          "staged, unstaged, and untracked",
+          "coherent",
+          "stage the in-scope repair changes",
+          "Never push known-bad work",
+          "explicitly approves",
+          "upstream",
+          "remote state",
+        ],
+      ],
+      [
+        "Pull Safely",
+        [
+          "fetch",
+          "ahead/behind",
+          "complete the fast-forward and verify it",
+          "commit, stash, or cancel",
+          "merge or rebase",
+        ],
+      ],
+      [
+        "Create Branch",
+        [
+          "current HEAD",
+          "naming conventions",
+          "propose",
+          "never stash, discard, or commit",
+          "carry existing working-tree changes only when Git can do so safely",
+        ],
+      ],
+      [
+        "Diagnose Git Problem",
+        [
+          "evidence",
+          "safe, reversible, and unambiguous",
+          "locks",
+          "hooks",
+          "authentication",
+          "explicit approval",
+        ],
+      ],
+      [
+        "Resolve Conflicts",
+        [
+          "merge, rebase, cherry-pick, revert",
+          "mechanically clear",
+          "ours or theirs",
+          "abort",
+          "stage",
+          "Continue the active operation only when intent is clear",
+          "validation passes",
+        ],
+      ],
+    ]) {
+      await window.getByRole("menuitem", { name: playbookName }).click();
+      const playbookComposer = window.getByRole("dialog", {
+        name: `${playbookName} playbook`,
+      });
+      await expect(playbookComposer).toBeVisible();
+      const generatedPrompt = await playbookComposer
+        .getByLabel("Prompt to send to agent")
+        .inputValue();
+      expect(generatedPrompt).toContain(rootDir);
+      for (const guidance of requiredGuidance) {
+        expect(generatedPrompt).toContain(guidance);
+      }
+      await playbookComposer.getByRole("button", { name: "Close" }).click();
+      await askAgentButton.click();
+    }
     await window.keyboard.press("Escape");
     await expect(window.getByRole("menu", { name: "Git playbooks" })).toBeHidden();
     await expect(askAgentButton).toBeFocused();

@@ -2,7 +2,7 @@ import {
   GIT_PLAYBOOKS,
   getGitPlaybook,
   renderGitPlaybookPrompt,
-} from "../../gitPlaybooks.js";
+} from "./gitPlaybooks.js";
 
 const READY_MESSAGE =
   "Review the prompt and send it only when the agent is ready for input.";
