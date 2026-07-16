@@ -464,7 +464,10 @@ function createManagedRunService({
     };
     run.phase = "spec";
     run.status = "spec_required";
-    if (shapeCommit) addRunEvent(run, `Shape documentation committed as ${shapeCommit.revision.slice(0, 12)}.`, "info", { shapeCommit });
+    if (shapeCommit) {
+      run.lastVerifiedCommit = shapeCommit.revision;
+      addRunEvent(run, `Shape documentation committed as ${shapeCommit.revision.slice(0, 12)}.`, "info", { shapeCommit });
+    }
     addRunEvent(run, `Shape revision ${shape.summaryRevision} approved; Spec is now available.`);
     return saveAndPublish(run);
   }
@@ -646,7 +649,13 @@ function createManagedRunService({
     run.tasks = artifact.projection.map((ticket) => ({ ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes, status: "planned", attempts: [] }));
     run.phase = "implement"; run.status = "implement_ready";
     addRunEvent(run, `Ticket graph revision ${artifact.revision} approved; its exact execution projection is frozen.`);
-    return saveAndPublish(run);
+    const summary = saveAndPublish(run);
+    void getTaskSchedulerService().autoRun(run).catch((error) => {
+      run.status = "failed";
+      addRunEvent(run, `Ticket execution failed to start: ${error.message}`, "error");
+      saveAndPublish(run);
+    });
+    return summary;
   }
 
   function list() {
@@ -787,6 +796,16 @@ function createManagedRunService({
 
   function start(runId) {
     const run = requireRun(runId);
+    if (run.workflowKind === "native") {
+      if (run.phase !== "implement" || run.status !== "implement_ready" || !run.approvedTicketsSnapshot) throw new Error("An approved executable Ticket frontier is required.");
+      run.status = "running";
+      addRunEvent(run, "The user started one executable frontier Ticket.");
+      const summary = saveAndPublish(run);
+      void getTaskSchedulerService().autoRun(run).catch((error) => {
+        run.status = "failed"; addRunEvent(run, `Ticket execution failed to start: ${error.message}`, "error"); saveAndPublish(run);
+      });
+      return summary;
+    }
     if (run.approvedRevision !== run.planRevision) {
       throw new Error("The current plan revision must be approved before execution.");
     }

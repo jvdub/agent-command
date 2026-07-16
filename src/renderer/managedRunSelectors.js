@@ -26,6 +26,10 @@ function taskPhase(task) {
 }
 
 function taskDefinition(run, taskId) {
+  if (isNativeWorkflow(run)) {
+    const ticket = run?.approvedTicketsSnapshot?.tickets?.find((item) => item.id === taskId);
+    if (ticket) return { ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes };
+  }
   const snapshot = run?.approvedPlanSnapshot;
   return snapshot?.tasks?.find((task) => task.id === taskId) ||
     run?.plan?.tasks?.find((task) => task.id === taskId) ||
@@ -42,14 +46,16 @@ function attemptSegments(task) {
       state: attempt.verification ? "completed" : taskPhase(task),
     });
     if (attempt.verificationWorkerId || attempt.verification) {
-      segments.push({
-        kind: "verification",
-        attemptNumber: attempt.number,
-        workerId: attempt.verificationWorkerId,
-        verdict: attempt.verification?.verdict || null,
-        state: attempt.verification?.verdict || "running",
-      });
+      for (const axis of ["spec", "standards"]) {
+        segments.push({
+          kind: `${axis}-verification`, attemptNumber: attempt.number,
+          workerId: attempt.verificationWorkerId,
+          verdict: attempt.verification?.[axis]?.verdict || null,
+          state: attempt.verification?.[axis]?.verdict || "running",
+        });
+      }
     }
+    if (attempt.commit) segments.push({ kind: "ticket-commit", attemptNumber: attempt.number, state: "succeeded", revision: attempt.commit.revision });
     if (attempt.verification?.verdict === "fix_required") {
       segments.push({ kind: "retry", attemptNumber: attempt.number + 1 });
     }

@@ -26,6 +26,7 @@ const { createWorkerProviderRegistry } = require("./workerProviderRegistry");
 const { createWorkerProcessService } = require("./workerProcessService");
 const { createLocalInferenceService } = require("./localInferenceService");
 const { createTaskSchedulerService } = require("./taskSchedulerService");
+const { createManagedRunTicketExecutionService } = require("./managedRunTicketExecutionService");
 const { createManagedRunService } = require("./managedRunService");
 const { createShapeDomainDocumentService } = require("./shapeDomainDocumentService");
 const { createTokenLedgerService } = require("./tokenLedgerService");
@@ -220,6 +221,13 @@ function registerAllServices(registry) {
   );
 
   registry.register(
+    "managedRunTicketExecutionService",
+    "Managed Run Ticket Execution Service",
+    () => createManagedRunTicketExecutionService(),
+    [],
+  );
+
+  registry.register(
     "taskSchedulerService",
     "Managed Run Task Scheduler",
     ({
@@ -229,6 +237,7 @@ function registerAllServices(registry) {
       managedRunPersistenceService,
       tokenLedgerService,
       localInferenceService,
+      managedRunTicketExecutionService,
     }) =>
       createTaskSchedulerService({
         workerProviderRegistry,
@@ -236,6 +245,7 @@ function registerAllServices(registry) {
         managedRunPersistenceService,
         tokenLedgerService,
         localInferenceService,
+        managedRunTicketExecutionService,
         publishRun: (run) =>
           ptyRuntime.windowManager.sendToRenderer(
             IPC_CHANNELS.events.managedRunChanged,
@@ -249,6 +259,7 @@ function registerAllServices(registry) {
       "managedRunPersistenceService",
       "tokenLedgerService",
       "localInferenceService",
+      "managedRunTicketExecutionService",
     ],
   );
 

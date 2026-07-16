@@ -76,7 +76,7 @@ function createWorkerProcessService({ onOutput = () => {} } = {}) {
     };
   }
 
-  function run({ runId, taskId = null, launch, prompt, cwd, timeoutMs = 1800000 }) {
+  function run({ runId, taskId = null, launch, prompt, cwd, environment = {}, timeoutMs = 1800000 }) {
     const workerId = randomUUID();
     const startedAt = new Date().toISOString();
     return {
@@ -130,7 +130,7 @@ function createWorkerProcessService({ onOutput = () => {} } = {}) {
             cwd,
             shell: false,
             windowsHide: true,
-            env: buildWorkerEnvironment(),
+            env: { ...buildWorkerEnvironment(), ...environment },
           });
           active.set(runId, {
             workerId,

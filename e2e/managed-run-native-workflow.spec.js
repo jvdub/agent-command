@@ -90,6 +90,9 @@ tracer-bullet
 None
 `;
 
+const IMPLEMENTATION_RESULT = JSON.stringify({ summary: "implemented one slice", changedFiles: ["ticket-output.txt"], redEvidence: ["ticket output was absent"], greenEvidence: ["ticket output exists"], alternativeVerificationEvidence: [], checks: ["deterministic check: pass"], risks: [] });
+const TICKET_VERIFICATION_RESULT = JSON.stringify({ verdict: "pass", spec: { verdict: "pass", findings: [] }, standards: { verdict: "pass", findings: [] }, summary: "both axes passed", checks: ["deterministic check: pass"], failedCriteria: [], feedback: "", risks: [] });
+
 function git(cwd, args) {
   return execFileSync("git", ["-c", `safe.directory=${cwd}`, "-C", cwd, ...args], {
     cwd: process.cwd(),
@@ -111,7 +114,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
   fs.writeFileSync(path.join(sourceRepo, "local-only.txt"), "keep me\n", "utf8");
 
   const fakeSpecWorker = testInfo.outputPath("fake-spec-worker.js");
-  fs.writeFileSync(fakeSpecWorker, `let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => process.stdout.write(input.includes("fresh read-only Ticket worker") ? ${JSON.stringify(TICKETS_MARKDOWN)} : ${JSON.stringify(SPEC_MARKDOWN)}));\n`, "utf8");
+  fs.writeFileSync(fakeSpecWorker, `const fs = require("fs"); const path = require("path"); let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => { if (input.includes("fresh read-only Ticket worker")) return process.stdout.write(${JSON.stringify(TICKETS_MARKDOWN)}); if (input.includes("implementation worker")) { fs.writeFileSync(path.join(process.cwd(), "ticket-output.txt"), "reviewed output\n"); return process.stdout.write(${JSON.stringify(IMPLEMENTATION_RESULT)}); } if (input.includes("independent read-only verification worker")) return process.stdout.write(${JSON.stringify(TICKET_VERIFICATION_RESULT)}); process.stdout.write(${JSON.stringify(SPEC_MARKDOWN)}); });\n`, "utf8");
   const { electronApp, window } = await launchElectronApp(
     testInfo,
     "native-run-appdata",
@@ -207,10 +210,14 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await window.locator("#managed-run-tickets-editor").fill(TICKETS_MARKDOWN);
     await window.locator("#managed-run-save-tickets").click();
     await window.locator("#managed-run-approve-tickets").click();
+    await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("verified");
     ticketRun = (await window.evaluate(() => window.agentic.managedRuns.list())).runs[0];
     expect(ticketRun.approvedTicketsSnapshot).toMatchObject({ revision: 2, tickets: [{ id: "ticket-a" }, { id: "ticket-b", dependencies: ["ticket-a"] }] });
-    await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("executable frontier");
-    await expect(window.locator('[data-task-id="ticket-b"]')).toContainText("blocked by ticket-a");
+    expect(ticketRun.tasks[0].attempts[0]).toMatchObject({ verification: { spec: { verdict: "pass" }, standards: { verdict: "pass" }, diffFingerprint: expect.any(String) }, commit: { changedFiles: ["ticket-output.txt"] } });
+    expect(git(worktreePath, ["show", "--pretty=format:", "--name-only", ticketRun.tasks[0].commit.revision])).toBe("ticket-output.txt");
+    expect(git(sourceRepo, ["rev-parse", "HEAD"])).toBe(baseRevision);
+    await expect(window.locator('[data-task-id="ticket-a"]')).toContainText("verified");
+    await expect(window.locator('[data-task-id="ticket-b"]')).toContainText("executable frontier");
 
     await window.locator("#managed-run-spec-editor").fill(SPEC_MARKDOWN.replace("Persist and approve", "Edit and re-approve"));
     await window.locator("#managed-run-save-spec").click();

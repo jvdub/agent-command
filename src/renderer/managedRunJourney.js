@@ -21,7 +21,8 @@ function renderAttemptTrail(station) {
     if (segment.kind === "retry") {
       return `<span class="journey-retry" aria-label="Retry attempt ${segment.attemptNumber}">&#8634;</span>`;
     }
-    const label = segment.kind === "implementation" ? "Build" : "Verify";
+    const labels = { implementation: "Build", "spec-verification": "Spec", "standards-verification": "Standards", "ticket-commit": "Commit" };
+    const label = labels[segment.kind] || "Verify";
     const state = segment.verdict || segment.state;
     return `<span class="journey-phase journey-phase-${escapeHtml(state)}">${label} ${segment.attemptNumber}</span>`;
   }).join('<span class="journey-phase-arrow" aria-hidden="true">&#8594;</span>');

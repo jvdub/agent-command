@@ -296,8 +296,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generatePlan.disabled = active;
     elements.savePlan.disabled = active || !elements.planEditor.value.trim();
     elements.approvePlan.disabled = run.status !== "approval_required";
-    elements.start.disabled = !["ready", "paused", "review_required"].includes(run.status) || run.finalVerification?.verdict === "pass";
-    elements.start.textContent = run.status === "ready" ? "Start" : "Resume";
+    elements.start.disabled = isNativeWorkflow(run)
+      ? run.phase !== "implement" || run.status !== "implement_ready"
+      : !["ready", "paused", "review_required"].includes(run.status) || run.finalVerification?.verdict === "pass";
+    elements.start.textContent = isNativeWorkflow(run) ? "Run next Ticket" : run.status === "ready" ? "Start" : "Resume";
     elements.pause.disabled = !["ready", "running", "final_verification"].includes(run.status);
     elements.cancel.disabled = ["cancelled", "completed", "failed"].includes(run.status);
     elements.accept.disabled = run.finalVerification?.verdict !== "pass" || run.status !== "review_required";
@@ -316,7 +318,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generatePlan.hidden = nativeWorkflow;
     elements.savePlan.hidden = nativeWorkflow;
     elements.approvePlan.hidden = nativeWorkflow;
-    elements.start.hidden = nativeWorkflow;
+    elements.start.hidden = nativeWorkflow && run.phase !== "implement";
     elements.pause.hidden = nativeWorkflow;
     elements.accept.hidden = nativeWorkflow;
     elements.takeover.hidden = nativeWorkflow;

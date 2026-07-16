@@ -1,5 +1,10 @@
 const { createTaskSchedulerService } = require("../taskSchedulerService");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
 const { createTokenLedgerService } = require("../tokenLedgerService");
+const { createManagedRunTicketExecutionService } = require("../managedRunTicketExecutionService");
 
 function makeRun({ maxAttempts = 3 } = {}) {
   return {
@@ -63,6 +68,7 @@ function fakeScheduler(outputs, localOutcomes = []) {
   const workerProcessService = {
     run: jest.fn(({ runId, taskId, launch, prompt }) => {
       const configured = outputs[sequence++];
+      configured.effect?.();
       const id = `worker-${sequence}`;
       return {
         workerId: id,
@@ -115,6 +121,7 @@ function fakeScheduler(outputs, localOutcomes = []) {
       managedRunPersistenceService: persistence,
       tokenLedgerService: createTokenLedgerService(),
       localInferenceService,
+      managedRunTicketExecutionService: createManagedRunTicketExecutionService(),
       publishRun,
     }),
     workerProcessService,
@@ -237,4 +244,37 @@ describe("Managed Run deterministic scheduler", () => {
     expect(run.tasks[0].status).toBe("succeeded");
     expect(run.finalVerification.verdict).toBe("pass");
   });
+});
+
+
+test("a native frontier Ticket is implemented, verified on two axes, and committed exactly once", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "native-ticket-"));
+  const git = (args) => execFileSync("git", ["-c", `safe.directory=${cwd}`, ...args], { cwd, encoding: "utf8" }).trim();
+  git(["init", "--initial-branch=main"]); git(["config", "user.name", "Ticket Test"]); git(["config", "user.email", "ticket@example.com"]);
+  fs.writeFileSync(path.join(cwd, "base.txt"), "base\n"); git(["add", "base.txt"]); git(["commit", "-m", "Initial commit"]);
+  const baseRevision = git(["rev-parse", "HEAD"]);
+  const run = makeRun();
+  Object.assign(run, {
+    workflowKind: "native", worktreePath: cwd, repoPath: cwd, baseRevision,
+    runWorkspacePath: fs.mkdtempSync(path.join(os.tmpdir(), "native-ticket-evidence-")),
+    phase: "implement", status: "implement_ready", specification: "Deliver a slice",
+    approvals: { spec: { revision: 1 } }, approvedTicketsSnapshot: { revision: 1 },
+    artifacts: { spec: { markdown: "# Spec\n\n## Testing Decisions\nExisting service seam" }, shape: { domain: { canonicalTerms: ["Ticket Commit"] } } },
+  });
+  Object.assign(run.tasks[0], { tddPolicy: "test-first", tddException: "None", testSeams: ["service"], title: "Deliver visible slice" });
+  const implementation = JSON.stringify({ summary: "implemented", changedFiles: ["slice.txt"], redEvidence: ["missing file test failed"], greenEvidence: ["focused test passed"], alternativeVerificationEvidence: [], checks: ["focused: pass"], risks: [] });
+  const twoAxisPass = JSON.stringify({ verdict: "pass", spec: { verdict: "pass", findings: [] }, standards: { verdict: "pass", findings: [] }, summary: "passed", checks: ["focused: pass"], failedCriteria: [], feedback: "", risks: [] });
+  const { scheduler, workerProcessService } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "visible\n"), stdout: implementation },
+    { stdout: twoAxisPass },
+  ]);
+
+  await scheduler.autoRun(run);
+
+  expect(run.tasks[0].status).toBe("succeeded");
+  expect(run.tasks[0].commit.changedFiles).toEqual(["slice.txt"]);
+  expect(run.tasks[0].attempts[0].verification).toMatchObject({ spec: { verdict: "pass" }, standards: { verdict: "pass" }, diffFingerprint: expect.any(String) });
+  expect(git(["show", "--pretty=format:", "--name-only", "HEAD"])).toBe("slice.txt");
+  expect(git(["rev-list", "--count", `${baseRevision}..HEAD`])).toBe("1");
+  expect(workerProcessService.run.mock.calls.map((call) => call[0].launch.permissionMode)).toEqual(["workspace-write", "read-only"]);
 });

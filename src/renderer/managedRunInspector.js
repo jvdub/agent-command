@@ -83,7 +83,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
   const latestVerification = selectedAttempt?.verification;
   const canRetry = ["failed", "human_review_required", "replan_required"].includes(task.status);
   return `
-    <div class="inspector-heading"><p class="eyebrow">Selected Task</p><h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3><p class="managed-run-state">${escapeHtml(taskPhase(task))}</p></div>
+    <div class="inspector-heading"><p class="eyebrow">${run.workflowKind === "native" ? "Selected Ticket" : "Selected Task"}</p><h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3><p class="managed-run-state">${escapeHtml(taskPhase(task))}</p></div>
     <details open data-inspector-section="overview"><summary>Overview</summary>
       <p>${escapeHtml(task.objective)}</p>
       <p class="status-meta">${task.attempts?.length || 0}/${task.maxAttempts} attempts · dependencies ${escapeHtml(task.dependencies?.join(", ") || "none")}</p>
@@ -92,8 +92,8 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       </select></label>
       ${canRetry ? `<button type="button" class="secondary inspector-retry-task" data-retry-task="${escapeHtml(task.id)}">Retry task</button>` : ""}
     </details>
-    <details open data-inspector-section="approved-task"><summary>Approved task definition</summary>
-      <p class="inspector-provenance">Approved revision ${escapeHtml(run.approvedPlanSnapshot?.revision || run.approvedRevision || "unapproved")} · ${escapeHtml(run.approvedPlanSnapshot?.provenance || "current plan")}</p>
+    <details open data-inspector-section="approved-task"><summary>Approved ${run.workflowKind === "native" ? "Ticket" : "task"} definition</summary>
+      <p class="inspector-provenance">Approved revision ${escapeHtml(run.workflowKind === "native" ? run.approvedTicketsSnapshot?.revision || "unapproved" : run.approvedPlanSnapshot?.revision || run.approvedRevision || "unapproved")} · ${escapeHtml(run.workflowKind === "native" ? "frozen Ticket graph" : run.approvedPlanSnapshot?.provenance || "current plan")}</p>
       <h4>Objective</h4><p>${escapeHtml(definition.objective)}</p>
       <h4>Success criteria</h4>${list(definition.successCriteria)}
       <h4>Relevant scope</h4>${list(definition.relevantScope)}
@@ -106,7 +106,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     </details>
     <details open data-inspector-section="evidence"><summary>Files and evidence</summary>
       ${renderFiles(task, selectedAttempt)}
-      ${latestVerification ? `<h4>Verification verdict</h4><p class="managed-run-state">${escapeHtml(latestVerification.verdict)}</p><p>${escapeHtml(latestVerification.summary || latestVerification.feedback)}</p><h4>Checks</h4>${list(latestVerification.checks)}<h4>Failed criteria</h4>${list(latestVerification.failedCriteria)}<h4>Risks</h4>${list(latestVerification.risks)}` : '<p class="status-meta">No verification evidence yet.</p>'}
+      ${latestVerification ? `<h4>Verification verdict</h4><p class="managed-run-state">${escapeHtml(latestVerification.verdict)}</p><p>${escapeHtml(latestVerification.summary || latestVerification.feedback)}</p><h4>Spec assessment</h4><p class="managed-run-state">${escapeHtml(latestVerification.spec?.verdict || "missing")}</p>${list(latestVerification.spec?.findings)}<h4>Standards assessment</h4><p class="managed-run-state">${escapeHtml(latestVerification.standards?.verdict || "missing")}</p>${list(latestVerification.standards?.findings)}<h4>Reviewed diff</h4><p class="inspector-provenance">${escapeHtml(latestVerification.diffFingerprint || "not captured")}</p><h4>Checks</h4>${list(latestVerification.checks)}<h4>Failed criteria</h4>${list(latestVerification.failedCriteria)}<h4>Risks</h4>${list(latestVerification.risks)}${selectedAttempt?.commit ? `<h4>Ticket Commit</h4><p class="managed-run-state">${escapeHtml(selectedAttempt.commit.revision.slice(0, 12))}</p><p>${escapeHtml(selectedAttempt.commit.message)}</p>${list(selectedAttempt.commit.changedFiles)}` : ""}` : '<p class="status-meta">No verification evidence yet.</p>'}
     </details>`;
 }
 

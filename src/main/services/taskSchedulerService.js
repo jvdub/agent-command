@@ -41,6 +41,15 @@ const VERIFICATION_OUTCOME_SCHEMA = {
 };
 
 function missionContext(run) {
+  if (run.workflowKind === "native") {
+    return `Mission: ${run.specification}
+Approved Spec revision: ${run.approvals.spec.revision}
+Approved Spec:
+${run.artifacts.spec.markdown}
+Confirmed seams: ${run.artifacts.spec.markdown.match(/^## Testing Decisions[\s\S]*?(?=^## |$)/mu)?.[0] || "See approved Spec"}
+Domain decisions: ${(run.artifacts.shape?.domain?.canonicalTerms || []).join("; ") || "Use recognized repository domain documents"}
+Repository: ${run.worktreePath}`;
+  }
   return `Mission: ${run.plan.objective}
 Specification: ${run.specification}
 Constraints: ${run.plan.constraints.join("; ") || "None supplied"}
@@ -60,13 +69,17 @@ Objective: ${task.objective}
 Success criteria: ${task.successCriteria.join("; ") || "Satisfy the task objective"}
 Relevant scope: ${task.relevantScope.join("; ") || "Inspect and limit changes to the necessary scope"}
 Context notes: ${task.contextNotes.join("; ") || "None"}
+Test seams: ${(task.testSeams || []).join("; ") || "Use the approved Spec seams"}
+TDD policy: ${task.tddPolicy || "test-first"}
+TDD exception: ${task.tddException || "None"}
+Repository state: clean at ${task.repositoryState?.headRevision || "validated base"}; branch ${run.branchName || "current Run branch"}; expected base ${run.lastVerifiedCommit || run.baseRevision || "approved base"}
 Attempt: ${attemptNumber} of ${task.maxAttempts}
 Latest verification feedback: ${feedback || "None; this is the first attempt"}
 
 ${SAFETY_RULES}
 
 Inspect relevant files, implement the focused change, and run appropriate checks. End with exactly one JSON object:
-{"summary":"what changed","changedFiles":["path"],"checks":["command: result"],"risks":["remaining risk"]}`;
+{"summary":"what changed","changedFiles":["path"],"redEvidence":["failing check observed before implementation"],"greenEvidence":["passing check observed after implementation"],"alternativeVerificationEvidence":["approved exception evidence"],"checks":["command: result"],"risks":["remaining risk"]}`;
 }
 
 function verificationPrompt(run, task, implementationWorker) {
@@ -80,11 +93,12 @@ Objective: ${task.objective}
 Success criteria: ${task.successCriteria.join("; ") || "Satisfy the task objective"}
 Verification guidance: ${task.verificationGuidance.join("; ") || "Inspect the diff and run focused checks"}
 Implementation summary: ${implementationWorker.stdout.slice(-4000)}
+Reviewed change-set fingerprint: ${task.attempts?.at(-1)?.reviewedDiff?.fingerprint || "captured immediately before verification"}
 
 ${SAFETY_RULES}
 
 Inspect the current diff and relevant surrounding code. Run appropriate checks without editing. Return exactly one JSON object:
-{"verdict":"pass|fix_required|plan_defect|human_decision_required|environment_blocked","summary":"evidence-based result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"],"recommendedTier":"economy|standard|premium|null"}`;
+{"verdict":"pass|fix_required|plan_defect|human_decision_required|environment_blocked","spec":{"verdict":"pass|fail","findings":["finding"]},"standards":{"verdict":"pass|fail","findings":["finding"]},"summary":"evidence-based result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"],"recommendedTier":"economy|standard|premium|null"}`;
 }
 
 function integrationPrompt(run) {
@@ -98,7 +112,7 @@ function integrationPrompt(run) {
 
 ${missionContext(run)}
 Completed tasks: ${JSON.stringify(tasks)}
-Final verification guidance: ${run.plan.finalVerificationGuidance.join("; ") || "Verify the complete mission and full diff"}
+Final verification guidance: ${run.workflowKind === "native" ? "Verify the integrated approved Spec across every Ticket Commit" : run.plan.finalVerificationGuidance.join("; ") || "Verify the complete mission and full diff"}
 
 ${SAFETY_RULES}
 
@@ -112,6 +126,7 @@ function createTaskSchedulerService({
   managedRunPersistenceService,
   tokenLedgerService,
   localInferenceService,
+  managedRunTicketExecutionService,
   publishRun,
 }) {
   const activeLoops = new Set();
@@ -141,12 +156,16 @@ function createTaskSchedulerService({
       role,
       selection: selectionFor(run, role, task),
     });
+    const environment = run.workflowKind === "native" && role === "implementer"
+      ? await managedRunTicketExecutionService.workerEnvironment(run.runWorkspacePath)
+      : {};
     const execution = workerProcessService.run({
       runId: run.id,
       taskId: task?.id || null,
       launch,
       prompt,
-      cwd: run.repoPath,
+      cwd: run.workflowKind === "native" ? run.worktreePath : run.repoPath,
+      environment,
     });
     const placeholder = {
       id: execution.workerId,
@@ -170,7 +189,7 @@ function createTaskSchedulerService({
             : role,
       promptVersion: 1,
       promptCreatedAt: new Date().toISOString(),
-      definitionRevision: run.approvedRevision,
+      definitionRevision: run.approvedTicketsSnapshot?.revision || run.approvedRevision,
       attemptNumber,
       stdout: "",
       stderr: "",
@@ -255,6 +274,11 @@ function createTaskSchedulerService({
   }
 
   async function executeTask(run, task) {
+    if (run.workflowKind === "native") {
+      task.repositoryState = await managedRunTicketExecutionService.assertCleanBase(
+        run.worktreePath, run.lastVerifiedCommit || run.baseRevision,
+      );
+    }
     const attemptNumber = task.attempts.length + 1;
     task.status = "implementing";
     run.status = "running";
@@ -274,8 +298,10 @@ function createTaskSchedulerService({
       verification: null,
       startedAt: implementation.startedAt,
       finishedAt: null,
-      definitionRevision: run.approvedRevision,
+      definitionRevision: run.approvedTicketsSnapshot?.revision || run.approvedRevision,
       artifacts: null,
+      reviewedDiff: null,
+      commit: null,
     };
     task.attempts.push(attempt);
 
@@ -317,6 +343,9 @@ function createTaskSchedulerService({
         observedFiles: [...(implementation.git?.changedFiles || [])],
         checks: Array.isArray(reported.checks) ? reported.checks.map(String) : [],
         risks: Array.isArray(reported.risks) ? reported.risks.map(String) : [],
+        redEvidence: Array.isArray(reported.redEvidence) ? reported.redEvidence.map(String) : [],
+        greenEvidence: Array.isArray(reported.greenEvidence) ? reported.greenEvidence.map(String) : [],
+        alternativeVerificationEvidence: Array.isArray(reported.alternativeVerificationEvidence) ? reported.alternativeVerificationEvidence.map(String) : [],
         observedAttribution: "working-tree-after",
       };
       implementation.artifacts = attempt.artifacts;
@@ -329,15 +358,35 @@ function createTaskSchedulerService({
         observedFiles: [...(implementation.git?.changedFiles || [])],
         checks: [],
         risks: [],
+        redEvidence: [],
+        greenEvidence: [],
+        alternativeVerificationEvidence: [],
         observedAttribution: "working-tree-after",
       };
       implementation.artifacts = attempt.artifacts;
     }
 
+    if (run.workflowKind === "native") {
+      const evidence = attempt.artifacts;
+      const validTddEvidence = task.tddPolicy === "exception"
+        ? evidence.alternativeVerificationEvidence.length > 0
+        : evidence.redEvidence.length > 0 && evidence.greenEvidence.length > 0;
+      if (!validTddEvidence) {
+        task.status = "human_review_required";
+        stopForReview(run, `${task.id} did not report the required TDD or approved exception evidence.`);
+        return;
+      }
+      attempt.reviewedDiff = await managedRunTicketExecutionService.capture(run.worktreePath);
+      if (attempt.reviewedDiff.headRevision !== (run.lastVerifiedCommit || run.baseRevision) || attempt.reviewedDiff.refsFingerprint !== task.repositoryState.refsFingerprint) {
+        task.status = "human_review_required";
+        stopForReview(run, `${task.id} implementation worker changed Git history or refs; only Agentic Command may create Ticket Commits.`);
+        return;
+      }
+    }
     task.status = "awaiting_verification";
     persistAndPublish(run);
     task.status = "verifying";
-    const verification = await launchWorker(
+    let verification = await launchWorker(
       run,
       "verifier",
       task,
@@ -391,11 +440,60 @@ function createTaskSchedulerService({
         : [],
       risks: Array.isArray(outcome.risks) ? outcome.risks : [],
       recommendedTier: outcome.recommendedTier || null,
+      spec: outcome.spec || { verdict: "fail", findings: ["Verifier omitted Spec assessment."] },
+      standards: outcome.standards || { verdict: "fail", findings: ["Verifier omitted Standards assessment."] },
+      diffFingerprint: attempt.reviewedDiff?.fingerprint || null,
     };
 
     if (outcome.verdict === "pass") {
+      if (run.workflowKind === "native" && (attempt.verification.spec.verdict !== "pass" || attempt.verification.standards.verdict !== "pass")) {
+        task.status = "human_review_required";
+        stopForReview(run, `${task.id} verifier did not pass both Spec and Standards axes.`);
+        return;
+      }
+      if (run.workflowKind === "native") {
+        const current = await managedRunTicketExecutionService.capture(run.worktreePath);
+        if (current.fingerprint !== attempt.reviewedDiff.fingerprint) {
+          attempt.reviewedDiff = current;
+          addRunEvent(run, `${task.id} changed after verification; starting one fresh reverification.`, "warning");
+          persistAndPublish(run);
+          verification = await launchWorker(
+            run, "verifier", task, verificationPrompt(run, task, implementation), attemptNumber,
+          );
+          attempt.verificationWorkerId = verification.id;
+          attempt.finishedAt = verification.finishedAt;
+          if (verification.status !== "succeeded") {
+            task.status = "human_review_required";
+            stopForReview(run, `${task.id} reverifier failed to produce usable evidence.`);
+            return;
+          }
+          outcome = await resolveVerificationOutcome(run, verification, `${task.id} reverifier`);
+          attempt.verification = {
+            verdict: outcome.verdict, summary: String(outcome.summary || ""), feedback: String(outcome.feedback || ""),
+            checks: Array.isArray(outcome.checks) ? outcome.checks : [], failedCriteria: Array.isArray(outcome.failedCriteria) ? outcome.failedCriteria : [],
+            risks: Array.isArray(outcome.risks) ? outcome.risks : [], recommendedTier: outcome.recommendedTier || null,
+            spec: outcome.spec || { verdict: "fail", findings: ["Verifier omitted Spec assessment."] },
+            standards: outcome.standards || { verdict: "fail", findings: ["Verifier omitted Standards assessment."] },
+            diffFingerprint: attempt.reviewedDiff.fingerprint,
+          };
+          const reverified = await managedRunTicketExecutionService.capture(run.worktreePath);
+          if (outcome.verdict !== "pass" || attempt.verification.spec.verdict !== "pass" || attempt.verification.standards.verdict !== "pass" || reverified.fingerprint !== attempt.reviewedDiff.fingerprint) {
+            task.status = "human_review_required";
+            stopForReview(run, `${task.id} could not bind a passing reverification to an unchanged diff.`);
+            return;
+          }
+        }
+        attempt.commit = await managedRunTicketExecutionService.commitReviewed(
+          run.worktreePath, attempt.reviewedDiff.fingerprint, task,
+        );
+        task.commit = attempt.commit;
+        run.lastVerifiedCommit = attempt.commit.revision;
+        attempt.evidencePath = await managedRunTicketExecutionService.writeEvidence(
+          run.runWorkspacePath, task, attempt,
+        );
+      }
       task.status = "succeeded";
-      addRunEvent(run, `${task.id} passed independent verification.`, "info", {
+      addRunEvent(run, `${task.id} passed independent verification${attempt.commit ? ` and committed as ${attempt.commit.revision.slice(0, 12)}` : ""}.`, "info", {
         taskId: task.id,
         attemptNumber,
         workerId: verification.id,
@@ -490,6 +588,11 @@ function createTaskSchedulerService({
         const task = nextExecutableTask(run);
         if (task) {
           await executeTask(run, task);
+          if (run.workflowKind === "native" && task.status === "succeeded") {
+            run.status = "implement_ready";
+            persistAndPublish(run);
+            break;
+          }
           continue;
         }
         if (run.tasks.every((candidate) => candidate.status === "succeeded")) {
