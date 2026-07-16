@@ -62,6 +62,21 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
         ${specApproval ? `<p class="managed-run-state">Approved ${escapeHtml(specApproval.approvedAt)}</p><p>Test seams explicitly confirmed</p>` : '<p class="status-meta">Current revision is not approved.</p>'}
       </details>`;
     }
+    if (taskId === "accept") {
+      const ticketCommits = (run.tasks || []).filter((task) => task.commit).map((task) => `${task.id} · ${task.commit.revision.slice(0, 12)} · ${task.commit.message}`);
+      const repairCommits = (run.integrationRepairs || []).filter((task) => task.commit).map((task) => `${task.id} · ${task.commit.revision.slice(0, 12)} · ${task.commit.message}`);
+      const preview = run.integration || run.integrationPreview;
+      evidence = `<details open data-inspector-section="evidence"><summary>Final mission evidence</summary>
+        <h4>Approved mission criteria</h4><pre class="managed-run-worker-output">${escapeHtml(run.artifacts?.spec?.markdown || run.specification)}</pre>
+        <h4>Ticket Commits</h4>${list(ticketCommits)}<h4>Integration repair commits</h4>${list(repairCommits)}
+        <h4>Mission checks</h4>${list(run.finalVerification?.checks)}<h4>Risks</h4>${list(run.finalVerification?.risks)}
+        <h4>Target integration preview</h4><p class="managed-run-state">${escapeHtml(preview?.status || preview?.mode || "preview required")}</p>
+        <p>${escapeHtml(run.targetBranch)} · target ${escapeHtml(preview?.targetRevision?.slice(0, 12) || "pending")} · run ${escapeHtml(preview?.runRevision?.slice(0, 12) || run.lastVerifiedCommit?.slice(0, 12) || "pending")}</p>
+        ${preview?.conflictPaths?.length ? `<h4>Conflicts requiring human action</h4>${list(preview.conflictPaths)}<p class="inspector-provenance">${escapeHtml(preview.targetWorktreePath)}</p>` : ""}
+        ${preview?.targetStatus?.length || preview?.operationMarkers?.length ? `<h4>Target worktree blockers</h4>${list([...(preview.targetStatus || []), ...(preview.operationMarkers || [])])}<p class="inspector-provenance">${escapeHtml(preview.targetWorktreePath)}</p>` : ""}
+        ${run.approvals?.accept ? `<p class="managed-run-state">Accepted ${escapeHtml(run.approvals.accept.approvedAt)} · ${escapeHtml(run.integration?.resultingRevision?.slice(0, 12))}</p>` : ""}
+      </details>`;
+    }
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
       <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : approval ? "approved" : "locked")}</p>${evidence}`;
   }

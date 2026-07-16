@@ -178,7 +178,10 @@ function journeyStations(run) {
         { id: "implement", kind: "workflow-phase", title: "Implement", order: implementOrder, status: run.phase === "implement" ? "active" : "succeeded", phase: "approved Ticket graph", dependencies: ticketStations.map((ticket) => ticket.id), attempts: 0, segments: [] },
         { id: "mission-verification", kind: "final-verification", title: "Mission verification", order: implementOrder + 1, status: missionStatus, phase: run.finalVerification?.verdict || "awaiting Ticket Commits", dependencies: ["implement"], attempts: (run.integrationRepairs?.length || 0) + (run.finalVerification ? 1 : 0), segments: [] },
         ...repairStations,
-        { id: "accept", kind: "workflow-phase", title: "Accept", order: implementOrder + repairStations.length + 2, status: run.phase === "accept" ? "active" : "locked", phase: run.phase === "accept" ? "approval required" : "locked", dependencies: repairStations.length ? [repairStations.at(-1).id, "mission-verification"] : ["mission-verification"], attempts: 0, segments: [] },
+        { id: "accept", kind: "workflow-phase", title: "Accept", order: implementOrder + repairStations.length + 2,
+          status: run.status === "completed" ? "succeeded" : ["integration_conflicts", "integration_blocked"].includes(run.status) ? "human_review_required" : run.phase === "accept" ? "active" : "locked",
+          phase: run.status === "completed" ? `integrated ${run.integration?.resultingRevision?.slice(0, 12) || "locally"}` : run.status === "integration_conflicts" ? `conflicts · ${(run.integration?.conflictPaths || []).join(", ")}` : run.status === "integration_blocked" ? "target worktree requires human action" : run.status === "accept_confirmation_required" ? "normal merge confirmation required" : run.phase === "accept" ? "approval required" : "locked",
+          dependencies: repairStations.length ? [repairStations.at(-1).id, "mission-verification"] : ["mission-verification"], attempts: 0, segments: [] },
       ];
     }
     return phases.map(([id, title], index) => ({

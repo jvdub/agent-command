@@ -101,8 +101,11 @@ function registerHandlers(registry, services) {
     handler: async (_event, payload) =>
       managedRunService.updateRouting(payload?.runId, payload?.routing),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.previewManagedRunAcceptance, {
+    handler: async (_event, runId) => managedRunService.previewAcceptance(runId),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.acceptManagedRun, {
-    handler: async (_event, runId) => managedRunService.accept(runId),
+    handler: async (_event, payload) => managedRunService.accept(payload?.runId || payload, payload?.options),
   });
   registry.register("managed-runs", IPC_CHANNELS.invoke.archiveManagedRun, {
     handler: async (_event, runId) => managedRunService.archive(runId),

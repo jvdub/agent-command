@@ -73,6 +73,7 @@ function createManagedRunService({
   workspaceFileService,
   managedRunWorkspaceService,
   managedRunTicketExecutionService,
+  managedRunIntegrationService,
   sessionService,
   shapeDomainDocumentService = {
     inspect: () => ({ hasConvention: false, recognizedPaths: [], canonicalTerms: [] }),
@@ -970,13 +971,43 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
-  function accept(runId) {
+  function previewAcceptance(runId) {
     const run = requireRun(runId);
-    if (run.finalVerification?.verdict !== "pass") {
-      throw new Error("A passing final integration verification is required.");
+    if (run.workflowKind !== "native") throw new Error("Local integration preview requires a native Managed Run.");
+    if (run.phase !== "accept" || run.finalVerification?.verdict !== "pass" || run.finalVerification.verifiedCommit !== run.lastVerifiedCommit) throw new Error("Accept requires the latest passing mission verification.");
+    run.integrationPreview = managedRunIntegrationService.preview(run);
+    return saveAndPublish(run);
+  }
+
+  function accept(runId, options = {}) {
+    const run = requireRun(runId);
+    if (run.finalVerification?.verdict !== "pass") throw new Error("A passing final integration verification is required.");
+    if (run.workflowKind !== "native") {
+      run.status = "completed"; addRunEvent(run, "Final result accepted by the user."); return saveAndPublish(run);
     }
-    run.status = "completed";
-    addRunEvent(run, "Final result accepted by the user.");
+    if (run.phase !== "accept" || run.finalVerification.verifiedCommit !== run.lastVerifiedCommit) throw new Error("Accept requires the latest passing mission verification for the current Run branch.");
+    const result = managedRunIntegrationService.integrate(run, { confirmMovedTarget: options.confirmMovedTarget === true, previewToken: options.previewToken });
+    run.integrationPreview = result;
+    if (["confirmation_required", "preview_changed"].includes(result.status)) {
+      run.status = "accept_confirmation_required";
+      addRunEvent(run, result.status === "preview_changed" ? `Target integration preview changed; review and confirm the new revisions.` : `Target ${run.targetBranch} moved; explicit confirmation is required for a normal merge.`, "warning");
+      return saveAndPublish(run);
+    }
+    const approval = run.approvals.accept || { approvedAt: nowIso(), finalVerificationWorkerId: run.finalVerification.workerId, verifiedCommit: run.finalVerification.verifiedCommit, previewToken: options.previewToken || null };
+    run.approvals.accept = approval;
+    if (result.status === "target_blocked") {
+      run.integration = result; run.status = "integration_blocked";
+      addRunEvent(run, `Local integration is blocked because the target worktree is not clean or has an operation in progress.`, "warning");
+      return saveAndPublish(run);
+    }
+    if (result.status === "conflicts") {
+      run.integration = result; run.status = "integration_conflicts";
+      addRunEvent(run, `Local integration stopped with conflicts in ${result.conflictPaths.join(", ")}.`, "warning");
+      return saveAndPublish(run);
+    }
+    const acceptedAt = nowIso();
+    run.integration = result; run.acceptedAt = acceptedAt; run.status = "completed";
+    addRunEvent(run, `Accepted and integrated locally into ${result.targetBranch} at ${result.resultingRevision.slice(0, 12)}.`, "info");
     return saveAndPublish(run);
   }
 
@@ -1040,6 +1071,7 @@ function createManagedRunService({
     refreshShapeDocumentation,
     openFile,
     pause,
+    previewAcceptance,
     retry,
     recoverTicket,
     savePlan,

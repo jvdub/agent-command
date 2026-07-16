@@ -88,3 +88,12 @@ test("shows mission verification and verified repair work before Accept", () => 
   expect(stations.find((station) => station.id === "integration-repair-1")).toMatchObject({ kind: "integration-repair", status: "succeeded" });
   expect(stations.at(-1)).toMatchObject({ id: "accept", status: "active", dependencies: ["integration-repair-1", "mission-verification"] });
 });
+
+
+test("shows local integration conflicts and accepted completion on the canvas", () => {
+  const ticket = { id: "ticket-1", title: "Slice", dependencies: [], maxAttempts: 3 };
+  const run = { workflowKind: "native", phase: "accept", approvedTicketsSnapshot: { revision: 1, tickets: [ticket] }, tasks: [{ ...ticket, status: "succeeded", attempts: [] }], finalVerification: { verdict: "pass" }, status: "integration_conflicts", integration: { conflictPaths: ["shared.txt"] } };
+  expect(journeyStations(run).at(-1)).toMatchObject({ id: "accept", status: "human_review_required", phase: "conflicts · shared.txt" });
+  run.status = "completed"; run.integration = { resultingRevision: "abcdef1234567890" };
+  expect(journeyStations(run).at(-1)).toMatchObject({ status: "succeeded", phase: "integrated abcdef123456" });
+});

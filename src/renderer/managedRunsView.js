@@ -108,6 +108,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let renderedSpecKey = "";
   let renderedTicketsKey = "";
   let renderedDomainKey = "";
+  let acceptancePreviewKey = "";
   let journeyDrag = null;
 
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
@@ -314,7 +315,8 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.start.textContent = isNativeWorkflow(run) ? (run.status === "paused" ? "Resume" : "Run next Ticket") : run.status === "ready" ? "Start" : "Resume";
     elements.pause.disabled = !["ready", "running", "final_verification"].includes(run.status);
     elements.cancel.disabled = ["cancelled", "completed", "failed"].includes(run.status);
-    elements.accept.disabled = run.finalVerification?.verdict !== "pass" || run.status !== "review_required";
+    elements.accept.disabled = run.finalVerification?.verdict !== "pass" || !["review_required", "accept_confirmation_required", "integration_conflicts", "integration_blocked"].includes(run.status);
+    elements.accept.textContent = isNativeWorkflow(run) ? "Accept & integrate locally" : "Accept";
     elements.archive.disabled = active;
     elements.shape.disabled = active;
     elements.saveShape.disabled = !run.shapeSessionId || !elements.shapeEditor.value.trim();
@@ -336,7 +338,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.approvePlan.hidden = nativeWorkflow;
     elements.start.hidden = nativeWorkflow && run.phase !== "implement";
     elements.pause.hidden = nativeWorkflow && run.phase !== "implement";
-    elements.accept.hidden = nativeWorkflow;
+    elements.accept.hidden = nativeWorkflow && run.phase !== "accept";
     elements.takeover.hidden = nativeWorkflow && !["paused", "review_required"].includes(run.status);
     elements.planPanel.hidden = nativeWorkflow;
     elements.shapePanel.hidden = !nativeWorkflow;
@@ -344,6 +346,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.ticketsPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
     elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
+    const previewKey = `${run.id}:${run.finalVerification?.verifiedCommit || "none"}`;
+    if (nativeWorkflow && run.phase === "accept" && run.finalVerification?.verdict === "pass" && !run.integrationPreview && acceptancePreviewKey !== previewKey) {
+      acceptancePreviewKey = previewKey;
+      void perform("Integration preview", () => agenticApp.previewManagedRunAcceptance(run.id));
+    }
   }
 
   function show(runId, target = {}) {
@@ -602,7 +609,17 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.start.addEventListener("click", () => perform("Running", () => agenticApp.startManagedRun(activeRunId)));
     elements.pause.addEventListener("click", () => perform("Paused", () => agenticApp.pauseManagedRun(activeRunId)));
     elements.cancel.addEventListener("click", () => perform("Cancelled", () => agenticApp.cancelManagedRun(activeRunId)));
-    elements.accept.addEventListener("click", () => perform("Completed", () => agenticApp.acceptManagedRun(activeRunId)));
+    elements.accept.addEventListener("click", async () => {
+      const run = activeRun();
+      if (!isNativeWorkflow(run)) return perform("Completed", () => agenticApp.acceptManagedRun(activeRunId));
+      const previewed = await perform("Integration preview", () => agenticApp.previewManagedRunAcceptance(activeRunId));
+      if (!previewed) return;
+      const preview = previewed.integrationPreview;
+      let confirmMovedTarget = false;
+      if (preview?.requiresConfirmation) confirmMovedTarget = window.confirm(`Target ${preview.targetBranch} moved from ${preview.baseRevision.slice(0, 12)} to ${preview.targetRevision.slice(0, 12)}. Create a normal local merge with ${preview.runRevision.slice(0, 12)}? Conflicts will be left for manual resolution.`);
+      if (preview?.requiresConfirmation && !confirmMovedTarget) return;
+      await perform("Accepted locally", () => agenticApp.acceptManagedRun(activeRunId, { confirmMovedTarget, previewToken: preview?.previewToken }));
+    });
     elements.archive.addEventListener("click", async () => { const archived = await perform("Archived", () => agenticApp.archiveManagedRun(activeRunId)); if (archived) { runs.delete(activeRunId); hide(); } });
     elements.saveRouting.addEventListener("click", () => perform("Routing saved", () => agenticApp.updateManagedRunRouting(activeRunId, {
       planner: { provider: elements.routingProvider.value, model: elements.routingPlannerModel.value },
