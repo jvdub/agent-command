@@ -21,6 +21,7 @@ const VERIFICATION_OUTCOME_SCHEMA = {
         "plan_defect",
         "spec_defect",
         "ticket_defect",
+        "scope_change_required",
         "human_decision_required",
         "environment_blocked",
       ],
@@ -30,6 +31,8 @@ const VERIFICATION_OUTCOME_SCHEMA = {
     failedCriteria: { type: "array", items: { type: "string" } },
     feedback: { type: "string" },
     risks: { type: "array", items: { type: "string" } },
+    spec: { type: "object", properties: { verdict: { enum: ["pass", "fail"] }, findings: { type: "array", items: { type: "string" } } }, required: ["verdict", "findings"] },
+    standards: { type: "object", properties: { verdict: { enum: ["pass", "fail"] }, findings: { type: "array", items: { type: "string" } } }, required: ["verdict", "findings"] },
   },
   required: [
     "verdict",
@@ -38,6 +41,8 @@ const VERIFICATION_OUTCOME_SCHEMA = {
     "failedCriteria",
     "feedback",
     "risks",
+    "spec",
+    "standards",
   ],
   additionalProperties: true,
 };
@@ -118,8 +123,8 @@ Final verification guidance: ${run.workflowKind === "native" ? "Verify the integ
 
 ${SAFETY_RULES}
 
-Inspect the complete diff, check cross-task interactions, and run appropriate broader checks. Return exactly one JSON object:
-{"verdict":"pass|fix_required|spec_defect|ticket_defect|plan_defect|human_decision_required|environment_blocked","summary":"mission-wide result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"]}`;
+Inspect the complete run branch, mission criteria, cross-Ticket interactions, scope, and repository Standards; run appropriate broader checks. Use scope_change_required when a repair would expand or change approved scope, and do not hide that change inside fix_required. Return exactly one JSON object:
+{"verdict":"pass|fix_required|spec_defect|ticket_defect|plan_defect|scope_change_required|human_decision_required|environment_blocked","spec":{"verdict":"pass|fail","findings":["finding"]},"standards":{"verdict":"pass|fail","findings":["finding"]},"summary":"mission-wide result","checks":["command: result"],"failedCriteria":["criterion"],"feedback":"specific next action","risks":["remaining risk"]}`;
 }
 
 function createTaskSchedulerService({
@@ -589,46 +594,119 @@ function createTaskSchedulerService({
     );
   }
 
-  async function executeFinalVerification(run) {
-    run.status = "final_verification";
+  function routeIntegrationRevision(run, outcome) {
+    const targetPhase = ["human_decision_required", "scope_change_required"].includes(outcome.verdict)
+      ? "shape"
+      : outcome.verdict === "spec_defect" ? "spec" : "tickets";
+    run.phase = targetPhase;
+    run.status = `${targetPhase}_revision_required`;
+    run.revisionRequest = {
+      targetPhase, verdict: outcome.verdict, taskId: null,
+      reason: String(outcome.feedback || outcome.summary || "Upstream revision required."),
+      requestedAt: new Date().toISOString(), source: "integration_verification",
+    };
+    addRunEvent(run, `Mission verification requires returning to ${targetPhase}.`, "warning", { phase: "integration_verification", verdict: outcome.verdict, targetPhase });
     persistAndPublish(run);
-    const worker = await launchWorker(
-      run,
-      "integration_verifier",
-      null,
-      integrationPrompt(run),
-      null,
-    );
-    if (worker.status !== "succeeded") {
-      stopForReview(run, "Final integration verifier failed to complete.");
-      return;
-    }
-    try {
-      const outcome = await resolveVerificationOutcome(
-        run,
-        worker,
-        "Final verifier",
-      );
+  }
+
+  function createIntegrationRepair(run, outcome) {
+    run.integrationRepairs ||= [];
+    const cycle = run.integrationRepairs.length + 1;
+    return {
+      id: `integration-repair-${cycle}`, title: `Repair integrated mission (cycle ${cycle})`, cycle,
+      objective: String(outcome.feedback || "Repair the bounded in-scope integration failure."),
+      successCriteria: Array.isArray(outcome.failedCriteria) && outcome.failedCriteria.length ? outcome.failedCriteria : ["Mission-wide verification passes"],
+      dependencies: [], relevantScope: [], contextNotes: [String(outcome.summary || "Integration verification failed.")],
+      verificationGuidance: Array.isArray(outcome.checks) ? outcome.checks : [], testSeams: ["mission-wide integration verification"],
+      tddPolicy: "test-first", tddException: "None", implementationTier: outcome.recommendedTier || "standard",
+      verificationTier: "premium", maxAttempts: run.integrationRepairAttemptLimit || 3, status: "planned", attempts: [],
+      sourceVerificationWorkerId: run.finalVerification?.workerId || null,
+    };
+  }
+
+  async function executeFinalVerification(run) {
+    run.integrationRepairCycleLimit ||= 2;
+    run.integrationRepairAttemptLimit ||= 3;
+    while (true) {
+      run.status = "final_verification";
+      let integrationBoundary = null;
+      if (run.workflowKind === "native") integrationBoundary = await managedRunTicketExecutionService.assertCleanBase(run.worktreePath, run.lastVerifiedCommit || run.baseRevision);
+      persistAndPublish(run);
+      const worker = await launchWorker(run, "integration_verifier", null, integrationPrompt(run), null);
+      if (worker.status !== "succeeded") {
+        stopForReview(run, "Final integration verifier failed to complete.");
+        return;
+      }
+      if (run.workflowKind === "native") {
+        const afterVerification = await managedRunTicketExecutionService.capture(run.worktreePath);
+        if (afterVerification.headRevision !== integrationBoundary.headRevision || afterVerification.refsFingerprint !== integrationBoundary.refsFingerprint || afterVerification.fingerprint !== integrationBoundary.fingerprint) {
+          stopForReview(run, "Final integration verifier changed the verified branch or worktree.");
+          return;
+        }
+      }
+      let outcome;
+      try {
+        outcome = await resolveVerificationOutcome(run, worker, "Final verifier");
+      } catch (error) {
+        stopForReview(run, `Final verifier output was malformed: ${error.message}`);
+        return;
+      }
       run.finalVerification = {
-        workerId: worker.id,
-        verdict: outcome.verdict,
-        summary: String(outcome.summary || ""),
-        checks: Array.isArray(outcome.checks) ? outcome.checks : [],
-        failedCriteria: Array.isArray(outcome.failedCriteria)
-          ? outcome.failedCriteria
-          : [],
-        feedback: String(outcome.feedback || ""),
-        risks: Array.isArray(outcome.risks) ? outcome.risks : [],
+        workerId: worker.id, verdict: outcome.verdict, summary: String(outcome.summary || ""),
+        checks: Array.isArray(outcome.checks) ? outcome.checks : [], failedCriteria: Array.isArray(outcome.failedCriteria) ? outcome.failedCriteria : [],
+        feedback: String(outcome.feedback || ""), risks: Array.isArray(outcome.risks) ? outcome.risks : [],
+        spec: outcome.spec || { verdict: "fail", findings: ["Verifier omitted Spec assessment."] },
+        standards: outcome.standards || { verdict: "fail", findings: ["Verifier omitted Standards assessment."] },
+        verifiedCommit: run.lastVerifiedCommit || null, repositoryState: integrationBoundary,
+        verifiedAt: new Date().toISOString(),
       };
-      stopForReview(
-        run,
-        outcome.verdict === "pass"
-          ? "Final integration verification passed; human acceptance is required."
-          : `Final integration verification returned ${outcome.verdict}.`,
-        outcome.verdict === "pass" ? "info" : "warning",
-      );
-    } catch (error) {
-      stopForReview(run, `Final verifier output was malformed: ${error.message}`);
+      persistAndPublish(run);
+      if (run.pauseRequested) {
+        run.pauseRequested = false; run.status = "paused";
+        addRunEvent(run, "Paused after the active mission verifier finished; no repair worker was started.");
+        persistAndPublish(run); return;
+      }
+      if (outcome.verdict === "pass") {
+        if (run.workflowKind === "native" && (run.finalVerification.spec.verdict !== "pass" || run.finalVerification.standards.verdict !== "pass")) {
+          stopForReview(run, "Final integration verifier did not pass both Spec and Standards axes.");
+          return;
+        }
+        run.phase = run.workflowKind === "native" ? "accept" : run.phase;
+        stopForReview(run, "Final integration verification passed; human acceptance is required.", "info");
+        return;
+      }
+      if (["plan_defect", "spec_defect", "ticket_defect", "scope_change_required", "human_decision_required"].includes(outcome.verdict)) {
+        routeIntegrationRevision(run, outcome);
+        return;
+      }
+      if (outcome.verdict !== "fix_required") {
+        stopForReview(run, `Final integration verification returned ${outcome.verdict}.`);
+        return;
+      }
+      if ((run.integrationRepairs?.length || 0) >= run.integrationRepairCycleLimit) {
+        run.status = "paused";
+        addRunEvent(run, "Integration repair cycle limit reached; adjust limits or revise upstream artifacts.", "warning");
+        persistAndPublish(run);
+        return;
+      }
+      const repair = createIntegrationRepair(run, outcome);
+      run.integrationRepairs.push(repair);
+      addRunEvent(run, `${repair.id} created from fixable mission-wide verification feedback.`, "warning");
+      persistAndPublish(run);
+      while (["planned", "retry_required"].includes(repair.status)) await executeTask(run, repair);
+      if (repair.status !== "succeeded") {
+        if (repair.attempts.length >= repair.maxAttempts) {
+          run.status = "paused";
+          addRunEvent(run, `${repair.id} exhausted its attempt limit; adjust repair limits while paused or revise upstream artifacts.`, "warning");
+          persistAndPublish(run);
+        }
+        return;
+      }
+      if (run.pauseRequested) {
+        run.pauseRequested = false; run.status = "paused";
+        addRunEvent(run, "Paused after the active integration repair finished; no new mission verifier was started.");
+        persistAndPublish(run); return;
+      }
     }
   }
 
@@ -637,6 +715,15 @@ function createTaskSchedulerService({
     activeLoops.add(run.id);
     try {
       while (!RUN_TERMINAL_STATES.has(run.status)) {
+        const pendingRepair = run.workflowKind === "native" ? run.integrationRepairs?.at(-1) : null;
+        if (pendingRepair && ["planned", "retry_required"].includes(pendingRepair.status)) {
+          await executeTask(run, pendingRepair);
+          if (run.pauseRequested) {
+            run.pauseRequested = false; run.status = "paused"; persistAndPublish(run); break;
+          }
+          if (pendingRepair.status !== "succeeded") break;
+          continue;
+        }
         const task = nextExecutableTask(run);
         if (task) {
           await executeTask(run, task);
@@ -648,10 +735,20 @@ function createTaskSchedulerService({
         }
         if (run.tasks.every((candidate) => candidate.status === "succeeded")) {
           if (run.workflowKind === "native") {
-            run.status = "integration_required";
-            addRunEvent(run, "Every Ticket Commit succeeded; mission-wide integration verification is required.");
-            persistAndPublish(run);
-          } else await executeFinalVerification(run);
+            const snapshotIds = new Set((run.approvedTicketsSnapshot?.tickets || []).map((ticket) => ticket.id));
+            const verified = [...snapshotIds].every((id) => {
+              const completed = run.tasks.find((task) => task.id === id);
+              const verdict = completed?.attempts?.at(-1)?.verification;
+              return completed?.status === "succeeded" && completed.commit && verdict?.verdict === "pass"
+                && verdict.spec?.verdict === "pass" && verdict.standards?.verdict === "pass";
+            });
+            if (!snapshotIds.size || !verified) {
+              stopForReview(run, "Mission verification requires a verified Ticket Commit for every Ticket in the approved snapshot.");
+              break;
+            }
+            addRunEvent(run, "Every Ticket Commit succeeded; starting fresh mission-wide integration verification.");
+          }
+          await executeFinalVerification(run);
           break;
         }
         stopForReview(run, "No executable task remains; dependencies or task state require review.");

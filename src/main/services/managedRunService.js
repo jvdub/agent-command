@@ -892,6 +892,21 @@ function createManagedRunService({
     return summarizeRun(run);
   }
 
+  function updateIntegrationRepairLimits(runId, limits = {}) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native" || run.status !== "paused") throw new Error("Integration repair limits may only change while a native Managed Run is paused.");
+    if (workerProcessService.hasActiveWorker(run.id)) throw new Error("Wait for the active repair worker to finish before changing integration limits.");
+    const cycles = Number(limits.cycles); const attempts = Number(limits.attempts);
+    if (!Number.isInteger(cycles) || cycles < 1 || cycles > 10 || !Number.isInteger(attempts) || attempts < 1 || attempts > 10) throw new Error("Integration repair limits must be whole numbers from 1 to 10.");
+    run.integrationRepairCycleLimit = cycles; run.integrationRepairAttemptLimit = attempts;
+    const repair = run.integrationRepairs?.at(-1);
+    if (repair && repair.status !== "succeeded" && attempts > repair.attempts.length) {
+      repair.maxAttempts = attempts; repair.status = "retry_required";
+    }
+    addRunEvent(run, `Integration repair limits changed to ${cycles} cycles and ${attempts} attempts while paused.`, "warning", { humanOverride: true });
+    return saveAndPublish(run);
+  }
+
   function updateTicketAttemptBudget(runId, taskId, maxAttempts) {
     const run = requireRun(runId);
     if (run.workflowKind !== "native") throw new Error("Attempt budgets require native Tickets.");
@@ -1035,6 +1050,7 @@ function createManagedRunService({
     setTaskStatus,
     start,
     updateRouting,
+    updateIntegrationRepairLimits,
     updateTicketAttemptBudget,
   };
 }

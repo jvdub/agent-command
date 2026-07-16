@@ -52,6 +52,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     saveTickets: document.querySelector("#managed-run-save-tickets"),
     approveTickets: document.querySelector("#managed-run-approve-tickets"),
     ticketReconciliation: document.querySelector("#managed-run-ticket-reconciliation"),
+    integrationLimits: document.querySelector("#managed-run-integration-limits"),
+    integrationCycles: document.querySelector("#managed-run-integration-cycles"),
+    integrationAttempts: document.querySelector("#managed-run-integration-attempts"),
+    saveIntegrationLimits: document.querySelector("#managed-run-save-integration-limits"),
     shapePanel: document.querySelector("#managed-run-shape-panel"),
     shapeMeta: document.querySelector("#managed-run-shape-meta"),
     shapeEditor: document.querySelector("#managed-run-shape-editor"),
@@ -196,7 +200,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
 
   function defaultSelection(run) {
     if (isNativeWorkflow(run)) {
-      selectedTaskId = run.phase || "shape";
+      const selectable = [...(run.tasks || []), ...(run.integrationRepairs || [])];
+      if (selectedTaskId && (["shape", "spec", "tickets", "implement", "accept", "mission-verification"].includes(selectedTaskId) || selectable.some((task) => task.id === selectedTaskId))) return;
+      selectedTaskId = run.status === "final_verification" || run.finalVerification ? "mission-verification" : run.phase || "shape";
       return;
     }
     if (selectedTaskId && (selectedTaskId === "final-verification" || run.tasks?.some((task) => task.id === selectedTaskId))) return;
@@ -303,9 +309,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.savePlan.disabled = active || !elements.planEditor.value.trim();
     elements.approvePlan.disabled = run.status !== "approval_required";
     elements.start.disabled = isNativeWorkflow(run)
-      ? run.phase !== "implement" || run.status !== "implement_ready"
+      ? run.phase !== "implement" || !["implement_ready", "paused"].includes(run.status)
       : !["ready", "paused", "review_required"].includes(run.status) || run.finalVerification?.verdict === "pass";
-    elements.start.textContent = isNativeWorkflow(run) ? "Run next Ticket" : run.status === "ready" ? "Start" : "Resume";
+    elements.start.textContent = isNativeWorkflow(run) ? (run.status === "paused" ? "Resume" : "Run next Ticket") : run.status === "ready" ? "Start" : "Resume";
     elements.pause.disabled = !["ready", "running", "final_verification"].includes(run.status);
     elements.cancel.disabled = ["cancelled", "completed", "failed"].includes(run.status);
     elements.accept.disabled = run.finalVerification?.verdict !== "pass" || run.status !== "review_required";
@@ -318,6 +324,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generateTickets.disabled = active || !run.approvals?.spec;
     elements.saveTickets.disabled = active || !run.approvals?.spec || !elements.ticketsEditor.value.trim();
     elements.approveTickets.disabled = run.status !== "tickets_approval_required";
+    elements.integrationLimits.hidden = !isNativeWorkflow(run) || !(run.integrationRepairs?.length || run.finalVerification?.verdict === "fix_required");
+    elements.integrationCycles.value = run.integrationRepairCycleLimit || 2;
+    elements.integrationAttempts.value = run.integrationRepairAttemptLimit || 3;
+    elements.saveIntegrationLimits.disabled = active || run.status !== "paused";
     elements.approveShape.disabled = run.status !== "shape_approval_required";
     elements.takeover.disabled = active;
     const nativeWorkflow = isNativeWorkflow(run);
@@ -571,6 +581,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.generateTickets.addEventListener("click", () => perform("Generating Tickets", () => agenticApp.generateManagedRunTickets(activeRunId)));
     elements.saveTickets.addEventListener("click", () => perform("Tickets saved", () => agenticApp.saveManagedRunTickets(activeRunId, elements.ticketsEditor.value)));
     elements.approveTickets.addEventListener("click", () => perform("Tickets approved", () => agenticApp.approveManagedRunTickets(activeRunId)));
+    elements.saveIntegrationLimits.addEventListener("click", () => perform("Repair limits saved", () => agenticApp.updateManagedRunIntegrationLimits(activeRunId, Number(elements.integrationCycles.value), Number(elements.integrationAttempts.value))));
     elements.ticketReconciliation.addEventListener("click", (event) => {
       const retain = event.target.closest("[data-revision-retain]");
       if (retain) void perform("Commit retained", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, retain.dataset.revisionRetain, "retain"));

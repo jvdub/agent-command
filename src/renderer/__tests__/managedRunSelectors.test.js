@@ -72,3 +72,19 @@ test("derives stable task and final acceptance attention items", () => {
     expect.objectContaining({ type: "acceptance_required" }),
   ]);
 });
+
+
+test("shows mission verification and verified repair work before Accept", () => {
+  const ticket = { id: "ticket-1", title: "Slice", dependencies: [], maxAttempts: 3 };
+  const run = {
+    workflowKind: "native", phase: "accept", status: "review_required",
+    approvedTicketsSnapshot: { revision: 1, tickets: [ticket] },
+    tasks: [{ ...ticket, status: "succeeded", attempts: [{ verification: { verdict: "pass" } }] }],
+    integrationRepairs: [{ id: "integration-repair-1", title: "Repair integrated mission", status: "succeeded", maxAttempts: 3, attempts: [{ verification: { verdict: "pass" } }], commit: { revision: "abcdef1234567890" } }],
+    finalVerification: { verdict: "pass" },
+  };
+  const stations = journeyStations(run);
+  expect(stations.find((station) => station.id === "mission-verification")).toMatchObject({ status: "succeeded", phase: "pass" });
+  expect(stations.find((station) => station.id === "integration-repair-1")).toMatchObject({ kind: "integration-repair", status: "succeeded" });
+  expect(stations.at(-1)).toMatchObject({ id: "accept", status: "active", dependencies: ["integration-repair-1", "mission-verification"] });
+});

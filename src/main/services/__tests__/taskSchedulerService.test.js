@@ -1,4 +1,4 @@
-const { createTaskSchedulerService } = require("../taskSchedulerService");
+const { createTaskSchedulerService, integrationPrompt } = require("../taskSchedulerService");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -307,6 +307,7 @@ function nativeRepositoryRun(taskOverrides = []) {
   const run = makeRun();
   Object.assign(run, { workflowKind: "native", worktreePath: cwd, repoPath: cwd, runWorkspacePath: fs.mkdtempSync(path.join(os.tmpdir(), "native-chain-evidence-")), baseRevision: git(["rev-parse", "HEAD"]), phase: "implement", status: "running", specification: "Deliver dependent slices", approvals: { spec: { revision: 1 } }, approvedTicketsSnapshot: { revision: 1 }, artifacts: { spec: { markdown: "# Spec\n\n## Testing Decisions\nExisting service seam" }, shape: { domain: { canonicalTerms: ["Ticket Commit"] } } } });
   run.tasks = taskOverrides.map((override, index) => ({ id: `ticket-${index + 1}`, title: `Deliver slice ${index + 1}`, objective: `Deliver slice ${index + 1}`, successCriteria: ["Visible"], dependencies: index ? [`ticket-${index}`] : [], relevantScope: [], contextNotes: [], verificationGuidance: [], testSeams: ["service"], tddPolicy: "test-first", tddException: "None", implementationTier: "standard", verificationTier: "standard", maxAttempts: 3, status: "planned", attempts: [], ...override }));
+  run.approvedTicketsSnapshot.tickets = run.tasks.map((task) => ({ id: task.id, title: task.title, dependencies: task.dependencies }));
   return { cwd, git, run };
 }
 
@@ -323,7 +324,7 @@ test("executes a dependent Ticket chain serially from each previous Ticket Commi
   await scheduler.autoRun(run);
   expect(run.tasks.map((task) => task.status)).toEqual(["succeeded", "succeeded"]);
   expect(git(["rev-list", "--count", `${run.baseRevision}..HEAD`])).toBe("2");
-  expect(run.status).toBe("integration_required");
+  expect(run).toMatchObject({ phase: "accept", status: "review_required", finalVerification: { verdict: "pass" } });
 });
 
 test("a fix-required verdict carries the diff into a fresh bounded attempt", async () => {
@@ -366,4 +367,90 @@ test("unexpected edits between bounded attempts pause without staging or guessin
   expect(run.tasks[0].status).toBe("external_edit_detected");
   expect(git(["status", "--porcelain"])).toContain("external.txt");
   expect(git(["rev-parse", "HEAD"])).toBe(run.baseRevision);
+});
+
+
+test("repairs a fixable integrated mission and verifies again before Accept", async () => {
+  const { cwd, git, run } = nativeRepositoryRun([{}]);
+  const integrationFailure = JSON.stringify({ verdict: "fix_required", spec: { verdict: "fail", findings: ["cross-Ticket behavior"] }, standards: { verdict: "pass", findings: [] }, summary: "integration failed", checks: ["broad: fail"], failedCriteria: ["Mission works"], feedback: "add integration.txt", risks: ["mission incomplete"] });
+  const integrationPass = JSON.stringify({ verdict: "pass", spec: { verdict: "pass", findings: [] }, standards: { verdict: "pass", findings: [] }, summary: "mission passed", checks: ["broad: pass"], failedCriteria: [], feedback: "", risks: [] });
+  const { scheduler, workerProcessService } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "slice\n"), stdout: implementationResult("slice.txt", "slice") }, { stdout: axisPass },
+    { stdout: integrationFailure },
+    { effect: () => fs.writeFileSync(path.join(cwd, "integration.txt"), "repaired\n"), stdout: implementationResult("integration.txt", "repair") }, { stdout: axisPass },
+    { stdout: integrationPass },
+  ]);
+
+  await scheduler.autoRun(run);
+
+  expect(run.phase).toBe("accept");
+  expect(run.status).toBe("review_required");
+  expect(run.finalVerification).toMatchObject({ verdict: "pass", spec: { verdict: "pass" }, standards: { verdict: "pass" } });
+  expect(run.integrationRepairs).toHaveLength(1);
+  expect(run.integrationRepairs[0]).toMatchObject({ status: "succeeded", cycle: 1, commit: { revision: expect.any(String) } });
+  expect(git(["rev-list", "--count", `${run.baseRevision}..HEAD`])).toBe("2");
+  expect(workerProcessService.run.mock.calls.map((call) => call[0].launch.role)).toEqual(["implementer", "verifier", "integration_verifier", "implementer", "verifier", "integration_verifier"]);
+});
+
+test("routes an integrated Spec defect back to the Spec Approval Gate", async () => {
+  const { cwd, run } = nativeRepositoryRun([{}]);
+  const defect = JSON.stringify({ verdict: "spec_defect", spec: { verdict: "fail", findings: ["wrong mission rule"] }, standards: { verdict: "pass", findings: [] }, summary: "Spec is wrong", checks: [], failedCriteria: ["Mission"], feedback: "revise Spec", risks: [] });
+  const { scheduler } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "slice\n"), stdout: implementationResult("slice.txt", "slice") }, { stdout: axisPass }, { stdout: defect },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.phase).toBe("spec");
+  expect(run.status).toBe("spec_revision_required");
+  expect(run.integrationRepairs || []).toHaveLength(0);
+  expect(run.finalVerification.verdict).toBe("spec_defect");
+});
+
+
+test("mission verifier contract requires two axes and explicit scope-change routing", () => {
+  const { run } = nativeRepositoryRun([{}]);
+  const prompt = integrationPrompt(run);
+  expect(prompt).toContain('"spec":{"verdict":"pass|fail"');
+  expect(prompt).toContain('"standards":{"verdict":"pass|fail"');
+  expect(prompt).toContain("scope_change_required");
+});
+
+test("pause after the active mission verifier prevents a repair worker from starting", async () => {
+  const { cwd, run } = nativeRepositoryRun([{}]);
+  const integrationFailure = JSON.stringify({ verdict: "fix_required", spec: { verdict: "fail", findings: ["missing"] }, standards: { verdict: "pass", findings: [] }, summary: "repair", checks: [], failedCriteria: ["mission"], feedback: "repair it", risks: [] });
+  const { scheduler, workerProcessService } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "slice\n"), stdout: implementationResult("slice.txt", "slice") }, { stdout: axisPass },
+    { stdout: integrationFailure, afterResolve: () => { run.pauseRequested = true; } },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.status).toBe("paused");
+  expect(run.integrationRepairs || []).toHaveLength(0);
+  expect(workerProcessService.run).toHaveBeenCalledTimes(3);
+});
+
+test("mission scope expansion returns to Shape instead of creating repair work", async () => {
+  const { cwd, run } = nativeRepositoryRun([{}]);
+  const scopeChange = JSON.stringify({ verdict: "scope_change_required", spec: { verdict: "fail", findings: ["new scope"] }, standards: { verdict: "pass", findings: [] }, summary: "scope changed", checks: [], failedCriteria: ["mission"], feedback: "reshape scope", risks: [] });
+  const { scheduler } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "slice\n"), stdout: implementationResult("slice.txt", "slice") }, { stdout: axisPass }, { stdout: scopeChange },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run).toMatchObject({ phase: "shape", status: "shape_revision_required", revisionRequest: { source: "integration_verification", verdict: "scope_change_required" } });
+  expect(run.integrationRepairs || []).toHaveLength(0);
+});
+
+
+test("pause after an active integration repair prevents the next mission verifier", async () => {
+  const { cwd, run } = nativeRepositoryRun([{}]);
+  const integrationFailure = JSON.stringify({ verdict: "fix_required", spec: { verdict: "fail", findings: ["missing"] }, standards: { verdict: "pass", findings: [] }, summary: "repair", checks: [], failedCriteria: ["mission"], feedback: "repair it", risks: [] });
+  const { scheduler, workerProcessService } = fakeScheduler([
+    { effect: () => fs.writeFileSync(path.join(cwd, "slice.txt"), "slice\n"), stdout: implementationResult("slice.txt", "slice") }, { stdout: axisPass },
+    { stdout: integrationFailure },
+    { effect: () => fs.writeFileSync(path.join(cwd, "repair.txt"), "repair\n"), stdout: implementationResult("repair.txt", "repair") },
+    { stdout: axisPass, afterResolve: () => { run.pauseRequested = true; } },
+  ]);
+  await scheduler.autoRun(run);
+  expect(run.status).toBe("paused");
+  expect(run.integrationRepairs[0].status).toBe("succeeded");
+  expect(run.finalVerification.verdict).toBe("fix_required");
+  expect(workerProcessService.run).toHaveBeenCalledTimes(5);
 });

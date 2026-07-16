@@ -33,6 +33,8 @@ function taskDefinition(run, taskId) {
   if (isNativeWorkflow(run)) {
     const ticket = run?.approvedTicketsSnapshot?.tickets?.find((item) => item.id === taskId);
     if (ticket) return { ...ticket, objective: ticket.behavior, successCriteria: ticket.acceptanceCriteria, relevantScope: ticket.contextNotes };
+    const repair = run?.integrationRepairs?.find((item) => item.id === taskId);
+    if (repair) return repair;
   }
   const snapshot = run?.approvedPlanSnapshot;
   return snapshot?.tasks?.find((task) => task.id === taskId) ||
@@ -161,12 +163,22 @@ function journeyStations(run) {
           feedback: runtime?.attempts?.at(-1)?.verification?.feedback || "",
         };
       });
+      const implementOrder = ticketStations.length + 3;
+      const repairStations = (run.integrationRepairs || []).map((repair, index) => ({
+        id: repair.id, kind: "integration-repair", title: repair.title, order: implementOrder + 2 + index,
+        status: repair.status, phase: repair.status === "succeeded" ? `verified repair commit ${repair.commit?.revision?.slice(0, 12) || "recorded"}` : "mission repair",
+        dependencies: index ? [run.integrationRepairs[index - 1].id] : ["mission-verification"], attempts: repair.attempts?.length || 0,
+        maxAttempts: repair.maxAttempts, segments: attemptSegments(repair), feedback: repair.attempts?.at(-1)?.verification?.feedback || "",
+      }));
+      const missionStatus = run.finalVerification?.verdict === "pass" ? "succeeded" : run.status === "final_verification" ? "active" : run.finalVerification ? "repair_required" : "locked";
       return [
         { id: "shape", kind: "workflow-phase", title: "Shape", order: 1, status: "succeeded", phase: "approved", dependencies: [], attempts: 0, segments: [] },
         { id: "spec", kind: "workflow-phase", title: "Spec", order: 2, status: "succeeded", phase: "approved", dependencies: ["shape"], attempts: 0, segments: [] },
         ...ticketStations,
-        { id: "implement", kind: "workflow-phase", title: "Implement", order: ticketStations.length + 3, status: run.phase === "implement" ? "active" : "locked", phase: "approved Ticket graph", dependencies: ticketStations.map((ticket) => ticket.id), attempts: 0, segments: [] },
-        { id: "accept", kind: "workflow-phase", title: "Accept", order: ticketStations.length + 4, status: run.phase === "accept" ? "active" : "locked", phase: "locked", dependencies: ["implement"], attempts: 0, segments: [] },
+        { id: "implement", kind: "workflow-phase", title: "Implement", order: implementOrder, status: run.phase === "implement" ? "active" : "succeeded", phase: "approved Ticket graph", dependencies: ticketStations.map((ticket) => ticket.id), attempts: 0, segments: [] },
+        { id: "mission-verification", kind: "final-verification", title: "Mission verification", order: implementOrder + 1, status: missionStatus, phase: run.finalVerification?.verdict || "awaiting Ticket Commits", dependencies: ["implement"], attempts: (run.integrationRepairs?.length || 0) + (run.finalVerification ? 1 : 0), segments: [] },
+        ...repairStations,
+        { id: "accept", kind: "workflow-phase", title: "Accept", order: implementOrder + repairStations.length + 2, status: run.phase === "accept" ? "active" : "locked", phase: run.phase === "accept" ? "approval required" : "locked", dependencies: repairStations.length ? [repairStations.at(-1).id, "mission-verification"] : ["mission-verification"], attempts: 0, segments: [] },
       ];
     }
     return phases.map(([id, title], index) => ({

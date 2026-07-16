@@ -51,6 +51,7 @@ const IPC_CHANNELS = Object.freeze({
     cancelManagedRun: "managed-run:cancel",
     retryManagedRunTask: "managed-run:retry-task",
     updateManagedRunTicketBudget: "managed-run:update-ticket-budget",
+    updateManagedRunIntegrationLimits: "managed-run:update-integration-limits",
     recoverManagedRunTicket: "managed-run:recover-ticket",
     updateManagedRunRouting: "managed-run:update-routing",
     acceptManagedRun: "managed-run:accept",

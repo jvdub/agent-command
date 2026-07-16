@@ -65,7 +65,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
       <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : approval ? "approved" : "locked")}</p>${evidence}`;
   }
-  if (taskId === "final-verification") {
+  if (["final-verification", "mission-verification"].includes(taskId)) {
     const worker = run.workers?.find((candidate) => candidate.id === run.finalVerification?.workerId) ||
       [...(run.workers || [])].reverse().find((candidate) => candidate.role === "integration_verifier");
     return `<div class="inspector-heading"><p class="eyebrow">Goal Gate</p><h3>Integration verification</h3></div>
@@ -74,7 +74,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       ${worker ? `<button type="button" class="inspector-attempt active" data-worker-id="${escapeHtml(worker.id)}">Inspect integration verifier prompt</button>` : ""}
       ${renderWorkerDetail(workerDetail, workerDetailState)}`;
   }
-  const task = run.tasks?.find((candidate) => candidate.id === taskId);
+  const task = [...(run.tasks || []), ...(run.integrationRepairs || [])].find((candidate) => candidate.id === taskId);
   if (!task) return '<p class="managed-inspector-empty">The selected task is no longer available.</p>';
   const definition = taskDefinition(run, taskId) || task;
   const selectedAttempt = task.attempts?.find((attempt) =>
@@ -85,7 +85,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
   const recoveryStates = ["human_review_required", "external_edit_detected", "implementation_environment_blocked", "verification_environment_blocked", "verification_malformed"];
   const canRecover = run.workflowKind === "native" && recoveryStates.includes(task.status);
   return `
-    <div class="inspector-heading"><p class="eyebrow">${run.workflowKind === "native" ? "Selected Ticket" : "Selected Task"}</p><h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3><p class="managed-run-state">${escapeHtml(taskPhase(task))}</p></div>
+    <div class="inspector-heading"><p class="eyebrow">${run.workflowKind === "native" ? (task.id.startsWith("integration-repair-") ? "Integration Repair" : "Selected Ticket") : "Selected Task"}</p><h3>${escapeHtml(task.id)} · ${escapeHtml(task.title)}</h3><p class="managed-run-state">${escapeHtml(taskPhase(task))}</p></div>
     <details open data-inspector-section="overview"><summary>Overview</summary>
       <p>${escapeHtml(task.objective)}</p>
       <p class="status-meta">${task.attempts?.length || 0}/${task.maxAttempts} attempts · dependencies ${escapeHtml(task.dependencies?.join(", ") || "none")}</p>

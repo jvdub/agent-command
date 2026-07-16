@@ -54,6 +54,7 @@ const IPC_CHANNELS = Object.freeze({
     cancelManagedRun: "managed-run:cancel",
     retryManagedRunTask: "managed-run:retry-task",
     updateManagedRunTicketBudget: "managed-run:update-ticket-budget",
+    updateManagedRunIntegrationLimits: "managed-run:update-integration-limits",
     recoverManagedRunTicket: "managed-run:recover-ticket",
     updateManagedRunRouting: "managed-run:update-routing",
     acceptManagedRun: "managed-run:accept",
@@ -242,6 +243,7 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.cancelManagedRun, runId),
     retryTask: (runId, taskId) => ipcRenderer.invoke(IPC_CHANNELS.invoke.retryManagedRunTask, { runId, taskId }),
     updateTicketBudget: (runId, taskId, maxAttempts) => ipcRenderer.invoke(IPC_CHANNELS.invoke.updateManagedRunTicketBudget, { runId, taskId, maxAttempts }),
+    updateIntegrationLimits: (runId, cycles, attempts) => ipcRenderer.invoke(IPC_CHANNELS.invoke.updateManagedRunIntegrationLimits, { runId, cycles, attempts }),
     recoverTicket: (runId, taskId, action, confirmed = false) => ipcRenderer.invoke(IPC_CHANNELS.invoke.recoverManagedRunTicket, { runId, taskId, action, confirmed }),
     updateRouting: (runId, routing) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.updateManagedRunRouting, {
