@@ -28,6 +28,10 @@ function registerHandlers(registry, services) {
     handler: async (_event, payload) =>
       managedRunService.openFile(payload?.runId, payload?.filePath),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.startManagedRunInteractiveSession, {
+    handler: async (_event, payload) =>
+      managedRunService.startInteractiveSession(payload?.runId, payload?.role),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.linkManagedRunShapeSession, {
     handler: async (_event, payload) => managedRunService.linkShapeSession(payload?.runId, payload?.sessionId),
   });

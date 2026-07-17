@@ -98,6 +98,8 @@ export const agenticApp = Object.freeze({
     call("managedRuns", "getWorkerDetail", runId, workerId),
   openManagedRunFile: (runId, filePath) =>
     call("managedRuns", "openFile", runId, filePath),
+  startManagedRunInteractiveSession: (runId, role) =>
+    call("managedRuns", "startInteractiveSession", runId, role),
   linkManagedRunShapeSession: (runId, sessionId) =>
     call("managedRuns", "linkShapeSession", runId, sessionId),
   saveManagedRunShape: (runId, markdown) =>

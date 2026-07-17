@@ -34,6 +34,7 @@ const IPC_CHANNELS = Object.freeze({
     getManagedRun: "managed-run:get",
     getManagedRunWorkerDetail: "managed-run:get-worker-detail",
     openManagedRunFile: "managed-run:open-file",
+    startManagedRunInteractiveSession: "managed-run:start-interactive-session",
     linkManagedRunShapeSession: "managed-run:link-shape-session",
     saveManagedRunShape: "managed-run:save-shape",
     approveManagedRunShape: "managed-run:approve-shape",
@@ -210,6 +211,10 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.openManagedRunFile, {
         runId,
         filePath,
+      }),
+    startInteractiveSession: (runId, role) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.startManagedRunInteractiveSession, {
+        runId, role,
       }),
     linkShapeSession: (runId, sessionId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.linkManagedRunShapeSession, { runId, sessionId }),

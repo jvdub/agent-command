@@ -74,6 +74,24 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
     };
   }
 
+  function buildInteractiveLaunch({ role, selection }) {
+    if (!VALID_ROLES.has(role)) {
+      throw new Error(`Unsupported worker role: ${role}`);
+    }
+    const resolved = resolveSelection(selection);
+    const args = [...resolved.commandArgs];
+    if (!resolved.usesDefaultModel) {
+      args.push("--model", resolved.model);
+    }
+    return {
+      ...resolved,
+      role,
+      args,
+      modelFlagUsed: !resolved.usesDefaultModel,
+      preview: [resolved.command, ...args].map(quotePreview).join(" "),
+    };
+  }
+
   function buildLaunch({ role, selection }) {
     if (!VALID_ROLES.has(role)) {
       throw new Error(`Unsupported worker role: ${role}`);
@@ -127,6 +145,7 @@ function createWorkerProviderRegistry({ env = process.env } = {}) {
   }
 
   return {
+    buildInteractiveLaunch,
     buildLaunch,
     getConfiguration,
     resolveSelection,

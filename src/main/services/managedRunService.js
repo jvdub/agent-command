@@ -323,6 +323,34 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function startInteractiveSession(runId, role) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") {
+      throw new Error("Interactive managed sessions require a native Managed Run.");
+    }
+    if (!new Set(["planner", "implementer"]).has(role)) {
+      throw new Error("Unsupported interactive Managed Run role.");
+    }
+    const launch = workerProviderRegistry.buildInteractiveLaunch({
+      role,
+      selection: run.routing?.[role] || {},
+    });
+    const session = sessionService.startSession({
+      label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
+      command: launch.command,
+      argsArray: launch.args,
+      cols: 120,
+      rows: 36,
+    }, run.worktreePath || run.repoPath);
+    try {
+      if (role === "planner") linkShapeSession(run.id, session.id);
+    } catch (error) {
+      sessionService.stopSessionById?.(session.id);
+      throw error;
+    }
+    return { session };
+  }
+
   function latestConversation(run) {
     const shape = run.artifacts.shape;
     const session = findShapeSession(run);
@@ -1138,6 +1166,7 @@ function createManagedRunService({
     saveSpec,
     saveTickets,
     setTaskStatus,
+    startInteractiveSession,
     start,
     updateRouting,
     updateIntegrationRepairLimits,

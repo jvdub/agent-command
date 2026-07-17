@@ -595,19 +595,14 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     }
     async function launchInteractive(role) {
       const run = activeRun(); if (!run) return;
-      const routing = run.routing?.[role] || {};
-      const result = await perform(role === "planner" ? "Shaping" : "Taking over", () => agenticApp.startSession({
-        label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
-        command: routing.provider || "codex", argsArray: routing.model ? ["--model", routing.model] : [], cwd: run.worktreePath || run.repoPath, cols: 120, rows: 36,
-      }));
+      const result = await perform(role === "planner" ? "Shaping" : "Taking over", () =>
+        agenticApp.startManagedRunInteractiveSession(run.id, role));
       if (result?.session) {
-        if (role === "planner") {
-          const linked = await perform("Linking Shape", () => agenticApp.linkManagedRunShapeSession(run.id, result.session.id));
-          if (!linked) return;
-          await agenticApp.writeToSession(result.session.id, `${shapePrompt(run)}\r`);
-        }
         collapsedRunIds.delete(run.id);
         await onSessionStarted?.(result.session, { runId: run.id, role });
+        if (role === "planner") {
+          await agenticApp.writeToSession(result.session.id, `${shapePrompt(run)}\r`);
+        }
       }
     }
     elements.shape.addEventListener("click", () => {
