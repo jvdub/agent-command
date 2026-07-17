@@ -74,6 +74,10 @@ function createServiceWithPlannerOutput(plannerOutput) {
     workspaceFileService: {
       openEditorFileAtRoot: jest.fn(async (_root, filePath) => ({ filePath })),
     },
+    managedRunRetentionService: {
+      preview: jest.fn(async () => ({ previewToken: "preview" })),
+      cleanup: jest.fn(async () => ({ status: "cleaned", retainedMetadata: { runRevision: "run-sha", targetRevision: "target-sha" } })),
+    },
     publishRun: jest.fn(),
   });
   return { run, service };
@@ -179,5 +183,41 @@ describe("Managed Run planning", () => {
 
     expect(() => service.approvePlan(run.id)).toThrow(/verified repository inspection/i);
     expect(run.status).toBe("review_required");
+  });
+});
+
+describe("Managed Run archive retention", () => {
+  test("archives without deleting evidence and remains inspectable when requested", () => {
+    const { run, service } = createServiceWithPlannerOutput({});
+    run.runWorkspacePath = "/tmp/run-workspace";
+    run.worktreePath = "/tmp/run-worktree";
+    run.branchName = "agentic/run";
+    run.artifacts = { spec: { markdown: "retained" } };
+    const archived = service.archive(run.id);
+    expect(archived.archived).toBe(true);
+    expect(run.artifacts.spec.markdown).toBe("retained");
+    expect(service.list()).toEqual([]);
+    expect(service.list({ includeArchived: true })[0]).toMatchObject({ id: run.id, archived: true });
+    expect(service.get(run.id).artifacts.spec.markdown).toBe("retained");
+  });
+});
+
+describe("Managed Run cleanup metadata", () => {
+  test("retains approvals and commit SHAs while pruning deleted workspace payloads", async () => {
+    const { run, service } = createServiceWithPlannerOutput({});
+    run.status = "completed";
+    run.approvals = { accept: { verifiedCommit: "run-sha" } };
+    run.artifacts = { spec: { markdown: "large body", revision: 3, hash: "artifact-hash" } };
+    run.tasks = [{ id: "ticket-1", title: "Ticket", status: "succeeded", commit: "ticket-sha", attempts: [{ stdout: "large evidence" }] }];
+    run.workers = [{ id: "worker", prompt: "large prompt" }];
+    run.executionHistory = [{ tasks: run.tasks }];
+    const result = await service.cleanup(run.id, { previewToken: "preview" });
+    expect(result.status).toBe("cleaned");
+    expect(run.approvals.accept.verifiedCommit).toBe("run-sha");
+    expect(run.retainedMetadata).toMatchObject({ runRevision: "run-sha", targetRevision: "target-sha", ticketCommits: [{ id: "ticket-1", commit: "ticket-sha" }] });
+    expect(run.artifacts.spec).toEqual({ path: null, revision: 3, approvedRevision: null, hash: "artifact-hash" });
+    expect(run.tasks[0]).toEqual({ id: "ticket-1", title: "Ticket", status: "succeeded", commit: "ticket-sha" });
+    expect(run.workers).toEqual([]);
+    expect(run.executionHistory).toEqual([]);
   });
 });

@@ -15,7 +15,7 @@ function registerHandlers(registry, services) {
     },
   );
   registry.register("managed-runs", IPC_CHANNELS.invoke.listManagedRuns, {
-    handler: async () => ({ runs: managedRunService.list() }),
+    handler: async (_event, options) => ({ runs: managedRunService.list(options) }),
   });
   registry.register("managed-runs", IPC_CHANNELS.invoke.getManagedRun, {
     handler: async (_event, runId) => managedRunService.get(runId),
@@ -107,6 +107,8 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.acceptManagedRun, {
     handler: async (_event, payload) => managedRunService.accept(payload?.runId || payload, payload?.options),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.previewManagedRunCleanup, { handler: async (_event, runId) => managedRunService.previewCleanup(runId) });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.cleanupManagedRun, { handler: async (_event, payload) => managedRunService.cleanup(payload?.runId, payload?.options) });
   registry.register("managed-runs", IPC_CHANNELS.invoke.archiveManagedRun, {
     handler: async (_event, runId) => managedRunService.archive(runId),
   });

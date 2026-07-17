@@ -60,6 +60,8 @@ const IPC_CHANNELS = Object.freeze({
     previewManagedRunAcceptance: "managed-run:preview-acceptance",
     acceptManagedRun: "managed-run:accept",
     archiveManagedRun: "managed-run:archive",
+    previewManagedRunCleanup: "managed-run:preview-cleanup",
+    cleanupManagedRun: "managed-run:cleanup",
     setManagedRunTaskStatus: "managed-run:set-task-status",
     inspectManagedRunRepository: "managed-run:inspect-repository",
   }),
@@ -196,7 +198,7 @@ const agentic = {
         IPC_CHANNELS.invoke.inspectManagedRunRepository,
         repoPath,
       ),
-    list: () => ipcRenderer.invoke(IPC_CHANNELS.invoke.listManagedRuns),
+    list: (options = {}) => ipcRenderer.invoke(IPC_CHANNELS.invoke.listManagedRuns, options),
     get: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.getManagedRun, runId),
     getWorkerDetail: (runId, workerId) =>
@@ -256,6 +258,8 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.acceptManagedRun, { runId, options }),
     archive: (runId) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.archiveManagedRun, runId),
+    previewCleanup: (runId) => ipcRenderer.invoke(IPC_CHANNELS.invoke.previewManagedRunCleanup, runId),
+    cleanup: (runId, options = {}) => ipcRenderer.invoke(IPC_CHANNELS.invoke.cleanupManagedRun, { runId, options }),
     setTaskStatus: (runId, taskId, status) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.setManagedRunTaskStatus, {
         runId,

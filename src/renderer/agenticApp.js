@@ -92,7 +92,7 @@ export const agenticApp = Object.freeze({
   createManagedRun: (payload) => call("managedRuns", "create", payload),
   inspectManagedRunRepository: (repoPath) =>
     call("managedRuns", "inspectRepository", repoPath),
-  listManagedRuns: () => call("managedRuns", "list"),
+  listManagedRuns: (options = {}) => call("managedRuns", "list", options),
   getManagedRun: (runId) => call("managedRuns", "get", runId),
   getManagedRunWorkerDetail: (runId, workerId) =>
     call("managedRuns", "getWorkerDetail", runId, workerId),
@@ -134,6 +134,8 @@ export const agenticApp = Object.freeze({
   previewManagedRunAcceptance: (runId) => call("managedRuns", "previewAcceptance", runId),
   acceptManagedRun: (runId, options = {}) => call("managedRuns", "accept", runId, options),
   archiveManagedRun: (runId) => call("managedRuns", "archive", runId),
+  previewManagedRunCleanup: (runId) => call("managedRuns", "previewCleanup", runId),
+  cleanupManagedRun: (runId, options = {}) => call("managedRuns", "cleanup", runId, options),
   setManagedRunTaskStatus: (runId, taskId, status) =>
     call("managedRuns", "setTaskStatus", runId, taskId, status),
   openExternalUrl: (url) => call("app", "openExternalUrl", url),

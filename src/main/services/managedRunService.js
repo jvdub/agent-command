@@ -74,6 +74,7 @@ function createManagedRunService({
   managedRunWorkspaceService,
   managedRunTicketExecutionService,
   managedRunIntegrationService,
+  managedRunRetentionService,
   sessionService,
   shapeDomainDocumentService = {
     inspect: () => ({ hasConvention: false, recognizedPaths: [], canonicalTerms: [] }),
@@ -203,6 +204,7 @@ function createManagedRunService({
       branchName: workspace.branchName,
       sourceWasDirty: workspace.sourceWasDirty,
       trackRunWorkspace: workspace.trackRunWorkspace,
+      retentionPreferences: { cleanupRunWorkspace: input?.cleanupRunWorkspace !== false, cleanupWorktree: input?.cleanupWorktree !== false, cleanupBranch: input?.cleanupBranch !== false },
       specification,
       status: "shape_required",
       artifacts: {},
@@ -682,12 +684,12 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
-  function list() {
+  function list(options = {}) {
     let reconciled = false;
     for (const run of runs.values()) reconciled = reconcileApprovedShape(run) || reconciled;
     if (reconciled) managedRunPersistenceService.save();
     return Array.from(runs.values())
-      .filter((run) => !run.archived)
+      .filter((run) => options.includeArchived === true || !run.archived)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map(summarizeRun);
   }
@@ -1021,6 +1023,60 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function assertCleanupEligible(run) {
+    if (!run.archived && run.status !== "completed") {
+      throw new Error("Only completed or archived Managed Runs can be cleaned.");
+    }
+    if (workerProcessService.hasActiveWorker(run.id)) {
+      throw new Error("Managed Run resources cannot be cleaned while a worker is active.");
+    }
+  }
+
+  async function previewCleanup(runId) {
+    const run = requireRun(runId);
+    assertCleanupEligible(run);
+    return managedRunRetentionService.preview(run);
+  }
+
+  async function cleanup(runId, options = {}) {
+    const run = requireRun(runId);
+    assertCleanupEligible(run);
+    const result = await managedRunRetentionService.cleanup(run, options);
+    run.cleanup = result;
+    if (result.status === "cleaned" || result.status === "cleaned_with_retained_branch") {
+      run.retainedMetadata = {
+        approvals: run.approvals,
+        baseRevision: run.baseRevision,
+        finalVerification: run.finalVerification,
+        integration: run.integration,
+        ticketCommits: (run.tasks || []).filter((task) => task.commit).map((task) => ({ id: task.id, commit: task.commit })),
+        ...result.retainedMetadata,
+      };
+      run.artifacts = Object.fromEntries(Object.entries(run.artifacts || {}).map(([kind, artifact]) => [kind, {
+        path: artifact.path || artifact.summaryPath || artifact.revisions?.at(-1)?.path || null,
+        revision: artifact.revision || artifact.summaryRevision || null,
+        approvedRevision: artifact.approvedRevision || null,
+        hash: artifact.hash || null,
+      }]));
+      run.tasks = (run.tasks || []).map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        commit: task.commit || null,
+      }));
+      run.workers = [];
+      run.executionHistory = [];
+      run.approvedPlanSnapshot = null;
+      run.approvedSpecSnapshot = null;
+      run.approvedTicketsSnapshot = null;
+      addRunEvent(run, "Eligible local Run resources cleaned; audit metadata and Git revisions retained.");
+    } else {
+      addRunEvent(run, "Run cleanup preview requires further confirmation or integration proof.", "warning");
+    }
+    saveAndPublish(run);
+    return { ...result, run: summarizeRun(run) };
+  }
+
   function setTaskStatus(runId, taskId, status) {
     const run = requireRun(runId);
     if (workerProcessService.hasActiveWorker(run.id)) {
@@ -1059,6 +1115,7 @@ function createManagedRunService({
     archive,
     cancel,
     create,
+    cleanup,
     decideRevisionCommit,
     generatePlan,
     generateSpec,
@@ -1072,6 +1129,7 @@ function createManagedRunService({
     openFile,
     pause,
     previewAcceptance,
+    previewCleanup,
     retry,
     recoverTicket,
     savePlan,

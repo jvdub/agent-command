@@ -57,6 +57,8 @@ const IPC_CHANNELS = Object.freeze({
     previewManagedRunAcceptance: "managed-run:preview-acceptance",
     acceptManagedRun: "managed-run:accept",
     archiveManagedRun: "managed-run:archive",
+    previewManagedRunCleanup: "managed-run:preview-cleanup",
+    cleanupManagedRun: "managed-run:cleanup",
     setManagedRunTaskStatus: "managed-run:set-task-status",
     inspectManagedRunRepository: "managed-run:inspect-repository",
   }),

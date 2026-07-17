@@ -28,6 +28,7 @@ const { createLocalInferenceService } = require("./localInferenceService");
 const { createTaskSchedulerService } = require("./taskSchedulerService");
 const { createManagedRunTicketExecutionService } = require("./managedRunTicketExecutionService");
 const { createManagedRunIntegrationService } = require("./managedRunIntegrationService");
+const { createManagedRunRetentionService } = require("./managedRunRetentionService");
 const { createManagedRunService } = require("./managedRunService");
 const { createShapeDomainDocumentService } = require("./shapeDomainDocumentService");
 const { createTokenLedgerService } = require("./tokenLedgerService");
@@ -272,6 +273,7 @@ function registerAllServices(registry) {
   );
 
   registry.register("managedRunIntegrationService", "Managed Run Integration Service", () => createManagedRunIntegrationService(), []);
+  registry.register("managedRunRetentionService", "Managed Run Retention Service", () => createManagedRunRetentionService(), []);
 
   registry.register(
     "managedRunService",
@@ -287,6 +289,7 @@ function registerAllServices(registry) {
       managedRunWorkspaceService,
       managedRunTicketExecutionService,
       managedRunIntegrationService,
+      managedRunRetentionService,
       sessionService,
       shapeDomainDocumentService,
     }) =>
@@ -301,6 +304,7 @@ function registerAllServices(registry) {
         managedRunWorkspaceService,
         managedRunTicketExecutionService,
         managedRunIntegrationService,
+        managedRunRetentionService,
         sessionService,
         shapeDomainDocumentService,
         publishRun: (run) =>
@@ -320,6 +324,7 @@ function registerAllServices(registry) {
       "managedRunWorkspaceService",
       "managedRunTicketExecutionService",
       "managedRunIntegrationService",
+      "managedRunRetentionService",
       "sessionService",
       "shapeDomainDocumentService",
     ],

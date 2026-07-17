@@ -86,6 +86,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     cancel: document.querySelector("#managed-run-cancel"),
     accept: document.querySelector("#managed-run-accept"),
     archive: document.querySelector("#managed-run-archive"),
+    cleanup: document.querySelector("#managed-run-cleanup"),
     takeover: document.querySelector("#managed-run-takeover"),
     routingProvider: document.querySelector("#managed-run-routing-provider"),
     routingPlannerModel: document.querySelector("#managed-run-routing-planner-model"),
@@ -440,6 +441,9 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
         branchName: document.querySelector("#managed-run-branch-name")?.value || "",
         runWorkspacePath: document.querySelector("#managed-run-workspace-input")?.value || "",
         trackRunWorkspace: Boolean(document.querySelector("#managed-run-track-workspace")?.checked),
+        cleanupRunWorkspace: Boolean(document.querySelector("#managed-run-cleanup-workspace")?.checked),
+        cleanupWorktree: Boolean(document.querySelector("#managed-run-cleanup-worktree")?.checked),
+        cleanupBranch: Boolean(document.querySelector("#managed-run-cleanup-branch")?.checked),
         planningModel: elements.planningModel.value, implementationModel: elements.implementationModel.value,
         verificationModel: elements.verificationModel.value, integrationModel: elements.integrationModel.value,
         initializeGit,
@@ -620,7 +624,24 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       if (preview?.requiresConfirmation && !confirmMovedTarget) return;
       await perform("Accepted locally", () => agenticApp.acceptManagedRun(activeRunId, { confirmMovedTarget, previewToken: preview?.previewToken }));
     });
-    elements.archive.addEventListener("click", async () => { const archived = await perform("Archived", () => agenticApp.archiveManagedRun(activeRunId)); if (archived) { runs.delete(activeRunId); hide(); } });
+    elements.archive.addEventListener("click", async () => {
+      const archived = await perform("Archived", () => agenticApp.archiveManagedRun(activeRunId));
+      if (archived) upsert(archived);
+    });
+    elements.cleanup.addEventListener("click", async () => {
+      const preview = await perform("Cleanup preview", () => agenticApp.previewManagedRunCleanup(activeRunId));
+      if (!preview) return;
+      const removals = preview.resources.filter((resource) => resource.action !== "retain");
+      const retained = preview.resources.filter((resource) => resource.action === "retain");
+      const resources = removals.map((resource) => resource.path || resource.ref).join("\n");
+      const retainedNotice = retained.length ? "\n\nRetained:\n" + retained.map((resource) => resource.path || resource.ref).join("\n") : "";
+      let confirmDestructiveCleanup = false;
+      if (!preview.safeToClean) {
+        confirmDestructiveCleanup = window.confirm("The run branch is not proven integrated. Remove only these clean recorded resources?\n\n" + resources + retainedNotice);
+        if (!confirmDestructiveCleanup) return;
+      } else if (!window.confirm("Remove these recorded local resources? Source checkout and target branch are retained.\n\n" + resources)) return;
+      await perform("Cleaned", () => agenticApp.cleanupManagedRun(activeRunId, { previewToken: preview.previewToken, confirmDestructiveCleanup }));
+    });
     elements.saveRouting.addEventListener("click", () => perform("Routing saved", () => agenticApp.updateManagedRunRouting(activeRunId, {
       planner: { provider: elements.routingProvider.value, model: elements.routingPlannerModel.value },
       implementer: { provider: elements.routingProvider.value, model: elements.routingImplementerModel.value },
@@ -640,7 +661,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   async function initialize(defaultRepoPath = "") {
     elements.repoInput.value = defaultRepoPath;
     bind();
-    const result = await agenticApp.listManagedRuns();
+    const result = await agenticApp.listManagedRuns({ includeArchived: true });
     for (const run of result?.runs || []) runs.set(run.id, run);
     renderTabs(); renderInboxSurface();
   }

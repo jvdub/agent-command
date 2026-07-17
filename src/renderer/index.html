@@ -156,6 +156,10 @@
                 <input id="managed-run-track-workspace" type="checkbox" />
                 <span>Track Run Workspace instead of excluding it locally</span>
               </label>
+              <p class="field-help">Future-run cleanup defaults (completed runs keep their original choices):</p>
+              <label class="managed-run-track-workspace-label"><input id="managed-run-cleanup-workspace" type="checkbox" checked /><span>Include Run Workspace in cleanup previews</span></label>
+              <label class="managed-run-track-workspace-label"><input id="managed-run-cleanup-worktree" type="checkbox" checked /><span>Include run worktree in cleanup previews</span></label>
+              <label class="managed-run-track-workspace-label"><input id="managed-run-cleanup-branch" type="checkbox" checked /><span>Include integrated run branch in cleanup previews</span></label>
             </details>
             <div class="button-row">
               <button type="submit">Create Managed Run</button>
@@ -388,6 +392,7 @@
               <button type="button" id="managed-run-cancel" class="secondary danger-action">Cancel</button>
               <button type="button" id="managed-run-accept" class="secondary">Accept</button>
               <button type="button" id="managed-run-archive" class="secondary">Archive</button>
+              <button type="button" id="managed-run-cleanup" class="secondary danger-action">Preview cleanup</button>
               <button type="button" id="managed-run-takeover" class="secondary">Take Over</button>
             </div>
           </header>
