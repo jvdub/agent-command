@@ -170,7 +170,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     await expect(window.locator("#managed-run-journey [data-task-id]")).toHaveCount(5);
     await expect(window.locator('[data-task-id="shape"]')).toContainText("ready to shape");
     await expect(window.locator('[data-task-id="spec"]')).toContainText("locked");
-    await expect(window.locator("#managed-run-shape")).toHaveText("Open Shape");
+    await expect(window.locator("#managed-run-shape")).toHaveText("Start Shape Session");
     await expect(window.locator("#managed-run-generate-plan")).toBeHidden();
 
     expect(fs.readFileSync(path.join(sourceRepo, "local-only.txt"), "utf8")).toBe(
@@ -199,6 +199,12 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
       });
       return window.agentic.managedRuns.linkShapeSession(run.id, started.session.id);
     });
+    await expect(
+      window.getByRole("button", { name: "Open Shape Session" }),
+    ).toBeVisible();
+    await expect(window.locator(".managed-run-session-tab")).toContainText(
+      "Shape: Native workflow",
+    );
     await expect(window.locator('[data-task-id="shape"]')).toContainText("conversation active");
     await window.locator("#managed-run-shape-editor").fill("# Shape\n\n## Decision\n\nUse native workers.\n");
     await window.locator("#managed-run-save-shape").click();
@@ -216,7 +222,7 @@ test("a Managed Run starts in an isolated Shape workspace", async ({}, testInfo)
     expect(fs.readFileSync(path.join(sourceRepo, "CONTEXT.md"), "utf8")).not.toContain("Shape Commit");
     expect(git(worktreePath, ["show", "--name-only", "--format=", "HEAD"])).toBe("CONTEXT.md");
     await expect(window.locator('[data-task-id="shape"]')).toContainText("approved");
-    await expect(window.locator('[data-task-id="spec"]')).toContainText("current phase");
+    await expect(window.locator('[data-task-id="spec"]')).toContainText("ready to generate");
     await window.locator('[data-task-id="shape"]').click();
     await expect(window.locator("#managed-run-inspector")).toContainText("Shape evidence");
     await expect(window.locator("#managed-run-inspector")).toContainText("Document Shape domain decisions");

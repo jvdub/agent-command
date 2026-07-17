@@ -15,7 +15,7 @@ function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
-function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRunFile, setStatus }) {
+function createManagedRunsView({ activateView, getActiveSessionId, getSessionsForRun, onOpenSession, onSessionStarted, onOpenManagedRunFile, setStatus }) {
   const elements = {
     view: document.querySelector("#managed-run-view"),
     tabs: document.querySelector("#managed-run-tabs-list"),
@@ -111,6 +111,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
   let renderedDomainKey = "";
   let acceptancePreviewKey = "";
   let journeyDrag = null;
+  const collapsedRunIds = new Set();
 
   const activeRun = () => activeRunId ? runs.get(activeRunId) : null;
 
@@ -187,11 +188,21 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
 
   function renderTabs() {
     const list = [...runs.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-    elements.tabs.innerHTML = list.length ? list.map((run) => `
-      <button type="button" class="managed-run-tab ${run.id === activeRunId ? "active" : ""}" data-managed-run-id="${escapeHtml(run.id)}">
+    elements.tabs.innerHTML = list.length ? list.map((run) => {
+      const childSessions = getSessionsForRun?.(run) || [];
+      const expanded = childSessions.length > 0 && !collapsedRunIds.has(run.id);
+      const children = expanded && childSessions.length ? `<div class="managed-run-session-list">${childSessions.map(({ session, role }) => `
+        <button type="button" class="managed-run-session-tab ${session.id === getActiveSessionId?.() ? "active" : ""}" data-managed-session-id="${escapeHtml(session.id)}" data-managed-run-id="${escapeHtml(run.id)}">
+          <span class="managed-run-session-dot ${session.isRunning ? "running" : "stopped"}"></span>
+          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped"}</small></span>
+        </button>`).join("")}</div>` : "";
+      return `<div class="managed-run-nav-group ${run.id === activeRunId ? "active" : ""}"><div class="managed-run-tab-row">
+        <button type="button" class="managed-run-expand" data-managed-run-expand="${escapeHtml(run.id)}" aria-label="${expanded ? "Collapse" : "Expand"} ${escapeHtml(run.title)}" aria-expanded="${expanded}">${expanded ? "&#9662;" : "&#9656;"}</button>
+        <button type="button" class="managed-run-tab" data-managed-run-id="${escapeHtml(run.id)}">
         <p class="managed-run-tab-title">${escapeHtml(run.title)}</p>
-        <p class="managed-run-tab-meta">${escapeHtml(prettyStatus(run.status))} · ${runProgress(run).verified}/${runProgress(run).total} verified</p>
-      </button>`).join("") : '<p class="status-meta">No managed runs.</p>';
+        <p class="managed-run-tab-meta">${escapeHtml(prettyStatus(run.status))} · ${runProgress(run).verified}/${runProgress(run).total} verified${childSessions.length ? ` · ${childSessions.length} session${childSessions.length === 1 ? "" : "s"}` : ""}</p>
+        </button></div>${children}</div>`;
+    }).join("") : '<p class="status-meta">No managed runs.</p>';
   }
 
   function renderInboxSurface() {
@@ -346,7 +357,7 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
     elements.specPanel.hidden = !nativeWorkflow;
     elements.ticketsPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
-    elements.shape.textContent = nativeWorkflow ? "Open Shape" : "Shape Interactively";
+    elements.shape.textContent = nativeWorkflow ? (run.shapeSessionId ? "Open Shape Session" : "Start Shape Session") : "Shape Interactively";
     const previewKey = `${run.id}:${run.finalVerification?.verifiedCommit || "none"}`;
     if (nativeWorkflow && run.phase === "accept" && run.finalVerification?.verdict === "pass" && !run.integrationPreview && acceptancePreviewKey !== previewKey) {
       acceptancePreviewKey = previewKey;
@@ -451,8 +462,20 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       if (run) { elements.popover.classList.add("hidden"); show(run.id); }
     });
     elements.tabs.addEventListener("click", (event) => {
+      const session = event.target.closest("[data-managed-session-id]");
+      if (session) {
+        collapsedRunIds.delete(session.dataset.managedRunId);
+        void onOpenSession?.(session.dataset.managedRunId, session.dataset.managedSessionId);
+        return;
+      }
+      const expand = event.target.closest("[data-managed-run-expand]");
+      if (expand) {
+        const runId = expand.dataset.managedRunExpand;
+        collapsedRunIds.has(runId) ? collapsedRunIds.delete(runId) : collapsedRunIds.add(runId);
+        renderTabs(); return;
+      }
       const tab = event.target.closest("[data-managed-run-id]");
-      if (tab) show(tab.dataset.managedRunId);
+      if (tab) { collapsedRunIds.delete(tab.dataset.managedRunId); show(tab.dataset.managedRunId); }
     });
     elements.inboxList.addEventListener("click", (event) => {
       const item = event.target.closest("[data-inbox-run-id]");
@@ -515,6 +538,11 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
       stations[(index + delta + stations.length) % stations.length]?.focus();
     });
     elements.inspector.addEventListener("click", async (event) => {
+      const managedSession = event.target.closest("[data-open-managed-session]");
+      if (managedSession) {
+        void onOpenSession?.(activeRunId, managedSession.dataset.openManagedSession);
+        return;
+      }
       const attempt = event.target.closest("[data-worker-id]");
       if (attempt) return void selectWorker(attempt.dataset.workerId);
       const file = event.target.closest("[data-managed-file]");
@@ -578,10 +606,16 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
           if (!linked) return;
           await agenticApp.writeToSession(result.session.id, `${shapePrompt(run)}\r`);
         }
-        await onSessionStarted?.(result.session);
+        collapsedRunIds.delete(run.id);
+        await onSessionStarted?.(result.session, { runId: run.id, role });
       }
     }
-    elements.shape.addEventListener("click", () => void launchInteractive("planner"));
+    elements.shape.addEventListener("click", () => {
+      const run = activeRun();
+      if (!run) return;
+      if (run.shapeSessionId) return void onOpenSession?.(run.id, run.shapeSessionId);
+      void launchInteractive("planner");
+    });
     elements.takeover.addEventListener("click", () => void launchInteractive("implementer"));
     elements.shapeEditor.addEventListener("input", () => { elements.saveShape.disabled = !activeRun()?.shapeSessionId || !elements.shapeEditor.value.trim(); });
     elements.specEditor.addEventListener("input", () => { elements.saveSpec.disabled = !elements.specEditor.value.trim(); });
@@ -668,7 +702,10 @@ function createManagedRunsView({ activateView, onSessionStarted, onOpenManagedRu
 
   return {
     hide, initialize,
+    findRunForSession: (sessionId) => [...runs.values()].find((run) => run.shapeSessionId === sessionId)?.id || null,
+    getRun: (runId) => runs.get(runId) || null,
     isActive: () => Boolean(activeRunId) && !elements.view.classList.contains("hidden"),
+    refreshNavigation: renderTabs,
     show,
   };
 }

@@ -402,6 +402,14 @@
             <p id="managed-run-usage" class="status-meta"></p>
           </div>
 
+          <section id="managed-run-session-panel" class="managed-run-session-panel hidden" aria-label="Managed Run session">
+            <div class="panel-header compact managed-run-session-header">
+              <div><p class="eyebrow">Managed Session</p><h2 id="managed-run-session-title">Agent session</h2><p id="managed-run-session-meta" class="status-meta"></p></div>
+              <button type="button" id="managed-run-session-close" class="secondary">Close session</button>
+            </div>
+            <div id="managed-run-session-terminal" class="terminal managed-run-session-terminal"></div>
+          </section>
+
           <div class="managed-run-workspace">
             <aside class="managed-run-inbox" aria-label="Managed Run inbox">
               <div class="panel-header compact"><div><p class="eyebrow">Managed Runs</p><h2>Inbox</h2></div><span id="managed-run-inbox-count" class="managed-inbox-count">0</span></div>

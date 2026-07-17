@@ -78,6 +78,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       </details>`;
     }
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
+      ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : ""}
       <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : approval ? "approved" : "locked")}</p>${evidence}`;
   }
   if (["final-verification", "mission-verification"].includes(taskId)) {

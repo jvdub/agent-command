@@ -345,6 +345,21 @@ select {
   overflow-y: auto;
 }
 
+.managed-run-nav-group { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.managed-run-nav-group.active { border-color: var(--info); }
+.managed-run-tab-row { display: flex; align-items: stretch; }
+.managed-run-expand { width: 30px; flex: 0 0 30px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); }
+.managed-run-tab-row .managed-run-tab { border: 0; border-radius: 0; background: transparent; }
+.managed-run-session-list { padding: 0 7px 7px 23px; }
+.managed-run-session-tab { display: flex; width: 100%; align-items: flex-start; gap: 8px; padding: 8px; border: 0; border-left: 2px solid var(--border); border-radius: 0 8px 8px 0; background: transparent; color: var(--text); text-align: left; }
+.managed-run-session-tab.active { border-left-color: var(--info); background: var(--surface-active); }
+.managed-run-session-tab strong, .managed-run-session-tab small { display: block; }
+.managed-run-session-tab strong { font-size: 0.76rem; }
+.managed-run-session-tab small { margin-top: 3px; color: var(--muted); font-size: 0.66rem; }
+.managed-run-session-dot { width: 7px; height: 7px; flex: 0 0 7px; margin-top: 4px; border-radius: 50%; }
+.managed-run-session-dot.running { background: var(--success); }
+.managed-run-session-dot.stopped { background: var(--muted); }
+
 .managed-run-tab {
   width: 100%;
   border: 1px solid var(--border);
@@ -405,6 +420,12 @@ select {
   color: var(--text);
   font-weight: 700;
 }
+
+.managed-run-session-panel { margin-top: 12px; padding: 12px; border: 1px solid var(--info); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+.managed-run-session-header { margin-bottom: 10px; }
+.managed-run-session-header h2 { margin: 2px 0 4px; }
+.managed-run-session-terminal { height: clamp(300px, 42vh, 560px); min-height: 300px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--terminal-background); }
+.managed-run-session-terminal .terminal-instance { height: 100%; }
 
 .managed-run-progress-row {
   display: flex;

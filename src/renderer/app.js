@@ -32,6 +32,7 @@ import {
 import { createToastNotifier } from "./toastNotifications.js";
 import { createTerminalClipboardController } from "./terminalClipboard.js";
 import { createManagedRunsView } from "./managedRunsView.js";
+import { managedSessionIdsForRun } from "./managedSessionNavigation.js";
 import { createGitPlaybookController } from "./features/gitPlaybooks/gitPlaybookController.js";
 
 const emptyView = document.querySelector("#empty-view");
@@ -78,6 +79,11 @@ const agentSearchEnabled = Boolean(
   agentSearchCloseButton,
 );
 const terminalContainer = document.querySelector("#terminal");
+const managedRunSessionPanel = document.querySelector("#managed-run-session-panel");
+const managedRunSessionTerminal = document.querySelector("#managed-run-session-terminal");
+const managedRunSessionTitle = document.querySelector("#managed-run-session-title");
+const managedRunSessionMeta = document.querySelector("#managed-run-session-meta");
+const managedRunSessionClose = document.querySelector("#managed-run-session-close");
 const manualTerminalSubtitle = document.querySelector(
   "#manual-terminal-subtitle",
 );
@@ -321,6 +327,7 @@ const workspaceChangesRefreshBySession = new Map();
 const lastSessionTerminalSize = new Map();
 const lastManualTerminalSize = new Map();
 const restartingSessionIds = new Set();
+const managedSessionOwners = new Map();
 const capabilities = {
   processInspectionSupported: true,
 };
@@ -2976,6 +2983,13 @@ function getManualTerminalInstance(sessionId, terminalId) {
 
 function refreshVisibleUi() {
   renderSessionTabs();
+  if (managedRunsViewController?.isActive()) {
+    if (activeSessionId && managedRunIdForSession(activeSessionId)) {
+      const session = sessions.get(activeSessionId);
+      if (session) managedRunSessionMeta.textContent = `${session.cwd} · ${getSessionStatusLabel(session)}`;
+    }
+    return;
+  }
 
   if (!activeSessionId) {
     if (managedRunsViewController?.isActive()) {
@@ -3040,7 +3054,9 @@ function renderSessionTabs() {
     return;
   }
 
-  const allSessions = Array.from(sessions.values()).sort(
+  const allSessions = Array.from(sessions.values()).filter((session) =>
+    !managedSessionOwners.has(session.id) && !managedRunsViewController?.findRunForSession(session.id)
+  ).sort(
     (left, right) => right.createdAt - left.createdAt,
   );
 
@@ -3275,6 +3291,8 @@ async function openTerminalView(
 
   gitPlaybookController.prepareForSessionChange(sessionId);
   managedRunsViewController?.hide();
+  managedRunSessionPanel.classList.add("hidden");
+  managedRunSessionTerminal.querySelectorAll(".terminal-instance").forEach((mount) => terminalContainer.append(mount));
 
   if (activeSessionId && activeSessionId !== sessionId && isAgentSearchOpen) {
     closeAgentSearch({ restoreFocus: false });
@@ -3311,6 +3329,40 @@ async function openTerminalView(
   await refreshModifiedFiles(sessionId, { force: true });
 }
 
+function managedRunIdForSession(sessionId) {
+  return managedSessionOwners.get(sessionId)?.runId || managedRunsViewController?.findRunForSession(sessionId) || null;
+}
+
+async function openManagedSessionView(runId, sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !managedRunsViewController?.getRun(runId)) return;
+  gitPlaybookController.prepareForSessionChange(sessionId);
+  managedRunsViewController.show(runId);
+  activeSessionId = sessionId;
+  managedRunSessionPanel.classList.remove("hidden");
+  managedRunSessionTitle.textContent = getSessionDisplayName(session);
+  managedRunSessionMeta.textContent = `${session.cwd} · ${getSessionStatusLabel(session)}`;
+  const instance = createSessionTerminal(sessionId);
+  managedRunSessionTerminal.append(instance.mount);
+  for (const [id, candidate] of sessionTerminals.entries()) candidate.mount.classList.toggle("hidden", id !== sessionId);
+  instance.mount.classList.remove("hidden");
+  instance.fitAddon.fit();
+  instance.terminal.focus();
+  setTerminalActionsEnabled(session);
+  renderSessionTabs();
+  managedRunsViewController.refreshNavigation();
+  await resizeSession({ force: true });
+}
+
+function closeManagedSessionView() {
+  managedRunSessionPanel.classList.add("hidden");
+  managedRunSessionTerminal.querySelectorAll(".terminal-instance").forEach((mount) => { mount.classList.add("hidden"); terminalContainer.append(mount); });
+  activeSessionId = null;
+  setTerminalActionsEnabled(null);
+  renderSessionTabs();
+  managedRunsViewController?.refreshNavigation();
+}
+
 function updateSessions(payload) {
   const incomingIds = new Set(payload.map((session) => session.id));
 
@@ -3331,6 +3383,7 @@ function updateSessions(payload) {
       manualTerminalTabsInitializedBySession.delete(existingId);
       activeManualTerminalBySession.delete(existingId);
       restartingSessionIds.delete(existingId);
+      managedSessionOwners.delete(existingId);
       const pendingTimer = pendingSessionFileResolveTimers.get(existingId);
       if (pendingTimer) {
         window.clearTimeout(pendingTimer);
@@ -3374,6 +3427,7 @@ function updateSessions(payload) {
   }
 
   refreshVisibleUi();
+  managedRunsViewController?.refreshNavigation();
 
   // Do not wait for interval after refresh; populate process badges immediately.
   pollSessionProcesses();
@@ -4114,24 +4168,34 @@ terminalContextClearButton.addEventListener("click", async () => {
 setTerminalActionsEnabled(null);
 setStatus("Idle", "No active process");
 managedRunsViewController = createManagedRunsView({
+  getActiveSessionId: () => activeSessionId,
   activateView: () => {
     emptyView.classList.add("hidden");
     terminalView.classList.add("hidden");
     processDetailsPanel.classList.add("hidden");
+    managedRunSessionPanel.classList.add("hidden");
+    managedRunSessionTerminal.querySelectorAll(".terminal-instance").forEach((mount) => { mount.classList.add("hidden"); terminalContainer.append(mount); });
     activeSessionId = null;
     newSessionPopover.classList.add("hidden");
   },
-  onSessionStarted: async (session) => {
+  getSessionsForRun: (run) => managedSessionIdsForRun(run, managedSessionOwners).map((sessionId) => {
+    const session = sessions.get(sessionId);
+    return session ? { session, role: managedSessionOwners.get(sessionId)?.role || "planner" } : null;
+  }).filter(Boolean),
+  onOpenSession: openManagedSessionView,
+  onSessionStarted: async (session, owner) => {
+    managedSessionOwners.set(session.id, owner);
     const latestSessions = await agenticApp.listSessions();
     updateSessions(latestSessions.sessions || [session]);
     ensureSessionBuffer(session.id);
     ensureSessionInsight(session.id);
     createSessionTerminal(session.id);
-    await openTerminalView(session.id);
+    await openManagedSessionView(owner.runId, session.id);
   },
   onOpenManagedRunFile: openManagedRunEditorFile,
   setStatus,
 });
+managedRunSessionClose.addEventListener("click", closeManagedSessionView);
 const themeManager = createThemeManager({
   selectElement: themeSelect,
   onThemeApplied: ({ terminalTheme, monacoTheme }) => {
