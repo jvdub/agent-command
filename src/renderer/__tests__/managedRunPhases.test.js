@@ -27,5 +27,5 @@ test("projects a new run as the five-phase workflow with Shape active", () => {
     "locked",
     "locked",
   ]);
-  expect(currentAction(run)).toMatch(/shape the idea/i);
+  expect(currentAction(run)).toMatch(/open a persistent Shape conversation/i);
 });

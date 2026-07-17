@@ -56,7 +56,8 @@ function fixture() {
 test("renders a task journey with verification and retry inside the station", () => {
   const html = renderJourney(fixture(), "task-1");
   expect(html).toContain("Build 1");
-  expect(html).toContain("Verify 1");
+  expect(html).toContain("Spec 1");
+  expect(html).toContain("Standards 1");
   expect(html).toContain("journey-retry");
   expect(html).toContain("Integration verification");
   expect(html).toContain("journey-canvas");

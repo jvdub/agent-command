@@ -17,5 +17,5 @@ test("Shape canvas exposes conversation and approval states while Spec stays loc
 test("approved Shape advances the workflow canvas to Spec", () => {
   const approved = { ...run("spec_required"), phase: "spec" };
   expect(journeyStations(approved)[0]).toMatchObject({ status: "succeeded", phase: "approved" });
-  expect(journeyStations(approved)[1]).toMatchObject({ status: "active", phase: "current phase" });
+  expect(journeyStations(approved)[1]).toMatchObject({ status: "active", phase: "ready to generate" });
 });

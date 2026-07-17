@@ -58,13 +58,18 @@ function createManagedRunRetentionService() {
     try {
       runRevision = await git(run, ["rev-parse", "refs/heads/" + run.branchName]);
       targetRevision = await git(run, ["rev-parse", "refs/heads/" + run.targetBranch]);
-      await git(run, ["merge-base", "--is-ancestor", runRevision, "refs/heads/" + run.targetBranch]);
-      integrated = run.integration?.status === "integrated"
-        && run.integration?.targetBranch === run.targetBranch;
+      try {
+        await git(run, ["merge-base", "--is-ancestor", runRevision, "refs/heads/" + run.targetBranch]);
+        integrated = run.integration?.status === "integrated"
+          && run.integration?.targetBranch === run.targetBranch;
+      } catch {
+        integrated = false;
+      }
       worktreeClean = !worktreeExists
         || await git(run, ["-C", paths.worktree, "status", "--porcelain"]) === "";
     } catch {
       integrated = false;
+      worktreeClean = false;
     }
 
     const preferences = run.retentionPreferences || {

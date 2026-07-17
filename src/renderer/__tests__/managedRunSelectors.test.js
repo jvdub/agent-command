@@ -52,7 +52,8 @@ test("projects progress, approved definitions, retry loops, and final station", 
   const stations = journeyStations(run);
   expect(stations[1].segments.map((segment) => segment.kind)).toEqual([
     "implementation",
-    "verification",
+    "spec-verification",
+    "standards-verification",
     "retry",
   ]);
   expect(stations.at(-1)).toMatchObject({ id: "final-verification", status: "locked" });

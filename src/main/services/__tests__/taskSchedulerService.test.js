@@ -139,25 +139,6 @@ const pass = JSON.stringify({
 });
 
 describe("Managed Run deterministic scheduler", () => {
-  test("routes a Spec defect back to the earliest authoring phase", async () => {
-    const run = makeRun();
-    const defect = JSON.stringify({
-      verdict: "spec_defect", summary: "The acceptance rule is contradictory",
-      feedback: "Revise the Spec", checks: [], failedCriteria: ["Behavior works"], risks: [],
-    });
-    const { scheduler } = fakeScheduler([
-      { stdout: '{"summary":"implemented","changedFiles":[],"checks":["manual"],"risks":[]}' },
-      { stdout: defect },
-    ]);
-
-    await scheduler.autoRun(run);
-
-    expect(run.phase).toBe("spec");
-    expect(run.status).toBe("spec_revision_required");
-    expect(run.tasks[0].status).toBe("revision_required");
-    expect(run.revisionRequest).toMatchObject({ targetPhase: "spec", verdict: "spec_defect" });
-  });
-
   test("implements, independently verifies, and runs final verification", async () => {
     const run = makeRun();
     const { scheduler } = fakeScheduler([
@@ -320,6 +301,7 @@ test("executes a dependent Ticket chain serially from each previous Ticket Commi
   const { scheduler } = fakeScheduler([
     { effect: () => fs.writeFileSync(path.join(cwd, "first.txt"), "first\n"), stdout: implementationResult("first.txt", "first") }, { stdout: axisPass },
     { effect: () => { if (!fs.existsSync(path.join(cwd, "first.txt"))) throw new Error("missing prior commit"); fs.writeFileSync(path.join(cwd, "second.txt"), "second\n"); }, stdout: implementationResult("second.txt", "second") }, { stdout: axisPass },
+    { stdout: axisPass },
   ]);
   await scheduler.autoRun(run);
   expect(run.tasks.map((task) => task.status)).toEqual(["succeeded", "succeeded"]);

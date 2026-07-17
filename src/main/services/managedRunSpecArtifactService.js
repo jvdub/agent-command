@@ -16,7 +16,7 @@ function validateSpecMarkdown(value) {
   }
   const userStories = markdown.match(/^- As (?:a|an) .+$/gimu) || [];
   if (userStories.length < 3) throw new Error("Spec requires at least three substantive user stories.");
-  const testing = markdown.match(/^## Testing Decisions\s*([\s\S]*?)(?=^## |$)/mu)?.[1] || "";
+  const testing = markdown.match(/^## Testing Decisions\s*([\s\S]*?)(?=^## |(?![\s\S]))/mu)?.[1] || "";
   if (!/existing.+seam/isu.test(testing) || !/confirm/iu.test(testing)) {
     throw new Error("Testing Decisions must identify existing seams and require explicit confirmation.");
   }

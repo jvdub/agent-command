@@ -53,7 +53,7 @@ function missionContext(run) {
 Approved Spec revision: ${run.approvals.spec.revision}
 Approved Spec:
 ${run.artifacts.spec.markdown}
-Confirmed seams: ${run.artifacts.spec.markdown.match(/^## Testing Decisions[\s\S]*?(?=^## |$)/mu)?.[0] || "See approved Spec"}
+Confirmed seams: ${run.artifacts.spec.markdown.match(/^## Testing Decisions[\s\S]*?(?=^## |(?![\s\S]))/mu)?.[0] || "See approved Spec"}
 Domain decisions: ${(run.artifacts.shape?.domain?.canonicalTerms || []).join("; ") || "Use recognized repository domain documents"}
 Repository: ${run.worktreePath}`;
   }

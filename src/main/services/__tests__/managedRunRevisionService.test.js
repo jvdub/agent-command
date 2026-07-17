@@ -27,7 +27,7 @@ describe("Managed Run revision lineage", () => {
     const revised = [{ ...oldTicket, title: "Changed" }, { id: "reversal", title: "Reverse", behavior: "undo", acceptanceCriteria: ["undone"], dependencies: [] }];
     value.artifacts.tickets.projection = revised;
     expect(service.reconcile(value, revised).entries[0].compatibility).toBe("questionable");
-    expect(() => service.assertResolved(value)).toThrow(/retain or reverse/);
+    expect(() => service.assertResolved(value)).toThrow(/retain applicable work or identify valid reversal work/);
     expect(() => service.decide(value, "ticket-1", "retain")).not.toThrow();
     value.artifacts.tickets.projection[0].maxAttempts = 7;
     service.reconcile(value, value.artifacts.tickets.projection);
