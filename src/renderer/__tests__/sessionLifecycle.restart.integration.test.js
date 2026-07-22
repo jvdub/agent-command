@@ -114,6 +114,28 @@ describe("session lifecycle restart feedback", () => {
     });
   });
 
+  test("reopens a restarted managed session in its Managed Run", async () => {
+    const session = {
+      id: "shape-session",
+      cwd: "C:\\repo",
+      label: "Shape conversation",
+    };
+    agenticApp.restartSession.mockResolvedValue({ session });
+    agenticApp.listSessions.mockResolvedValue({ sessions: [session] });
+    const openTerminalView = jest.fn();
+    const openManagedSessionView = jest.fn();
+    const handlers = createHandlers({ openTerminalView });
+
+    await handlers.restartSessionFromSidebar(session.id, {
+      openSession: openManagedSessionView,
+    });
+
+    expect(openManagedSessionView).toHaveBeenCalledWith(session.id, {
+      forceResize: true,
+    });
+    expect(openTerminalView).not.toHaveBeenCalled();
+  });
+
   test("ignores duplicate restart requests while one is pending", async () => {
     const setSessionRestartPending = jest.fn(() => false);
     const handlers = createHandlers({ setSessionRestartPending });

@@ -116,6 +116,7 @@ select {
 }
 
 .workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 24px;
@@ -421,7 +422,7 @@ select {
   font-weight: 700;
 }
 
-.managed-run-session-panel { position: fixed; inset: 0; z-index: 1000; display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 20px; background: var(--panel-solid); }
+.managed-run-session-panel { position: absolute; inset: 0; z-index: 1000; display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 20px; background: var(--panel-solid); }
 .managed-run-session-header { flex: 0 0 auto; margin-bottom: 14px; }
 .managed-run-session-header h2 { margin: 2px 0 4px; }
 .managed-run-session-terminal { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--terminal-background); }

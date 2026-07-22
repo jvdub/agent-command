@@ -419,6 +419,7 @@ function setSessionRestartPending(sessionId, pending) {
   }
 
   renderSessionTabs();
+  managedRunsViewController?.refreshNavigation();
   return true;
 }
 
@@ -3798,12 +3799,19 @@ function selectSessionFromSidebar(event) {
   }
 }
 
-async function restartSessionFromSidebar(sessionId) {
+async function restartSessionFromSidebar(sessionId, options) {
   if (!sessionLifecycleHandlers) {
     return;
   }
 
-  await sessionLifecycleHandlers.restartSessionFromSidebar(sessionId);
+  await sessionLifecycleHandlers.restartSessionFromSidebar(sessionId, options);
+}
+
+async function restartManagedSession(runId, sessionId) {
+  await restartSessionFromSidebar(sessionId, {
+    openSession: (restartedSessionId, options) =>
+      openManagedSessionView(runId, restartedSessionId, options),
+  });
 }
 
 async function removeSessionFromSidebar(sessionId) {
@@ -4183,6 +4191,7 @@ managedRunsViewController = createManagedRunsView({
     return session ? { session, role: managedSessionOwners.get(sessionId)?.role || "planner" } : null;
   }).filter(Boolean),
   onOpenSession: openManagedSessionView,
+  onRestartSession: restartManagedSession,
   onSessionStarted: async (session, owner) => {
     managedSessionOwners.set(session.id, owner);
     const latestSessions = await agenticApp.listSessions();

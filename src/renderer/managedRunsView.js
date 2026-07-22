@@ -15,7 +15,7 @@ function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
-function createManagedRunsView({ activateView, getActiveSessionId, getSessionsForRun, onOpenSession, onSessionStarted, onOpenManagedRunFile, setStatus }) {
+function createManagedRunsView({ activateView, getActiveSessionId, getSessionsForRun, onOpenSession, onRestartSession, onSessionStarted, onOpenManagedRunFile, setStatus }) {
   const elements = {
     view: document.querySelector("#managed-run-view"),
     tabs: document.querySelector("#managed-run-tabs-list"),
@@ -192,9 +192,9 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       const childSessions = getSessionsForRun?.(run) || [];
       const expanded = childSessions.length > 0 && !collapsedRunIds.has(run.id);
       const children = expanded && childSessions.length ? `<div class="managed-run-session-list">${childSessions.map(({ session, role }) => `
-        <button type="button" class="managed-run-session-tab ${session.id === getActiveSessionId?.() ? "active" : ""}" data-managed-session-id="${escapeHtml(session.id)}" data-managed-run-id="${escapeHtml(run.id)}">
+        <button type="button" class="managed-run-session-tab ${session.id === getActiveSessionId?.() ? "active" : ""}" data-managed-session-id="${escapeHtml(session.id)}" data-managed-run-id="${escapeHtml(run.id)}" data-managed-session-action="${session.isRunning ? "open" : "restart"}">
           <span class="managed-run-session-dot ${session.isRunning ? "running" : "stopped"}"></span>
-          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped"}</small></span>
+          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped · Click to restart"}</small></span>
         </button>`).join("")}</div>` : "";
       return `<div class="managed-run-nav-group ${run.id === activeRunId ? "active" : ""}"><div class="managed-run-tab-row">
         <button type="button" class="managed-run-expand" data-managed-run-expand="${escapeHtml(run.id)}" aria-label="${expanded ? "Collapse" : "Expand"} ${escapeHtml(run.title)}" aria-expanded="${expanded}">${expanded ? "&#9662;" : "&#9656;"}</button>
@@ -465,7 +465,10 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       const session = event.target.closest("[data-managed-session-id]");
       if (session) {
         collapsedRunIds.delete(session.dataset.managedRunId);
-        void onOpenSession?.(session.dataset.managedRunId, session.dataset.managedSessionId);
+        const action = session.dataset.managedSessionAction === "restart"
+          ? onRestartSession
+          : onOpenSession;
+        void action?.(session.dataset.managedRunId, session.dataset.managedSessionId);
         return;
       }
       const expand = event.target.closest("[data-managed-run-expand]");
