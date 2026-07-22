@@ -421,10 +421,10 @@ select {
   font-weight: 700;
 }
 
-.managed-run-session-panel { margin-top: 12px; padding: 12px; border: 1px solid var(--info); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
-.managed-run-session-header { margin-bottom: 10px; }
+.managed-run-session-panel { position: fixed; inset: 0; z-index: 1000; display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 20px; background: var(--panel-solid); }
+.managed-run-session-header { flex: 0 0 auto; margin-bottom: 14px; }
 .managed-run-session-header h2 { margin: 2px 0 4px; }
-.managed-run-session-terminal { height: clamp(300px, 42vh, 560px); min-height: 300px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--terminal-background); }
+.managed-run-session-terminal { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--terminal-background); }
 .managed-run-session-terminal .terminal-instance { height: 100%; }
 
 .managed-run-progress-row {
