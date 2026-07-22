@@ -112,13 +112,18 @@ function buildPtyEnv(
   platform = process.platform,
 ) {
   const editorFallback = platform === "win32" ? "notepad" : "vi";
-  const editor = env.GIT_EDITOR || env.VISUAL || env.EDITOR || editorFallback;
-
+  const configuredEditor = env.GIT_EDITOR || env.VISUAL || env.EDITOR;
+  const editor =
+    configuredEditor &&
+    isCommandAvailable(splitArgs(configuredEditor)[0], { env, platform })
+      ? configuredEditor
+      : editorFallback;
   return {
     ...env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     ELECTRON_RUN_AS_NODE: undefined,
+    GIT_EDITOR: editor,
     EDITOR: editor,
     VISUAL: editor,
     GIT_TERMINAL_PROMPT: "1",
