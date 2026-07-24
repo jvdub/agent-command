@@ -2,6 +2,7 @@ import { Terminal } from "./vendor/@xterm/xterm/lib/xterm.mjs";
 import { FitAddon } from "./vendor/@xterm/addon-fit/lib/addon-fit.mjs";
 import { SearchAddon } from "./vendor/@xterm/addon-search/lib/addon-search.mjs";
 import { WebLinksAddon } from "./vendor/@xterm/addon-web-links/lib/addon-web-links.mjs";
+import { activateTerminalLink } from "./terminalLinks.mjs";
 import { agenticApp } from "./agenticApp.js";
 import {
   bindSessionEvents,
@@ -2462,12 +2463,25 @@ async function sendTerminalClearCommand(target) {
   await agenticApp.writeToSession(target.sessionId, "/clear\r");
 }
 
-function openTerminalExternalUrl(instance, event, uri) {
+function openTerminalLink(instance, event, uri) {
   event?.preventDefault?.();
 
-  Promise.resolve(agenticApp.openExternalUrl(uri))
-    .then(() => {
-      setStatus("Opened", uri);
+  Promise.resolve(
+    activateTerminalLink(uri, {
+      openExternalUrl: (target) => agenticApp.openExternalUrl(target),
+      resolveWorkspaceFile: async (filePath) => {
+        const index = await getWorkspaceFileIndex(instance.sessionId);
+        return index ? resolveWorkspaceReference(index, filePath) : null;
+      },
+      openWorkspaceFile: (filePath, lineNumber) =>
+        openReferencedFile(instance.sessionId, filePath, lineNumber),
+    }),
+  )
+    .then((result) => {
+      setStatus(
+        result.kind === "file" ? "Open File" : "Opened",
+        result.target,
+      );
     })
     .catch((error) => {
       const detail = error?.message || "Unable to open link";
@@ -2482,13 +2496,13 @@ function openTerminalExternalUrl(instance, event, uri) {
 
 function createTerminalLinkHandler(instance) {
   return {
-    activate: (event, uri) => openTerminalExternalUrl(instance, event, uri),
+    activate: (event, uri) => openTerminalLink(instance, event, uri),
   };
 }
 
 function createWebLinksAddon(instance) {
   return new WebLinksAddon((event, uri) =>
-    openTerminalExternalUrl(instance, event, uri),
+    openTerminalLink(instance, event, uri),
   );
 }
 

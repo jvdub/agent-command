@@ -14,11 +14,11 @@ describe("terminal external links", () => {
       source.match(/linkHandler: createTerminalLinkHandler\(\{/g),
     ).toHaveLength(2);
     expect(source).toContain(
-      "activate: (event, uri) => openTerminalExternalUrl(instance, event, uri)",
+      "activate: (event, uri) => openTerminalLink(instance, event, uri)",
     );
     expect(source).toContain(
-      "openTerminalExternalUrl(instance, event, uri)",
+      "openTerminalLink(instance, event, uri)",
     );
-    expect(source).toContain("agenticApp.openExternalUrl(uri)");
+    expect(source).toContain("agenticApp.openExternalUrl(target)");
   });
 });
