@@ -119,3 +119,42 @@ test("renders Managed Runs attention without affecting normal-session models", (
   expect(html).toContain("task-1 requires review");
   expect(html).toContain('data-inbox-task-id="task-1"');
 });
+
+
+test("renders Shape review and approval controls in the selected Workflow Phase panel", () => {
+  const run = {
+    ...fixture(),
+    workflowKind: "native",
+    phase: "shape",
+    status: "shape_approval_required",
+    shapeSessionId: "shape-session",
+    artifacts: {
+      shape: {
+        summaryMarkdown: "# Shape\n\nKeep the workflow canvas.",
+        summaryRevision: 2,
+        conversationRevision: 3,
+        domain: {
+          changedPaths: ["docs/domain.md"],
+          diff: "+ Managed Runs use a selected-step review panel.",
+          proposalMarkdown: "# Proposed domain language",
+          hasConvention: false,
+        },
+      },
+    },
+    approvals: {},
+  };
+
+  const html = renderInspector({ run, taskId: "shape" });
+
+  expect(html).toContain("Workflow Phase");
+  expect(html).toContain("Summary revision 2");
+  expect(html).toContain("Conversation revision 3");
+  expect(html).toContain("Keep the workflow canvas.");
+  expect(html).toContain('data-shape-action="refresh"');
+  expect(html).toContain('data-shape-action="save"');
+  expect(html).toContain('data-shape-action="save-domain-proposal"');
+  expect(html).toContain('data-shape-action="refresh-documentation"');
+  expect(html).toContain('data-shape-action="approve"');
+  expect(html).toContain("docs/domain.md");
+  expect(html).toContain("selected-step review panel");
+});

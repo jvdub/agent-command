@@ -38,6 +38,9 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.saveManagedRunShape, {
     handler: async (_event, payload) => managedRunService.saveShape(payload?.runId, payload?.markdown),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.refreshManagedRunShapeReview, {
+    handler: async (_event, payload) => managedRunService.refreshShapeReview(payload?.runId),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.approveManagedRunShape, {
     handler: async (_event, payload) => managedRunService.approveShape(payload?.runId || payload, payload?.options),
   });

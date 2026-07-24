@@ -48,12 +48,18 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     const approval = run.approvals?.shape;
     const commit = approval?.documentationCommit;
     let evidence = "";
-    if (taskId === "shape") evidence = `<details open data-inspector-section="evidence"><summary>Shape evidence</summary>
-      <p class="inspector-provenance">Summary revision ${escapeHtml(shape?.summaryRevision || "unsaved")} · ${approval ? "approved" : "approval required"}</p>
+    if (taskId === "shape") evidence = `<section class="inspector-shape-review" data-inspector-section="evidence">
+      <p class="inspector-provenance">Summary revision ${escapeHtml(shape?.summaryRevision || "unsaved")} · Conversation revision ${escapeHtml(shape?.conversationRevision || "unsaved")} · ${approval ? "approved" : "approval required"}</p>
+      <p class="status-meta">Review the exact current session-authored summary, conversation revision, and documentation evidence before approval.</p>
+      <label><span>Shape summary</span><textarea class="managed-run-plan-editor" data-shape-summary spellcheck="true">${escapeHtml(shape?.summaryMarkdown || "")}</textarea></label>
+      <div class="button-row"><button type="button" class="secondary" data-shape-action="refresh">Refresh session evidence</button><button type="button" class="secondary" data-shape-action="save">Save edited summary</button></div>
       <h4>Domain documentation</h4>${list(shape?.domain?.changedPaths)}
+      ${shape?.domain?.hasConvention ? "" : `<label><span>Domain proposal</span><textarea class="managed-run-plan-editor" data-shape-domain-proposal spellcheck="true">${escapeHtml(shape?.domain?.proposalMarkdown || "")}</textarea></label>`}
       ${commit ? `<p class="managed-run-state">Committed ${escapeHtml(commit.revision.slice(0, 12))}</p><p>${escapeHtml(commit.message)}</p>${list(commit.paths)}` : '<p class="status-meta">No approved Shape documentation commit.</p>'}
-      <details><summary>Reviewed documentation diff</summary><pre class="managed-run-worker-output">${escapeHtml(shape?.domain?.diff || "No tracked domain-document changes.")}</pre></details>
-    </details>`;
+      <details open><summary>Reviewed documentation diff</summary><pre class="managed-run-worker-output">${escapeHtml(shape?.domain?.diff || "No tracked domain-document changes.")}</pre></details>
+      ${shape?.domain?.hasConvention ? "" : `<label><input type="checkbox" data-shape-create-domain-docs ${shape?.domain?.newConventionApproved ? "checked" : ""} /> Approve creating <code>docs/domain.md</code> when no convention exists</label>`}
+      <div class="button-row">${shape?.domain?.hasConvention ? "" : '<button type="button" class="secondary" data-shape-action="save-domain-proposal">Save domain proposal</button>'}<button type="button" class="secondary" data-shape-action="refresh-documentation">Refresh documentation diff</button><button type="button" data-shape-action="approve" ${run.status !== "shape_approval_required" ? "disabled" : ""}>Approve exact Shape evidence</button></div>
+    </section>`;
     if (taskId === "spec") {
       const spec = run.artifacts?.spec;
       const specApproval = run.approvals?.spec;

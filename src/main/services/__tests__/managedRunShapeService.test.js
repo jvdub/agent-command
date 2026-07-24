@@ -81,4 +81,23 @@ describe("native Managed Run Shape", () => {
     expect(run.artifacts.shape.summaryRevision).toBe(2);
     expect(run.status).toBe("shape_approval_required");
   });
+
+  test("refreshes session-authored Shape evidence before human approval", () => {
+    const { run, service, runWorkspacePath, sessions } = setup();
+    service.linkShapeSession(run.id, "shape-session");
+    service.saveShape(run.id, "# Shape\n\nOriginal\n");
+    fs.writeFileSync(path.join(runWorkspacePath, "shape", "summary.md"), "# Shape\n\nAuthored in session\n");
+    sessions[0].outputBuffer += "\nDecision: keep the workflow canvas";
+
+    const refreshed = service.refreshShapeReview(run.id);
+
+    expect(refreshed.artifacts.shape).toMatchObject({
+      summaryMarkdown: "# Shape\n\nAuthored in session\n",
+      summaryRevision: 2,
+      conversationRevision: 2,
+    });
+    expect(refreshed).toMatchObject({ phase: "shape", status: "shape_approval_required" });
+    expect(() => service.approveShape(run.id)).not.toThrow();
+    expect(run.approvals.shape).toMatchObject({ summaryRevision: 2, conversationRevision: 2 });
+  });
 });

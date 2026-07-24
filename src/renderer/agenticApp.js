@@ -104,6 +104,8 @@ export const agenticApp = Object.freeze({
     call("managedRuns", "linkShapeSession", runId, sessionId),
   saveManagedRunShape: (runId, markdown) =>
     call("managedRuns", "saveShape", runId, markdown),
+  refreshManagedRunShapeReview: (runId) =>
+    call("managedRuns", "refreshShapeReview", runId),
   approveManagedRunShape: (runId, options = {}) =>
     call("managedRuns", "approveShape", runId, options),
   saveManagedRunShapeDomainProposal: (runId, markdown) =>

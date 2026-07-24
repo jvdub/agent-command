@@ -353,7 +353,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     elements.accept.hidden = nativeWorkflow && run.phase !== "accept";
     elements.takeover.hidden = nativeWorkflow && !["paused", "review_required"].includes(run.status);
     elements.planPanel.hidden = nativeWorkflow;
-    elements.shapePanel.hidden = !nativeWorkflow;
+    elements.shapePanel.hidden = true;
     elements.specPanel.hidden = !nativeWorkflow;
     elements.ticketsPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;
@@ -491,6 +491,9 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       selectedWorkerId = null;
       workerDetailState = "idle";
       renderActive();
+      if (selectedTaskId === "shape" && activeRun()?.shapeSessionId) {
+        void perform("Refreshing Shape review", () => agenticApp.refreshManagedRunShapeReview(activeRunId));
+      }
     });
     elements.journeyControls.addEventListener("click", (event) => {
       const action = event.target.closest("[data-journey-action]")?.dataset.journeyAction;
@@ -546,6 +549,24 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         void onOpenSession?.(activeRunId, managedSession.dataset.openManagedSession);
         return;
       }
+      const shapeAction = event.target.closest("[data-shape-action]")?.dataset.shapeAction;
+      if (shapeAction === "refresh") return void perform("Refreshing Shape review", () => agenticApp.refreshManagedRunShapeReview(activeRunId));
+      if (shapeAction === "save") {
+        const summary = elements.inspector.querySelector("[data-shape-summary]")?.value || "";
+        return void perform("Shape saved", () => agenticApp.saveManagedRunShape(activeRunId, summary));
+      }
+      if (shapeAction === "save-domain-proposal") {
+        const proposal = elements.inspector.querySelector("[data-shape-domain-proposal]")?.value || "";
+        return void perform("Domain proposal saved", () => agenticApp.saveManagedRunShapeDomainProposal(activeRunId, proposal));
+      }
+      if (shapeAction === "refresh-documentation") {
+        const createProjectDocumentation = Boolean(elements.inspector.querySelector("[data-shape-create-domain-docs]")?.checked);
+        return void perform("Documentation diff refreshed", () => agenticApp.refreshManagedRunShapeDocumentation(activeRunId, { createProjectDocumentation }));
+      }
+      if (shapeAction === "approve") {
+        const createProjectDocumentation = Boolean(elements.inspector.querySelector("[data-shape-create-domain-docs]")?.checked);
+        return void perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId, { createProjectDocumentation }));
+      }
       const attempt = event.target.closest("[data-worker-id]");
       if (attempt) return void selectWorker(attempt.dataset.workerId);
       const file = event.target.closest("[data-managed-file]");
@@ -594,7 +615,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       const domainPolicy = domain?.hasConvention
         ? `You may edit only these recognized domain documents: ${(domain.recognizedPaths || []).join(", ")}. Preserve these canonical terms: ${(domain.canonicalTerms || []).join(", ") || "none detected"}.`
         : `No domain-document convention exists. Do not create project files; propose domain material only in ${run.runWorkspacePath}/shape/domain-proposal.md until the user approves creation.`;
-      return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. The user will save and approve the human-readable Shape summary in ${run.runWorkspacePath}/shape/summary.md. ${domainPolicy} Never edit application code during Shape.`;
+      return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. Keep the human-readable Shape summary current by editing ${run.runWorkspacePath}/shape/summary.md after each material decision; only the human may approve it. ${domainPolicy} Never edit application code during Shape.`;
     }
     async function launchInteractive(role) {
       const run = activeRun(); if (!run) return;

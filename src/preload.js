@@ -37,6 +37,7 @@ const IPC_CHANNELS = Object.freeze({
     startManagedRunInteractiveSession: "managed-run:start-interactive-session",
     linkManagedRunShapeSession: "managed-run:link-shape-session",
     saveManagedRunShape: "managed-run:save-shape",
+    refreshManagedRunShapeReview: "managed-run:refresh-shape-review",
     approveManagedRunShape: "managed-run:approve-shape",
     saveManagedRunShapeDomainProposal: "managed-run:save-shape-domain-proposal",
     refreshManagedRunShapeDocumentation: "managed-run:refresh-shape-documentation",
@@ -220,6 +221,8 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.linkManagedRunShapeSession, { runId, sessionId }),
     saveShape: (runId, markdown) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunShape, { runId, markdown }),
+    refreshShapeReview: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.refreshManagedRunShapeReview, { runId }),
     approveShape: (runId, options = {}) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.approveManagedRunShape, { runId, options }),
     saveShapeDomainProposal: (runId, markdown) =>

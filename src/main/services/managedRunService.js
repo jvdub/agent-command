@@ -443,6 +443,26 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function refreshShapeReview(runId) {
+    const run = requireRun(runId);
+    linkedShapeSession(run);
+    const paths = ensureShapeArtifact(run);
+    const shape = run.artifacts.shape;
+    const workspaceSummary = fs.readFileSync(paths.summary, "utf8");
+    const summaryHash = createHash("sha256").update(workspaceSummary).digest("hex");
+    const conversationHash = createHash("sha256").update(latestConversation(run)).digest("hex");
+    const changed = summaryHash !== shape.summaryHash || conversationHash !== shape.conversationHash;
+    if (changed || !shape.summaryRevision) {
+      const source = summaryHash !== shape.summaryHash ? "session" : "conversation";
+      persistShapeRevision(run, workspaceSummary, source);
+      invalidateShape(run, `Shape review evidence refreshed at summary revision ${shape.summaryRevision}; approval required.`);
+    }
+    const preview = shapeDomainDocumentService.preview(run.worktreePath);
+    shape.domain = { ...shape.domain, ...shapeDomainDocumentService.inspect(run.worktreePath), ...preview };
+    guardShapeWorktree(run, shape.domain?.newConventionApproved === true);
+    return saveAndPublish(run);
+  }
+
   function saveShape(runId, markdown) {
     const run = requireRun(runId);
     linkedShapeSession(run);
@@ -1154,6 +1174,7 @@ function createManagedRunService({
     list,
     linkShapeSession,
     refreshShapeDocumentation,
+    refreshShapeReview,
     openFile,
     pause,
     previewAcceptance,
