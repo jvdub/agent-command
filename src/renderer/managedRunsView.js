@@ -353,7 +353,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     elements.accept.hidden = nativeWorkflow && run.phase !== "accept";
     elements.takeover.hidden = nativeWorkflow && !["paused", "review_required"].includes(run.status);
     elements.planPanel.hidden = nativeWorkflow;
-    elements.shapePanel.hidden = true;
+    elements.shapePanel.hidden = !nativeWorkflow || run.phase !== "shape";
     elements.specPanel.hidden = !nativeWorkflow;
     elements.ticketsPanel.hidden = !nativeWorkflow;
     elements.shape.hidden = !nativeWorkflow;

@@ -100,4 +100,25 @@ describe("native Managed Run Shape", () => {
     expect(() => service.approveShape(run.id)).not.toThrow();
     expect(run.approvals.shape).toMatchObject({ summaryRevision: 2, conversationRevision: 2 });
   });
+
+  test("discovering a session-authored summary enables Shape approval", () => {
+    const { run, service, runWorkspacePath } = setup();
+    service.linkShapeSession(run.id, "shape-session");
+    fs.writeFileSync(
+      path.join(runWorkspacePath, "shape", "summary.md"),
+      "# Shape\n\n## Focus\n\nKeep the workflow canvas.\n",
+    );
+
+    expect(service.get(run.id)).toMatchObject({
+      phase: "shape",
+      status: "shape_approval_required",
+      artifacts: {
+        shape: {
+          summaryMarkdown: "# Shape\n\n## Focus\n\nKeep the workflow canvas.\n",
+          summaryRevision: 1,
+          conversationRevision: 1,
+        },
+      },
+    });
+  });
 });

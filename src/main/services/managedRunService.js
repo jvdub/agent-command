@@ -404,6 +404,21 @@ function createManagedRunService({
     addRunEvent(run, message, "warning");
   }
 
+  function reconcileSessionAuthoredShape(run) {
+    if (run.status !== "shaping" || !run.shapeSessionId || !run.artifacts?.shape) return false;
+    const paths = ensureShapeArtifact(run);
+    const workspaceSummary = fs.readFileSync(paths.summary, "utf8");
+    const recordedSummary = String(run.artifacts.shape.summaryMarkdown || "");
+    if (workspaceSummary === recordedSummary) return false;
+    persistShapeRevision(run, workspaceSummary, "session");
+    invalidateShape(
+      run,
+      `Session-authored Shape discovered at summary revision ${run.artifacts.shape.summaryRevision}; approval required.`,
+    );
+    run.updatedAt = nowIso();
+    return true;
+  }
+
   function reconcileApprovedShape(run) {
     if (!run.approvals?.shape || !run.artifacts?.shape) return false;
     const paths = ensureShapeArtifact(run);
@@ -734,7 +749,9 @@ function createManagedRunService({
 
   function list(options = {}) {
     let reconciled = false;
-    for (const run of runs.values()) reconciled = reconcileApprovedShape(run) || reconciled;
+    for (const run of runs.values()) {
+      reconciled = reconcileSessionAuthoredShape(run) || reconcileApprovedShape(run) || reconciled;
+    }
     if (reconciled) managedRunPersistenceService.save();
     return Array.from(runs.values())
       .filter((run) => options.includeArchived === true || !run.archived)
@@ -744,7 +761,9 @@ function createManagedRunService({
 
   function get(runId) {
     const run = requireRun(runId);
-    if (reconcileApprovedShape(run)) managedRunPersistenceService.save();
+    if (reconcileSessionAuthoredShape(run) || reconcileApprovedShape(run)) {
+      managedRunPersistenceService.save();
+    }
     return summarizeRun(run);
   }
 

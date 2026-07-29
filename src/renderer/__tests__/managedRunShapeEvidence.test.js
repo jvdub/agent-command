@@ -1,4 +1,13 @@
+import fs from "fs";
+import path from "path";
 import { renderInspector } from "../managedRunInspector.js";
+
+test("the main Shape review panel remains visible during the Shape phase", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "managedRunsView.js"), "utf8");
+
+  expect(source).toContain('elements.shapePanel.hidden = !nativeWorkflow || run.phase !== "shape";');
+  expect(source).not.toContain("elements.shapePanel.hidden = true;");
+});
 
 test("Shape evidence shows the approved documentation commit separately from Tickets", () => {
   const html = renderInspector({
