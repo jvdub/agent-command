@@ -158,3 +158,25 @@ test("renders Shape review and approval controls in the selected Workflow Phase 
   expect(html).toContain("docs/domain.md");
   expect(html).toContain("selected-step review panel");
 });
+
+test("renders Spec revisions and approval only in the selected Workflow Phase panel", () => {
+  const run = { ...fixture(), workflowKind: "native", phase: "spec", status: "spec_approval_required", artifacts: { spec: { revision: 3, upstreamShapeRevision: 2, markdown: "# Spec\n\nObservable behavior", previousApprovedMarkdown: "# Spec v2" } }, approvals: {} };
+  const html = renderInspector({ run, taskId: "spec" });
+  expect(html).toContain("Workflow Phase");
+  expect(html).toContain('data-spec-editor');
+  expect(html).toContain('data-spec-action="generate"');
+  expect(html).toContain('data-spec-action="save"');
+  expect(html).toContain('data-spec-action="approve"');
+  expect(renderInspector({ run, taskId: "shape" })).not.toContain('data-spec-editor');
+});
+
+test("renders Ticket graph revisions and approval only in the selected Workflow Phase panel", () => {
+  const run = { ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_approval_required", artifacts: { tickets: { revision: 4, upstreamSpecRevision: 3, markdown: "# Tickets\n\n## T-1" } }, approvals: {} };
+  const html = renderInspector({ run, taskId: "tickets" });
+  expect(html).toContain("Workflow Phase");
+  expect(html).toContain('data-tickets-editor');
+  expect(html).toContain('data-tickets-action="generate"');
+  expect(html).toContain('data-tickets-action="save"');
+  expect(html).toContain('data-tickets-action="approve"');
+  expect(renderInspector({ run, taskId: "spec" })).not.toContain('data-tickets-editor');
+});

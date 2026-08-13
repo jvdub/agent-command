@@ -345,6 +345,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     elements.approveShape.disabled = run.status !== "shape_approval_required";
     elements.takeover.disabled = active;
     const nativeWorkflow = isNativeWorkflow(run);
+    elements.view.classList.toggle("native-workflow", nativeWorkflow);
     elements.generatePlan.hidden = nativeWorkflow;
     elements.savePlan.hidden = nativeWorkflow;
     elements.approvePlan.hidden = nativeWorkflow;
@@ -353,9 +354,9 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     elements.accept.hidden = nativeWorkflow && run.phase !== "accept";
     elements.takeover.hidden = nativeWorkflow && !["paused", "review_required"].includes(run.status);
     elements.planPanel.hidden = nativeWorkflow;
-    elements.shapePanel.hidden = !nativeWorkflow || run.phase !== "shape";
-    elements.specPanel.hidden = !nativeWorkflow;
-    elements.ticketsPanel.hidden = !nativeWorkflow;
+    elements.shapePanel.hidden = true;
+    elements.specPanel.hidden = true;
+    elements.ticketsPanel.hidden = true;
     elements.shape.hidden = !nativeWorkflow;
     elements.shape.textContent = nativeWorkflow ? (run.shapeSessionId ? "Open Shape Session" : "Start Shape Session") : "Shape Interactively";
     const previewKey = `${run.id}:${run.finalVerification?.verifiedCommit || "none"}`;
@@ -567,6 +568,31 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         const createProjectDocumentation = Boolean(elements.inspector.querySelector("[data-shape-create-domain-docs]")?.checked);
         return void perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId, { createProjectDocumentation }));
       }
+      const specAction = event.target.closest("[data-spec-action]")?.dataset.specAction;
+      if (specAction === "generate") return void perform("Generating Spec", () => agenticApp.generateManagedRunSpec(activeRunId));
+      if (specAction === "save") {
+        const markdown = elements.inspector.querySelector("[data-spec-editor]")?.value || "";
+        return void perform("Spec saved", () => agenticApp.saveManagedRunSpec(activeRunId, markdown));
+      }
+      if (specAction === "approve") {
+        const testSeamsConfirmed = Boolean(elements.inspector.querySelector("[data-spec-test-seams]")?.checked);
+        return void perform("Spec approved", () => agenticApp.approveManagedRunSpec(activeRunId, { testSeamsConfirmed }));
+      }
+      const ticketsAction = event.target.closest("[data-tickets-action]")?.dataset.ticketsAction;
+      if (ticketsAction === "generate") return void perform("Generating Tickets", () => agenticApp.generateManagedRunTickets(activeRunId));
+      if (ticketsAction === "save") {
+        const markdown = elements.inspector.querySelector("[data-tickets-editor]")?.value || "";
+        return void perform("Tickets saved", () => agenticApp.saveManagedRunTickets(activeRunId, markdown));
+      }
+      if (ticketsAction === "approve") return void perform("Tickets approved", () => agenticApp.approveManagedRunTickets(activeRunId));
+      const retain = event.target.closest("[data-revision-retain]");
+      if (retain) return void perform("Commit retained", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, retain.dataset.revisionRetain, "retain"));
+      const reverse = event.target.closest("[data-revision-reverse]");
+      if (reverse) {
+        const ticketId = reverse.dataset.revisionReverse;
+        const reversalTicketId = elements.inspector.querySelector(`[data-reversal-for="${CSS.escape(ticketId)}"]`)?.value;
+        return void perform("Reversal selected", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, ticketId, "reverse", reversalTicketId));
+      }
       const attempt = event.target.closest("[data-worker-id]");
       if (attempt) return void selectWorker(attempt.dataset.workerId);
       const file = event.target.closest("[data-managed-file]");
@@ -596,6 +622,16 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         void perform("Ticket recovery", () => agenticApp.recoverManagedRunTicket(activeRunId, recovery.dataset.ticketId, action, confirmed)).then((result) => {
           if (result && action === "takeover") void launchInteractive("implementer");
         });
+      }
+    });
+    elements.inspector.addEventListener("input", (event) => {
+      if (event.target.matches("[data-spec-editor]")) {
+        const save = elements.inspector.querySelector('[data-spec-action="save"]');
+        if (save) save.disabled = !event.target.value.trim();
+      }
+      if (event.target.matches("[data-tickets-editor]")) {
+        const save = elements.inspector.querySelector('[data-tickets-action="save"]');
+        if (save) save.disabled = !event.target.value.trim();
       }
     });
     elements.inspector.addEventListener("change", (event) => {

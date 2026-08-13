@@ -46,6 +46,8 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
   if (run.workflowKind === "native" && ["shape", "spec", "tickets", "implement", "accept"].includes(taskId)) {
     const shape = run.artifacts?.shape;
     const approval = run.approvals?.shape;
+    const phaseApproval = run.approvals?.[taskId];
+    const workerActive = Boolean(run.activeWorkerId) || ["planning", "spec_generating", "tickets_generating", "running", "final_verification"].includes(run.status);
     const commit = approval?.documentationCommit;
     let evidence = "";
     if (taskId === "shape") evidence = `<section class="inspector-shape-review" data-inspector-section="evidence">
@@ -63,10 +65,32 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     if (taskId === "spec") {
       const spec = run.artifacts?.spec;
       const specApproval = run.approvals?.spec;
-      evidence = `<details open data-inspector-section="evidence"><summary>Spec evidence</summary>
+      evidence = `<section class="inspector-phase-review" data-inspector-section="evidence">
+        <h4>Spec evidence</h4>
         <p class="inspector-provenance">Revision ${escapeHtml(spec?.revision || "not generated")} · Shape revision ${escapeHtml(spec?.upstreamShapeRevision || "unknown")}</p>
-        ${specApproval ? `<p class="managed-run-state">Approved ${escapeHtml(specApproval.approvedAt)}</p><p>Test seams explicitly confirmed</p>` : '<p class="status-meta">Current revision is not approved.</p>'}
-      </details>`;
+        <p class="status-meta">${specApproval ? `Approved ${escapeHtml(specApproval.approvedAt)} · Test seams explicitly confirmed` : "Review and approve the current Spec revision."}</p>
+        <label><span>Spec Markdown</span><textarea class="managed-run-plan-editor" data-spec-editor spellcheck="true">${escapeHtml(spec?.markdown || "")}</textarea></label>
+        <label><input type="checkbox" data-spec-test-seams ${specApproval?.revision === spec?.revision ? "checked" : ""} /> I explicitly confirm the observable test seams in this Spec.</label>
+        <details><summary>Compare previous approved revision</summary><pre class="managed-run-worker-output">${escapeHtml(spec?.previousApprovedMarkdown || "No previous approved revision.")}</pre></details>
+        <div class="button-row"><button type="button" class="secondary" data-spec-action="generate" ${workerActive || !run.approvals?.shape ? "disabled" : ""}>Generate fresh Spec</button><button type="button" class="secondary" data-spec-action="save" ${workerActive || !run.approvals?.shape || !spec?.markdown?.trim() ? "disabled" : ""}>Save Spec revision</button><button type="button" data-spec-action="approve" ${run.status !== "spec_approval_required" ? "disabled" : ""}>Approve Spec</button></div>
+      </section>`;
+    }
+    if (taskId === "tickets") {
+      const tickets = run.artifacts?.tickets;
+      const ticketsApproval = run.approvals?.tickets;
+      const reconciliation = run.revisionReconciliation;
+      const reconciliationHtml = reconciliation?.entries?.length ? `<div class="managed-run-reconciliation"><h4>Preserved verified commits</h4>${reconciliation.entries.map((entry) => {
+        const options = (tickets?.projection || []).map((ticket) => `<option value="${escapeHtml(ticket.id)}" ${entry.reversalTicketId === ticket.id ? "selected" : ""}>${escapeHtml(ticket.id)} — ${escapeHtml(ticket.title)}</option>`).join("");
+        return `<div class="managed-run-reconciliation-entry"><p><strong>${escapeHtml(entry.ticketId)}</strong> · ${escapeHtml(entry.compatibility)} · commit ${escapeHtml(entry.commit?.revision?.slice(0, 12) || "recorded")}</p><button type="button" class="secondary" data-revision-retain="${escapeHtml(entry.ticketId)}">${entry.disposition === "retain" ? "Retained" : "Retain"}</button><select data-reversal-for="${escapeHtml(entry.ticketId)}"><option value="">Choose reversal Ticket</option>${options}</select><button type="button" class="secondary" data-revision-reverse="${escapeHtml(entry.ticketId)}">${entry.disposition === "reverse" ? "Reversal selected" : "Reverse with Ticket"}</button></div>`;
+      }).join("")}</div>` : "";
+      evidence = `<section class="inspector-phase-review" data-inspector-section="evidence">
+        <p class="inspector-provenance">Revision ${escapeHtml(tickets?.revision || "not generated")} · Spec revision ${escapeHtml(tickets?.upstreamSpecRevision || "unknown")}</p>
+        <p class="status-meta">${ticketsApproval ? `Approved ${escapeHtml(ticketsApproval.approvedAt)}` : "Review and approve the current Ticket dependency graph."}</p>
+        <label><span>Ticket graph Markdown</span><textarea class="managed-run-plan-editor" data-tickets-editor spellcheck="true">${escapeHtml(tickets?.markdown || "")}</textarea></label>
+        <details><summary>Compare previous revision</summary><pre class="managed-run-worker-output">${escapeHtml(tickets?.previousRevisionMarkdown || tickets?.previousApprovedMarkdown || "No previous revision.")}</pre></details>
+        ${reconciliationHtml}
+        <div class="button-row"><button type="button" class="secondary" data-tickets-action="generate" ${workerActive || !run.approvals?.spec ? "disabled" : ""}>Generate fresh Tickets</button><button type="button" class="secondary" data-tickets-action="save" ${workerActive || !run.approvals?.spec || !tickets?.markdown?.trim() ? "disabled" : ""}>Save Ticket revision</button><button type="button" data-tickets-action="approve" ${run.status !== "tickets_approval_required" ? "disabled" : ""}>Approve Tickets</button></div>
+      </section>`;
     }
     if (taskId === "accept") {
       const ticketCommits = (run.tasks || []).filter((task) => task.commit).map((task) => `${task.id} · ${task.commit.revision.slice(0, 12)} · ${task.commit.message}`);
@@ -85,7 +109,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     }
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
       ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : ""}
-      <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : approval ? "approved" : "locked")}</p>${evidence}`;
+      <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : phaseApproval ? "approved" : "locked")}</p>${evidence}`;
   }
   if (["final-verification", "mission-verification"].includes(taskId)) {
     const worker = run.workers?.find((candidate) => candidate.id === run.finalVerification?.workerId) ||

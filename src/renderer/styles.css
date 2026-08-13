@@ -416,6 +416,14 @@ select {
   overflow-y: auto;
 }
 
+.managed-run-view.native-workflow {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.managed-run-view.native-workflow .managed-run-supporting-panels { display: none; }
+
 .managed-run-current-action {
   margin: 8px 0 0;
   color: var(--text);
@@ -449,6 +457,12 @@ select {
   overflow: hidden;
 }
 
+.native-workflow .managed-run-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
 .managed-run-inbox,
 .managed-run-journey-panel,
 .managed-run-inspector {
@@ -460,6 +474,9 @@ select {
 }
 
 .managed-run-inbox { align-self: start; }
+.native-workflow .managed-run-inbox,
+.native-workflow .managed-run-journey-panel,
+.native-workflow .managed-run-inspector { height: 100%; min-height: 0; }
 .managed-inbox-count {
   min-width: 24px;
   padding: 2px 7px;
@@ -505,6 +522,8 @@ select {
   cursor: grab;
   touch-action: none;
 }
+.native-workflow .managed-run-journey-panel { display: flex; flex-direction: column; }
+.native-workflow .managed-run-journey { flex: 1 1 auto; height: auto; min-height: 0; }
 .managed-run-journey.dragging { cursor: grabbing; }
 .journey-canvas {
   position: absolute;
@@ -565,6 +584,8 @@ select {
 .journey-attempt-empty { color: var(--muted); font-size: 0.65rem; }
 
 .managed-run-inspector { max-height: calc(100vh - 210px); overflow: auto; }
+.native-workflow .managed-run-inspector { max-height: none; }
+.inspector-phase-review > label { display: grid; gap: 6px; margin: 10px 0; }
 .managed-run-inspector h3 { margin: 3px 0 8px; }
 .managed-run-inspector h4 { margin: 12px 0 5px; font-size: 0.76rem; }
 .managed-run-inspector details { padding: 9px 0; border-top: 1px solid var(--border); }
