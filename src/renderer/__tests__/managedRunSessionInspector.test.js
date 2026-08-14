@@ -1,5 +1,5 @@
 import { renderInspector } from "../managedRunInspector.js";
-import { refreshSelectedSessionReview } from "../managedRunsView.js";
+import { buildTicketsSessionPrompt, refreshSelectedSessionReview } from "../managedRunsView.js";
 
 test("offers the linked Shape session from the Shape node inspector", () => {
   const html = renderInspector({
@@ -52,4 +52,16 @@ test("returning to a linked Tickets review imports the session draft", async () 
   expect(refreshShape).not.toHaveBeenCalled();
   expect(refreshSpec).not.toHaveBeenCalled();
   expect(refreshed.status).toBe("tickets_approval_required");
+});
+
+test("Tickets launch resolves the prompt injected into the attached session", () => {
+  const prompt = buildTicketsSessionPrompt({
+    runWorkspacePath: "/repo/.agentic/runs/run-1",
+    approvals: { spec: { path: "spec/spec-r2.md" } },
+  });
+
+  expect(prompt).toContain("persistent Tickets worker");
+  expect(prompt).toContain("/repo/.agentic/runs/run-1/spec/spec-r2.md");
+  expect(prompt).toContain("/repo/.agentic/runs/run-1/tickets/tickets.md");
+  expect(prompt).toContain("## Ticket `ticket-id`: Title");
 });

@@ -27,6 +27,12 @@ async function refreshSelectedSessionReview(run, taskId, { refreshShape, refresh
   }
   return null;
 }
+function buildTicketsSessionPrompt(run) {
+  const approval = run.approvals?.spec || {};
+  const fields = "Behavior, Acceptance Criteria, Blockers, Test Seams, TDD Policy, TDD Exception, Verification Guidance, Relevant Context, Implementation Tier, Verification Tier, Retry Limit, Slice Kind, Wide Change";
+  return `You are the persistent Tickets worker for this Managed Run. Collaborate with the user to turn the approved Spec at ${run.runWorkspacePath}/${approval.path} into independently demonstrable vertical tracer-bullet Tickets. Inspect repository context before making decisions. Keep ${run.runWorkspacePath}/tickets/tickets.md current beginning with # Tickets. Each ticket must be headed ## Ticket \`ticket-id\`: Title and contain exactly these level-three sections: ${fields}. Blockers contain ticket IDs or None. TDD Policy is test-first or exception with a substantive reason. Tiers are economy, standard, or premium. Retry Limit is 1-10. Slice Kind is tracer-bullet, prerequisite-refactor, mechanical-migration, infrastructure-exception, expand, migrate, or contract. Wide Change is None or a shared group identifier; wide changes use expand, migrate, then contract. Ask one consequential question at a time when decisions remain. Do not implement, commit, or edit application files; only maintain the Tickets draft.`;
+}
+
 
 function createManagedRunsView({ activateView, getActiveSessionId, getSessionsForRun, onOpenSession, onRestartSession, onSessionStarted, onOpenManagedRunFile, setStatus }) {
   const elements = {
@@ -675,12 +681,6 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     function specPrompt(run) {
       const approval = run.approvals?.shape || {};
       const domainDocuments = run.artifacts?.shape?.domain?.recognizedPaths || [];
-    function ticketsPrompt(run) {
-      const approval = run.approvals?.spec || {};
-      const fields = "Behavior, Acceptance Criteria, Blockers, Test Seams, TDD Policy, TDD Exception, Verification Guidance, Relevant Context, Implementation Tier, Verification Tier, Retry Limit, Slice Kind, Wide Change";
-      return `You are the persistent Tickets worker for this Managed Run. Collaborate with the user to turn the approved Spec at ${run.runWorkspacePath}/${approval.path} into independently demonstrable vertical tracer-bullet Tickets. Inspect repository context before making decisions. Keep ${run.runWorkspacePath}/tickets/tickets.md current beginning with # Tickets. Each ticket must be headed ## Ticket \`ticket-id\`: Title and contain exactly these level-three sections: ${fields}. Blockers contain ticket IDs or None. TDD Policy is test-first or exception with a substantive reason. Tiers are economy, standard, or premium. Retry Limit is 1-10. Slice Kind is tracer-bullet, prerequisite-refactor, mechanical-migration, infrastructure-exception, expand, migrate, or contract. Wide Change is None or a shared group identifier; wide changes use expand, migrate, then contract. Ask one consequential question at a time when decisions remain. Do not implement, commit, or edit application files; only maintain the Tickets draft.`;
-    }
-
       return `You are the persistent Spec worker for this Managed Run. Collaborate with the user to turn the approved Shape into a precise implementation contract. Read the approved Shape summary at ${run.runWorkspacePath}/${approval.summaryPath} and conversation at ${run.runWorkspacePath}/${approval.conversationPath}; do not ask for either artifact to be pasted into the prompt. Inspect repository context before making implementation decisions. Keep ${run.runWorkspacePath}/spec/spec.md current using exactly these level-two sections: Problem, Solution, User Stories, Implementation Decisions, Testing Decisions, Exclusions, Further Notes. Write at least three User Stories as '- As a ...' or '- As an ...' bullets. Testing Decisions must identify existing observable seams and say which proposed seams require explicit human confirmation. Ask one consequential question at a time when decisions remain. Recognized domain documents: ${domainDocuments.join(", ") || "none"}. Do not implement, commit, or edit application files; only maintain the Spec draft.`;
     }
     async function launchInteractive(purpose) {
@@ -694,7 +694,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       if (result?.session) {
         collapsedRunIds.delete(run.id);
         await onSessionStarted?.(result.session, { runId: run.id, role: purpose });
-        const prompt = purpose === "planner" ? shapePrompt(run) : purpose === "spec" ? specPrompt(run) : purpose === "tickets" ? ticketsPrompt(run) : null;
+        const prompt = purpose === "planner" ? shapePrompt(run) : purpose === "spec" ? specPrompt(run) : purpose === "tickets" ? buildTicketsSessionPrompt(run) : null;
         if (prompt) await agenticApp.writeToSession(result.session.id, `${prompt}\r`);
       }
     }
@@ -798,4 +798,4 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
   };
 }
 
-export { createManagedRunsView, refreshSelectedSessionReview };
+export { buildTicketsSessionPrompt, createManagedRunsView, refreshSelectedSessionReview };
