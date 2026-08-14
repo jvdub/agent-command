@@ -170,6 +170,40 @@ test("renders Spec revisions and approval only in the selected Workflow Phase pa
   expect(renderInspector({ run, taskId: "shape" })).not.toContain('data-spec-editor');
 });
 
+test("shows failed Spec generation worker evidence in the selected Workflow Phase panel", () => {
+  const run = {
+    ...fixture(),
+    workflowKind: "native",
+    phase: "spec",
+    status: "spec_required",
+    artifacts: {},
+    approvals: { shape: { summaryRevision: 2 } },
+    workers: [{
+      id: "spec-worker-3",
+      promptKind: "spec_generation",
+      status: "failed",
+      provider: "codex",
+      model: "gpt-5.6",
+      commandPreview: "codex exec --sandbox read-only -",
+      exitCode: 1,
+      stdout: "partial worker output",
+      stderr: "model request failed before completion",
+      startedAt: "2026-08-14T17:00:00.000Z",
+      finishedAt: "2026-08-14T17:01:00.000Z",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }],
+  };
+
+  const html = renderInspector({ run, taskId: "spec" });
+
+  expect(html).toContain("Spec generation attempts");
+  expect(html).toContain("failed · exit 1");
+  expect(html).toContain("codex · gpt-5.6");
+  expect(html).toContain("model request failed before completion");
+  expect(html).toContain("partial worker output");
+  expect(renderInspector({ run, taskId: "shape" })).not.toContain("Spec generation attempts");
+});
+
 test("renders Ticket graph revisions and approval only in the selected Workflow Phase panel", () => {
   const run = { ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_approval_required", artifacts: { tickets: { revision: 4, upstreamSpecRevision: 3, markdown: "# Tickets\n\n## T-1" } }, approvals: {} };
   const html = renderInspector({ run, taskId: "tickets" });
