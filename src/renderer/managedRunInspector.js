@@ -108,10 +108,11 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       evidence = `<section class="inspector-phase-review" data-inspector-section="evidence">
         <p class="inspector-provenance">Revision ${escapeHtml(tickets?.revision || "not generated")} · Spec revision ${escapeHtml(tickets?.upstreamSpecRevision || "unknown")}</p>
         <p class="status-meta">${ticketsApproval ? `Approved ${escapeHtml(ticketsApproval.approvedAt)}` : "Review and approve the current Ticket dependency graph."}</p>
-        <label><span>Ticket graph Markdown</span><textarea class="managed-run-plan-editor" data-tickets-editor spellcheck="true">${escapeHtml(tickets?.markdown || "")}</textarea></label>
+        <label><span>Reviewed Ticket graph Markdown</span><textarea class="managed-run-plan-editor" data-tickets-editor readonly>${escapeHtml(tickets?.markdown || "")}</textarea></label>
         <details><summary>Compare previous revision</summary><pre class="managed-run-worker-output">${escapeHtml(tickets?.previousRevisionMarkdown || tickets?.previousApprovedMarkdown || "No previous revision.")}</pre></details>
         ${reconciliationHtml}
-        <div class="button-row"><button type="button" class="secondary" data-tickets-action="generate" ${workerActive || !run.approvals?.spec ? "disabled" : ""}>Generate fresh Tickets</button><button type="button" class="secondary" data-tickets-action="save" ${workerActive || !run.approvals?.spec || !tickets?.markdown?.trim() ? "disabled" : ""}>Save Ticket revision</button><button type="button" data-tickets-action="approve" ${run.status !== "tickets_approval_required" ? "disabled" : ""}>Approve Tickets</button></div>
+        ${renderPhaseWorkerAttempts(run, "tickets_generation", "Tickets")}
+        <div class="button-row"><button type="button" class="secondary" data-tickets-action="session" ${!run.approvals?.spec ? "disabled" : ""}>${run.ticketsSessionId ? "Open Tickets Session" : "Start Tickets Session"}</button><button type="button" class="secondary" data-tickets-action="refresh-session" ${!run.ticketsSessionId ? "disabled" : ""}>Refresh session draft</button><button type="button" data-tickets-action="approve" ${run.status !== "tickets_approval_required" ? "disabled" : ""}>Approve Tickets</button></div>
       </section>`;
     }
     if (taskId === "accept") {
@@ -130,7 +131,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       </details>`;
     }
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
-      ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : taskId === "spec" && run.specSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.specSessionId)}">Open session</button>` : ""}
+      ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : taskId === "spec" && run.specSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.specSessionId)}">Open session</button>` : taskId === "tickets" && run.ticketsSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.ticketsSessionId)}">Open session</button>` : ""}
       <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : phaseApproval ? "approved" : "locked")}</p>${evidence}`;
   }
   if (["final-verification", "mission-verification"].includes(taskId)) {

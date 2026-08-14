@@ -45,6 +45,7 @@ const IPC_CHANNELS = Object.freeze({
     refreshManagedRunSpecReview: "managed-run:refresh-spec-review",
     saveManagedRunSpec: "managed-run:save-spec",
     approveManagedRunSpec: "managed-run:approve-spec",
+    refreshManagedRunTicketsReview: "managed-run:refresh-tickets-review",
     generateManagedRunTickets: "managed-run:generate-tickets",
     saveManagedRunTickets: "managed-run:save-tickets",
     approveManagedRunTickets: "managed-run:approve-tickets",
@@ -236,6 +237,8 @@ const agentic = {
       ipcRenderer.invoke(IPC_CHANNELS.invoke.refreshManagedRunSpecReview, { runId }),
     saveSpec: (runId, markdown) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.saveManagedRunSpec, { runId, markdown }),
+    refreshTicketsReview: (runId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.invoke.refreshManagedRunTicketsReview, { runId }),
     approveSpec: (runId, options = {}) =>
       ipcRenderer.invoke(IPC_CHANNELS.invoke.approveManagedRunSpec, { runId, options }),
     generateTickets: (runId) => ipcRenderer.invoke(IPC_CHANNELS.invoke.generateManagedRunTickets, runId),

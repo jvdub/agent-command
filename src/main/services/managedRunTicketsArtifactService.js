@@ -82,12 +82,22 @@ function validateTicketsMarkdown(value) {
   return { markdown: `${markdown}\n`, tickets };
 }
 
+
 function ticketsPrompt(run, specMarkdown, domainDocuments) {
   return `You are a fresh read-only Ticket worker. Convert the exact approved Spec into independently demonstrable vertical tracer-bullet Tickets. Inspect repository context read-only. Reject layer-only work unless it is explicitly a prerequisite-refactor, mechanical-migration, or indivisible infrastructure-exception. Model wide changes as expand, migrate, then contract while keeping the repository green. Do not implement or modify files.\n\nRepository: ${run.worktreePath}\nApproved Spec:\n${specMarkdown}\n\nConfirmed test seams and domain context:\n${domainDocuments || "None recognized."}\n\nReturn only Markdown beginning # Tickets. Each ticket must be: ## Ticket \`ticket-id\`: Title, followed by exactly these level-three sections: ${FIELDS.join(", ")}. Blockers contain ticket IDs or None. TDD Policy is test-first or exception, and an exception requires a reason. Tiers are economy, standard, or premium. Retry Limit defaults to 3 (one initial attempt plus two retries) and may be 1-10 only when the user explicitly chose another budget. Slice Kind is tracer-bullet, prerequisite-refactor, mechanical-migration, infrastructure-exception, expand, migrate, or contract. Wide Change is None or a shared group identifier.`;
 }
 
 function createManagedRunTicketsArtifactService() {
   function paths(run) { const directory = path.join(run.runWorkspacePath, "tickets"); fs.mkdirSync(directory, { recursive: true }); return { directory, current: path.join(directory, "tickets.md") }; }
+  function ensureDraft(run) {
+    const resolved = paths(run);
+    if (!fs.existsSync(resolved.current)) {
+      const fields = FIELDS.map((field) => `### ${field}\n\n_Draft this field in the Tickets session._`).join("\n\n");
+      fs.writeFileSync(resolved.current, `# Tickets\n\n## Ticket \`ticket-id\`: Draft a vertical slice\n\n${fields}\n`, "utf8");
+    }
+    return resolved.current;
+  }
+
   function persist(run, markdown, source) {
     const parsed = validateTicketsMarkdown(markdown); const resolved = paths(run);
     const artifact = run.artifacts.tickets ||= { revision: 0, approvedRevision: null, revisions: [] };
@@ -103,7 +113,7 @@ function createManagedRunTicketsArtifactService() {
   function readCurrent(run) { return fs.readFileSync(paths(run).current, "utf8"); }
   function fingerprint(markdown) { return createHash("sha256").update(String(markdown)).digest("hex"); }
   function freeze(run) { const artifact = run.artifacts.tickets; return JSON.parse(JSON.stringify({ revision: artifact.revision, specRevision: run.approvals.spec.revision, approvedAt: nowIso(), tickets: artifact.projection })); }
-  return { fingerprint, freeze, persist, readCurrent };
+  return { ensureDraft, fingerprint, freeze, persist, readCurrent };
 }
 
 module.exports = { createManagedRunTicketsArtifactService, ticketsPrompt, validateTicketsMarkdown };

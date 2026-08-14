@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { createManagedRunService } = require("../managedRunService");
 const { createManagedRunTicketsArtifactService, validateTicketsMarkdown } = require("../managedRunTicketsArtifactService");
 
 function ticket(id, blockers = "None", overrides = {}) {
@@ -37,4 +38,41 @@ test("preserves the immediately previous draft for comparison before approval", 
   service.persist(run, first, "worker");
   service.persist(run, first.replace("visible slice", "edited visible slice"), "human");
   expect(run.artifacts.tickets.previousRevisionMarkdown).toBe(`${first.trim()}\n`);
+});
+
+test("creates a repository-local Tickets session draft", () => {
+  const runWorkspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "tickets-draft-"));
+  const service = createManagedRunTicketsArtifactService();
+
+  const draftPath = service.ensureDraft({ runWorkspacePath });
+
+  expect(draftPath).toBe(path.join(runWorkspacePath, "tickets", "tickets.md"));
+  expect(fs.readFileSync(draftPath, "utf8")).toContain("# Tickets");
+  fs.rmSync(runWorkspacePath, { recursive: true, force: true });
+});
+
+test("refreshing a Tickets session draft creates a validated review revision", () => {
+  const runWorkspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "tickets-refresh-"));
+  const run = {
+    id: "run-1", workflowKind: "native", phase: "tickets", status: "tickets_required",
+    repoPath: runWorkspacePath, worktreePath: runWorkspacePath, runWorkspacePath,
+    ticketsSessionId: "tickets-session", artifacts: { spec: { revision: 1 } },
+    approvals: { spec: { revision: 1 } }, events: [], workers: [], tasks: [], usage: {},
+  };
+  const service = createManagedRunService({
+    runs: new Map([[run.id, run]]), managedRunPersistenceService: { save: jest.fn() },
+    workerProviderRegistry: {}, workerProcessService: { hasActiveWorker: () => false },
+    getTaskSchedulerService: jest.fn(), tokenLedgerService: {}, workspaceFileService: {},
+    managedRunWorkspaceService: {}, sessionService: { listSessions: () => [] }, publishRun: jest.fn(),
+  });
+  const draft = `# Tickets\n${ticket("first")}`;
+  fs.mkdirSync(path.join(runWorkspacePath, "tickets"), { recursive: true });
+  fs.writeFileSync(path.join(runWorkspacePath, "tickets", "tickets.md"), draft);
+
+  service.refreshTicketsReview(run.id);
+
+  expect(run).toMatchObject({ phase: "tickets", status: "tickets_approval_required" });
+  expect(run.artifacts.tickets).toMatchObject({ revision: 1, upstreamSpecRevision: 1 });
+  expect(run.artifacts.tickets.markdown).toContain("## Ticket `first`");
+  fs.rmSync(runWorkspacePath, { recursive: true, force: true });
 });

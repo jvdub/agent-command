@@ -94,7 +94,8 @@ function currentAction(run) {
   }
   if (isNativeWorkflow(run) && run.phase === "tickets") {
     if (run.status === "tickets_generating") return "A fresh read-only worker is generating the Ticket graph.";
-    if (run.status === "tickets_approval_required") return run.artifacts?.tickets?.stale ? "Review the stale Ticket graph and approve its corrected dependencies." : "Review, edit, and approve the Ticket dependency graph.";
+    if (run.status === "tickets_required") return "Open a persistent Tickets session and refresh its draft for review.";
+    if (run.status === "tickets_approval_required") return run.artifacts?.tickets?.stale ? "Review the stale Ticket graph and approve its corrected dependencies." : "Review and approve the Ticket dependency graph.";
     return "Generate tracer-bullet Tickets from the approved Spec.";
   }
   if (run.status === "approval_required") return "Review and approve the goal plan.";
@@ -196,6 +197,8 @@ function journeyStations(run) {
           ? ({ shape_required: "ready to shape", shaping: "conversation active", shape_approval_required: "approval required" }[run.status] || "current phase")
           : index === currentIndex && id === "spec"
             ? ({ spec_required: "ready for session", spec_generating: "generating", spec_approval_required: run.artifacts?.spec?.stale ? "stale · approval required" : "approval required" }[run.status] || "current phase")
+          : index === currentIndex && id === "tickets"
+            ? ({ tickets_required: "ready for session", tickets_generating: "generating", tickets_approval_required: "approval required" }[run.status] || "current phase")
             : index === currentIndex ? "current phase" : "locked",
       dependencies: index === 0 ? [] : [phases[index - 1][0]],
       attempts: 0,

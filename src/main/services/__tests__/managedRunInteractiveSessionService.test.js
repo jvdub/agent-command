@@ -86,3 +86,45 @@ test("Spec starts and links an interactive planner session with a repository-loc
     .toContain("## Testing Decisions");
   fs.rmSync(worktreePath, { recursive: true, force: true });
 });
+
+test("Tickets starts and links an interactive planner session with a repository-local draft", () => {
+  const registry = createWorkerProviderRegistry({ env: {
+    AGENTIC_MANAGED_CLAUDE_COMMAND: "claude",
+    AGENTIC_MANAGED_CLAUDE_DEFAULT_MODEL: "claude-default",
+  } });
+  const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), "tickets-session-"));
+  const runWorkspacePath = path.join(worktreePath, ".managed-run");
+  const run = {
+    id: "run-1", workflowKind: "native", title: "Interactive Tickets",
+    repoPath: worktreePath, worktreePath, runWorkspacePath,
+    phase: "tickets", status: "tickets_required", ticketsSessionId: null,
+    routing: { planner: { provider: "claude", tier: "premium", model: "claude-special" } },
+    artifacts: { spec: { revision: 1 } }, approvals: { spec: { revision: 1 } },
+    events: [], workers: [], tasks: [], usage: {},
+  };
+  const sessionService = {
+    startSession: jest.fn(() => ({ id: "tickets-session", isRunning: true })),
+    listSessions: jest.fn(() => [{ id: "tickets-session", isRunning: true }]),
+  };
+  const service = createManagedRunService({
+    runs: new Map([[run.id, run]]), managedRunPersistenceService: { save: jest.fn() },
+    workerProviderRegistry: registry,
+    workerProcessService: { hasActiveWorker: () => false }, getTaskSchedulerService: jest.fn(),
+    tokenLedgerService: {}, workspaceFileService: {}, managedRunWorkspaceService: {},
+    sessionService, publishRun: jest.fn(),
+  });
+
+  const result = service.startInteractiveSession(run.id, "tickets");
+
+  expect(sessionService.startSession).toHaveBeenCalledWith({
+    label: "Tickets: Interactive Tickets", command: "claude",
+    argsArray: ["--model", "claude-special"], cols: 120, rows: 36,
+  }, worktreePath);
+  expect(result.session.id).toBe("tickets-session");
+  expect(run).toMatchObject({
+    phase: "tickets", status: "tickets_required", ticketsSessionId: "tickets-session",
+  });
+  expect(fs.readFileSync(path.join(runWorkspacePath, "tickets", "tickets.md"), "utf8"))
+    .toContain("### Acceptance Criteria");
+  fs.rmSync(worktreePath, { recursive: true, force: true });
+});

@@ -209,6 +209,7 @@ function createManagedRunService({
       status: "shape_required",
       shapeSessionId: null,
       specSessionId: null,
+      ticketsSessionId: null,
       artifacts: {},
       approvals: {},
       plan: null,
@@ -339,21 +340,37 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
+  function linkTicketsSession(runId, sessionId) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") throw new Error("Tickets sessions require a native Managed Run.");
+    if (!run.approvals?.spec) throw new Error("Approve Spec before starting a Tickets session.");
+    const session = sessionService?.listSessions().find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error("Tickets session not found.");
+    ticketsArtifactService.ensureDraft(run);
+    run.ticketsSessionId = session.id;
+    run.phase = "tickets";
+    run.status = run.artifacts?.tickets ? "tickets_approval_required" : "tickets_required";
+    addRunEvent(run, "Persistent Tickets conversation linked to the repository-local Ticket graph draft.");
+    return saveAndPublish(run);
+  }
+
+
   function startInteractiveSession(runId, purpose) {
     const run = requireRun(runId);
     if (run.workflowKind !== "native") {
       throw new Error("Interactive managed sessions require a native Managed Run.");
     }
-    if (!new Set(["planner", "spec", "implementer"]).has(purpose)) {
+    if (!new Set(["planner", "spec", "tickets", "implementer"]).has(purpose)) {
       throw new Error("Unsupported interactive Managed Run purpose.");
     }
-    const role = purpose === "spec" ? "planner" : purpose;
+    const role = ["spec", "tickets"].includes(purpose) ? "planner" : purpose;
     const launch = workerProviderRegistry.buildInteractiveLaunch({
       role,
       selection: run.routing?.[role] || {},
     });
     const label = purpose === "planner" ? `Shape: ${run.title}`
       : purpose === "spec" ? `Spec: ${run.title}`
+        : purpose === "tickets" ? `Tickets: ${run.title}`
         : `Take over: ${run.title}`;
     const session = sessionService.startSession({
       label,
@@ -365,6 +382,7 @@ function createManagedRunService({
     try {
       if (purpose === "planner") linkShapeSession(run.id, session.id);
       if (purpose === "spec") linkSpecSession(run.id, session.id);
+      if (purpose === "tickets") linkTicketsSession(run.id, session.id);
     } catch (error) {
       sessionService.stopSessionById?.(session.id);
       throw error;
@@ -737,8 +755,20 @@ function createManagedRunService({
 
   function saveTickets(runId, markdown) {
     const run = requireRun(runId);
+
     if (!run.approvals.spec) throw new Error("An approved Spec is required.");
     persistTicketsRevision(run, markdown, "human"); addRunEvent(run, `Ticket graph revision ${run.artifacts.tickets.revision} saved; approval required.`);
+    return saveAndPublish(run);
+  }
+
+  function refreshTicketsReview(runId) {
+    const run = requireRun(runId);
+    if (!run.ticketsSessionId) throw new Error("Start a Tickets session before refreshing its draft.");
+    const draftPath = ticketsArtifactService.ensureDraft(run);
+    const markdown = fs.readFileSync(draftPath, "utf8");
+    if (String(run.artifacts?.tickets?.markdown || "").trim() === markdown.trim()) return summarizeRun(run);
+    persistTicketsRevision(run, markdown, "session");
+    addRunEvent(run, `Tickets session draft refreshed as revision ${run.artifacts.tickets.revision}; approval required.`);
     return saveAndPublish(run);
   }
 
@@ -1228,6 +1258,7 @@ function createManagedRunService({
     linkShapeSession,
     refreshSpecReview,
     refreshShapeDocumentation,
+    refreshTicketsReview,
     refreshShapeReview,
     openFile,
     pause,

@@ -15,12 +15,15 @@ function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
-async function refreshSelectedSessionReview(run, taskId, { refreshShape, refreshSpec }) {
+async function refreshSelectedSessionReview(run, taskId, { refreshShape, refreshSpec, refreshTickets }) {
   if (taskId === "shape" && run?.shapeSessionId) {
     return refreshShape(run.id);
   }
   if (taskId === "spec" && run?.specSessionId) {
     return refreshSpec(run.id);
+  }
+  if (taskId === "tickets" && run?.ticketsSessionId) {
+    return refreshTickets(run.id);
   }
   return null;
 }
@@ -204,7 +207,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       const children = expanded && childSessions.length ? `<div class="managed-run-session-list">${childSessions.map(({ session, role }) => `
         <button type="button" class="managed-run-session-tab ${session.id === getActiveSessionId?.() ? "active" : ""}" data-managed-session-id="${escapeHtml(session.id)}" data-managed-run-id="${escapeHtml(run.id)}" data-managed-session-action="${session.isRunning ? "open" : "restart"}">
           <span class="managed-run-session-dot ${session.isRunning ? "running" : "stopped"}"></span>
-          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped · Click to restart"}</small></span>
+          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : role === "tickets" ? "Tickets conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : role === "tickets" ? "Tickets conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped · Click to restart"}</small></span>
         </button>`).join("")}</div>` : "";
       return `<div class="managed-run-nav-group ${run.id === activeRunId ? "active" : ""}"><div class="managed-run-tab-row">
         <button type="button" class="managed-run-expand" data-managed-run-expand="${escapeHtml(run.id)}" aria-label="${expanded ? "Collapse" : "Expand"} ${escapeHtml(run.title)}" aria-expanded="${expanded}">${expanded ? "&#9662;" : "&#9656;"}</button>
@@ -421,6 +424,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     return refreshSelectedSessionReview(run, selectedTaskId, {
       refreshShape: (runId) => perform("Refreshing Shape review", () => agenticApp.refreshManagedRunShapeReview(runId)),
       refreshSpec: (runId) => perform("Refreshing Spec draft", () => agenticApp.refreshManagedRunSpecReview(runId)),
+      refreshTickets: (runId) => perform("Refreshing Tickets draft", () => agenticApp.refreshManagedRunTicketsReview(runId)),
     });
   }
 
@@ -599,11 +603,14 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         return void perform("Spec approved", () => agenticApp.approveManagedRunSpec(activeRunId, { testSeamsConfirmed }));
       }
       const ticketsAction = event.target.closest("[data-tickets-action]")?.dataset.ticketsAction;
-      if (ticketsAction === "generate") return void perform("Generating Tickets", () => agenticApp.generateManagedRunTickets(activeRunId));
-      if (ticketsAction === "save") {
-        const markdown = elements.inspector.querySelector("[data-tickets-editor]")?.value || "";
-        return void perform("Tickets saved", () => agenticApp.saveManagedRunTickets(activeRunId, markdown));
+      if (ticketsAction === "session") {
+        const run = activeRun();
+        if (!run) return;
+        if (run.ticketsSessionId) return void onOpenSession?.(run.id, run.ticketsSessionId);
+        return void launchInteractive("tickets");
       }
+      if (ticketsAction === "refresh-session")
+        return void perform("Refreshing Tickets draft", () => agenticApp.refreshManagedRunTicketsReview(activeRunId));
       if (ticketsAction === "approve") return void perform("Tickets approved", () => agenticApp.approveManagedRunTickets(activeRunId));
       const retain = event.target.closest("[data-revision-retain]");
       if (retain) return void perform("Commit retained", () => agenticApp.decideManagedRunRevisionCommit(activeRunId, retain.dataset.revisionRetain, "retain"));
@@ -645,10 +652,6 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       }
     });
     elements.inspector.addEventListener("input", (event) => {
-      if (event.target.matches("[data-tickets-editor]")) {
-        const save = elements.inspector.querySelector('[data-tickets-action="save"]');
-        if (save) save.disabled = !event.target.value.trim();
-      }
     });
     elements.inspector.addEventListener("change", (event) => {
       const select = event.target.closest("[data-task-status]");
@@ -672,19 +675,26 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     function specPrompt(run) {
       const approval = run.approvals?.shape || {};
       const domainDocuments = run.artifacts?.shape?.domain?.recognizedPaths || [];
+    function ticketsPrompt(run) {
+      const approval = run.approvals?.spec || {};
+      const fields = "Behavior, Acceptance Criteria, Blockers, Test Seams, TDD Policy, TDD Exception, Verification Guidance, Relevant Context, Implementation Tier, Verification Tier, Retry Limit, Slice Kind, Wide Change";
+      return `You are the persistent Tickets worker for this Managed Run. Collaborate with the user to turn the approved Spec at ${run.runWorkspacePath}/${approval.path} into independently demonstrable vertical tracer-bullet Tickets. Inspect repository context before making decisions. Keep ${run.runWorkspacePath}/tickets/tickets.md current beginning with # Tickets. Each ticket must be headed ## Ticket \`ticket-id\`: Title and contain exactly these level-three sections: ${fields}. Blockers contain ticket IDs or None. TDD Policy is test-first or exception with a substantive reason. Tiers are economy, standard, or premium. Retry Limit is 1-10. Slice Kind is tracer-bullet, prerequisite-refactor, mechanical-migration, infrastructure-exception, expand, migrate, or contract. Wide Change is None or a shared group identifier; wide changes use expand, migrate, then contract. Ask one consequential question at a time when decisions remain. Do not implement, commit, or edit application files; only maintain the Tickets draft.`;
+    }
+
       return `You are the persistent Spec worker for this Managed Run. Collaborate with the user to turn the approved Shape into a precise implementation contract. Read the approved Shape summary at ${run.runWorkspacePath}/${approval.summaryPath} and conversation at ${run.runWorkspacePath}/${approval.conversationPath}; do not ask for either artifact to be pasted into the prompt. Inspect repository context before making implementation decisions. Keep ${run.runWorkspacePath}/spec/spec.md current using exactly these level-two sections: Problem, Solution, User Stories, Implementation Decisions, Testing Decisions, Exclusions, Further Notes. Write at least three User Stories as '- As a ...' or '- As an ...' bullets. Testing Decisions must identify existing observable seams and say which proposed seams require explicit human confirmation. Ask one consequential question at a time when decisions remain. Recognized domain documents: ${domainDocuments.join(", ") || "none"}. Do not implement, commit, or edit application files; only maintain the Spec draft.`;
     }
     async function launchInteractive(purpose) {
       const run = activeRun(); if (!run) return;
       const label = purpose === "planner" ? "Shaping"
         : purpose === "spec" ? "Starting Spec session"
+          : purpose === "tickets" ? "Starting Tickets session"
           : "Taking over";
       const result = await perform(label, () =>
         agenticApp.startManagedRunInteractiveSession(run.id, purpose));
       if (result?.session) {
         collapsedRunIds.delete(run.id);
         await onSessionStarted?.(result.session, { runId: run.id, role: purpose });
-        const prompt = purpose === "planner" ? shapePrompt(run) : purpose === "spec" ? specPrompt(run) : null;
+        const prompt = purpose === "planner" ? shapePrompt(run) : purpose === "spec" ? specPrompt(run) : purpose === "tickets" ? ticketsPrompt(run) : null;
         if (prompt) await agenticApp.writeToSession(result.session.id, `${prompt}\r`);
       }
     }
@@ -780,7 +790,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
 
   return {
     hide, initialize,
-    findRunForSession: (sessionId) => [...runs.values()].find((run) => [run.shapeSessionId, run.specSessionId].includes(sessionId))?.id || null,
+    findRunForSession: (sessionId) => [...runs.values()].find((run) => [run.shapeSessionId, run.specSessionId, run.ticketsSessionId].includes(sessionId))?.id || null,
     getRun: (runId) => runs.get(runId) || null,
     isActive: () => Boolean(activeRunId) && !elements.view.classList.contains("hidden"),
     refreshNavigation: renderTabs,

@@ -215,9 +215,35 @@ test("renders Ticket graph revisions and approval only in the selected Workflow 
   const run = { ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_approval_required", artifacts: { tickets: { revision: 4, upstreamSpecRevision: 3, markdown: "# Tickets\n\n## T-1" } }, approvals: {} };
   const html = renderInspector({ run, taskId: "tickets" });
   expect(html).toContain("Workflow Phase");
-  expect(html).toContain('data-tickets-editor');
-  expect(html).toContain('data-tickets-action="generate"');
-  expect(html).toContain('data-tickets-action="save"');
+  expect(html).toContain('data-tickets-editor readonly');
+  expect(html).toContain('data-tickets-action="session"');
+  expect(html).toContain("Start Tickets Session");
+  expect(html).toContain('data-tickets-action="refresh-session"');
+  expect(html).not.toContain('data-tickets-action="generate"');
+  expect(html).not.toContain('data-tickets-action="save"');
   expect(html).toContain('data-tickets-action="approve"');
+  expect(renderInspector({ run: { ...run, ticketsSessionId: "tickets-session" }, taskId: "tickets" })).toContain("Open Tickets Session");
   expect(renderInspector({ run, taskId: "spec" })).not.toContain('data-tickets-editor');
+});
+
+test("shows failed Tickets generation worker evidence in the selected Workflow Phase panel", () => {
+  const run = {
+    ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_required",
+    artifacts: {}, approvals: { spec: { revision: 1 } },
+    workers: [{
+      id: "tickets-worker-2", promptKind: "tickets_generation", status: "failed",
+      provider: "claude", model: "claude-special", commandPreview: "claude -p",
+      exitCode: 1, stdout: "partial ticket graph", stderr: "Prompt is too long",
+      startedAt: "2026-08-14T18:00:00.000Z", finishedAt: "2026-08-14T18:01:00.000Z",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }],
+  };
+
+  const html = renderInspector({ run, taskId: "tickets" });
+
+  expect(html).toContain("Tickets generation attempts");
+  expect(html).toContain("failed · exit 1");
+  expect(html).toContain("Prompt is too long");
+  expect(html).toContain("partial ticket graph");
+  expect(renderInspector({ run, taskId: "spec" })).not.toContain("Tickets generation attempts");
 });
