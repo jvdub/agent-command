@@ -15,6 +15,16 @@ function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
+async function refreshSelectedSessionReview(run, taskId, { refreshShape, refreshSpec }) {
+  if (taskId === "shape" && run?.shapeSessionId) {
+    return refreshShape(run.id);
+  }
+  if (taskId === "spec" && run?.specSessionId) {
+    return refreshSpec(run.id);
+  }
+  return null;
+}
+
 function createManagedRunsView({ activateView, getActiveSessionId, getSessionsForRun, onOpenSession, onRestartSession, onSessionStarted, onOpenManagedRunFile, setStatus }) {
   const elements = {
     view: document.querySelector("#managed-run-view"),
@@ -376,6 +386,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     elements.view.classList.remove("hidden");
     renderTabs();
     renderActive();
+    void refreshSelectedReview();
     if (target.section) requestAnimationFrame(() => elements.inspector.querySelector(`[data-inspector-section="${target.section}"]`)?.scrollIntoView({ block: "nearest" }));
   }
 
@@ -403,6 +414,14 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       setStatus("Error", error.message || "Managed Run request failed");
       return null;
     }
+  }
+
+  function refreshSelectedReview() {
+    const run = activeRun();
+    return refreshSelectedSessionReview(run, selectedTaskId, {
+      refreshShape: (runId) => perform("Refreshing Shape review", () => agenticApp.refreshManagedRunShapeReview(runId)),
+      refreshSpec: (runId) => perform("Refreshing Spec draft", () => agenticApp.refreshManagedRunSpecReview(runId)),
+    });
   }
 
   async function selectWorker(workerId) {
@@ -492,9 +511,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       selectedWorkerId = null;
       workerDetailState = "idle";
       renderActive();
-      if (selectedTaskId === "shape" && activeRun()?.shapeSessionId) {
-        void perform("Refreshing Shape review", () => agenticApp.refreshManagedRunShapeReview(activeRunId));
-      }
+      void refreshSelectedReview();
     });
     elements.journeyControls.addEventListener("click", (event) => {
       const action = event.target.closest("[data-journey-action]")?.dataset.journeyAction;
@@ -771,4 +788,4 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
   };
 }
 
-export { createManagedRunsView };
+export { createManagedRunsView, refreshSelectedSessionReview };
