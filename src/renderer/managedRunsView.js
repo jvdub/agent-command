@@ -793,6 +793,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
     findRunForSession: (sessionId) => [...runs.values()].find((run) => [run.shapeSessionId, run.specSessionId, run.ticketsSessionId].includes(sessionId))?.id || null,
     getRun: (runId) => runs.get(runId) || null,
     isActive: () => Boolean(activeRunId) && !elements.view.classList.contains("hidden"),
+    refreshSelectedReview,
     refreshNavigation: renderTabs,
     show,
   };

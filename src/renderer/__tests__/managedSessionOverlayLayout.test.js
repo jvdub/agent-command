@@ -1,4 +1,5 @@
 const fs = require("fs");
+const app = fs.readFileSync("src/renderer/app.js", "utf8");
 
 describe("managed session work-area overlay", () => {
   const css = fs.readFileSync("src/renderer/styles.css", "utf8");
@@ -21,3 +22,9 @@ describe("managed session work-area overlay", () => {
     );
   });
 });
+
+  test("refreshes the selected artifact review when a managed session closes", () => {
+    expect(app).toMatch(
+      /function closeManagedSessionView\(\)[\s\S]*?refreshNavigation\(\);\s*managedRunsViewController\?\.refreshSelectedReview\(\);\s*}/,
+    );
+  });

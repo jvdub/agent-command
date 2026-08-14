@@ -3376,6 +3376,7 @@ function closeManagedSessionView() {
   setTerminalActionsEnabled(null);
   renderSessionTabs();
   managedRunsViewController?.refreshNavigation();
+  managedRunsViewController?.refreshSelectedReview();
 }
 
 function updateSessions(payload) {
