@@ -65,14 +65,23 @@ test("refreshing a Tickets session draft creates a validated review revision", (
     getTaskSchedulerService: jest.fn(), tokenLedgerService: {}, workspaceFileService: {},
     managedRunWorkspaceService: {}, sessionService: { listSessions: () => [] }, publishRun: jest.fn(),
   });
-  const draft = `# Tickets\n${ticket("first")}`;
-  fs.mkdirSync(path.join(runWorkspacePath, "tickets"), { recursive: true });
-  fs.writeFileSync(path.join(runWorkspacePath, "tickets", "tickets.md"), draft);
+  const artifactService = createManagedRunTicketsArtifactService();
+  const scaffoldPath = artifactService.ensureDraft(run);
 
+  expect(() => service.refreshTicketsReview(run.id)).not.toThrow();
+  expect(run).toMatchObject({
+    phase: "tickets", status: "tickets_required",
+    drafts: { tickets: { path: "tickets/tickets.md", validationError: expect.stringMatching(/invalid capability tier/i) } },
+  });
+  expect(run.artifacts.tickets).toBeUndefined();
+
+  const draft = `# Tickets\n${ticket("first")}`;
+  fs.writeFileSync(scaffoldPath, draft);
   service.refreshTicketsReview(run.id);
 
   expect(run).toMatchObject({ phase: "tickets", status: "tickets_approval_required" });
   expect(run.artifacts.tickets).toMatchObject({ revision: 1, upstreamSpecRevision: 1 });
   expect(run.artifacts.tickets.markdown).toContain("## Ticket `first`");
+  expect(run.drafts.tickets).toBeNull();
   fs.rmSync(runWorkspacePath, { recursive: true, force: true });
 });

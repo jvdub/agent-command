@@ -100,6 +100,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
     if (taskId === "tickets") {
       const tickets = run.artifacts?.tickets;
       const ticketsApproval = run.approvals?.tickets;
+      const draftValidationError = run.drafts?.tickets?.validationError;
       const reconciliation = run.revisionReconciliation;
       const reconciliationHtml = reconciliation?.entries?.length ? `<div class="managed-run-reconciliation"><h4>Preserved verified commits</h4>${reconciliation.entries.map((entry) => {
         const options = (tickets?.projection || []).map((ticket) => `<option value="${escapeHtml(ticket.id)}" ${entry.reversalTicketId === ticket.id ? "selected" : ""}>${escapeHtml(ticket.id)} — ${escapeHtml(ticket.title)}</option>`).join("");
@@ -107,6 +108,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       }).join("")}</div>` : "";
       evidence = `<section class="inspector-phase-review" data-inspector-section="evidence">
         <p class="inspector-provenance">Revision ${escapeHtml(tickets?.revision || "not generated")} · Spec revision ${escapeHtml(tickets?.upstreamSpecRevision || "unknown")}</p>
+        ${draftValidationError ? `<p class="managed-run-state">Session draft is not ready for review: ${escapeHtml(draftValidationError)}</p>` : ""}
         <p class="status-meta">${ticketsApproval ? `Approved ${escapeHtml(ticketsApproval.approvedAt)}` : "Review and approve the current Ticket dependency graph."}</p>
         <label><span>Reviewed Ticket graph Markdown</span><textarea class="managed-run-plan-editor" data-tickets-editor readonly>${escapeHtml(tickets?.markdown || "")}</textarea></label>
         <details><summary>Compare previous revision</summary><pre class="managed-run-worker-output">${escapeHtml(tickets?.previousRevisionMarkdown || tickets?.previousApprovedMarkdown || "No previous revision.")}</pre></details>

@@ -766,8 +766,28 @@ function createManagedRunService({
     if (!run.ticketsSessionId) throw new Error("Start a Tickets session before refreshing its draft.");
     const draftPath = ticketsArtifactService.ensureDraft(run);
     const markdown = fs.readFileSync(draftPath, "utf8");
-    if (String(run.artifacts?.tickets?.markdown || "").trim() === markdown.trim()) return summarizeRun(run);
-    persistTicketsRevision(run, markdown, "session");
+    run.drafts ||= {};
+    if (String(run.artifacts?.tickets?.markdown || "").trim() === markdown.trim()) {
+      if (!run.drafts.tickets) return summarizeRun(run);
+      run.drafts.tickets = null;
+      return saveAndPublish(run);
+    }
+    try {
+      persistTicketsRevision(run, markdown, "session");
+    } catch (error) {
+      const validationError = error.message || "Tickets draft is not ready for review.";
+      const changed = run.drafts.tickets?.validationError !== validationError;
+      run.drafts.tickets = {
+        path: path.relative(run.runWorkspacePath, draftPath).replaceAll(path.sep, "/"),
+        validationError,
+        updatedAt: nowIso(),
+      };
+      run.phase = "tickets";
+      run.status = "tickets_required";
+      if (changed) addRunEvent(run, `Tickets session draft is still in progress: ${validationError}`, "warning");
+      return saveAndPublish(run);
+    }
+    run.drafts.tickets = null;
     addRunEvent(run, `Tickets session draft refreshed as revision ${run.artifacts.tickets.revision}; approval required.`);
     return saveAndPublish(run);
   }

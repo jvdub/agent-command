@@ -212,7 +212,7 @@ test("shows failed Spec generation worker evidence in the selected Workflow Phas
 });
 
 test("renders Ticket graph revisions and approval only in the selected Workflow Phase panel", () => {
-  const run = { ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_approval_required", artifacts: { tickets: { revision: 4, upstreamSpecRevision: 3, markdown: "# Tickets\n\n## T-1" } }, approvals: {} };
+  const run = { ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_approval_required", artifacts: { tickets: { revision: 4, upstreamSpecRevision: 3, markdown: "# Tickets\n\n## T-1" } }, approvals: {}, drafts: { tickets: { validationError: "ticket-id has an invalid capability tier." } } };
   const html = renderInspector({ run, taskId: "tickets" });
   expect(html).toContain("Workflow Phase");
   expect(html).toContain('data-tickets-editor readonly');
@@ -224,6 +224,7 @@ test("renders Ticket graph revisions and approval only in the selected Workflow 
   expect(html).toContain('data-tickets-action="approve"');
   expect(renderInspector({ run: { ...run, ticketsSessionId: "tickets-session" }, taskId: "tickets" })).toContain("Open Tickets Session");
   expect(renderInspector({ run, taskId: "spec" })).not.toContain('data-tickets-editor');
+  expect(html).toContain("ticket-id has an invalid capability tier.");
 });
 
 test("shows failed Tickets generation worker evidence in the selected Workflow Phase panel", () => {
