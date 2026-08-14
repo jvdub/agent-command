@@ -41,6 +41,27 @@ function renderFiles(task, selectedAttempt) {
     ${artifacts?.parseStatus === "malformed" ? `<p class="field-help warning">Structured worker result unavailable: ${escapeHtml(artifacts.parseError)}</p>` : ""}`;
 }
 
+function renderPhaseWorkerAttempts(run, promptKind, phaseLabel) {
+  const attempts = (run.workers || [])
+    .filter((worker) => worker.promptKind === promptKind)
+    .slice(-10)
+    .reverse();
+  if (!attempts.length) return `<section class="inspector-phase-attempts"><h4>${phaseLabel} generation attempts</h4><p class="status-meta">No generation attempts have finished.</p></section>`;
+  return `<section class="inspector-phase-attempts"><h4>${phaseLabel} generation attempts</h4>${attempts.map((worker, index) => {
+    const exit = worker.exitCode == null ? "exit pending" : `exit ${worker.exitCode}`;
+    const model = worker.model || worker.tier || "default model";
+    const stderr = String(worker.stderr || "").slice(-20000);
+    const stdout = String(worker.stdout || "").slice(-20000);
+    return `<article class="worker-packet">
+      <p class="managed-run-state">Attempt ${attempts.length - index} · ${escapeHtml(worker.status)} · ${escapeHtml(exit)}</p>
+      <p class="inspector-provenance">${escapeHtml(worker.provider)} · ${escapeHtml(model)} · ${escapeHtml(worker.commandPreview)}</p>
+      ${stderr ? `<details ${worker.status === "failed" ? "open" : ""}><summary>Standard error</summary><pre class="managed-run-worker-output">${escapeHtml(stderr)}</pre></details>` : ""}
+      ${stdout ? `<details><summary>Standard output</summary><pre class="managed-run-worker-output">${escapeHtml(stdout)}</pre></details>` : ""}
+      ${!stderr && !stdout ? '<p class="field-help warning">No worker output was captured.</p>' : ""}
+    </article>`;
+  }).join("")}</section>`;
+}
+
 function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDetailState = "idle" }) {
   if (!run || !taskId) return '<p class="managed-inspector-empty">Select a task to inspect its definition, prompts, attempts, and evidence.</p>';
   if (run.workflowKind === "native" && ["shape", "spec", "tickets", "implement", "accept"].includes(taskId)) {
@@ -72,6 +93,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
         <label><span>Spec Markdown</span><textarea class="managed-run-plan-editor" data-spec-editor spellcheck="true">${escapeHtml(spec?.markdown || "")}</textarea></label>
         <label><input type="checkbox" data-spec-test-seams ${specApproval?.revision === spec?.revision ? "checked" : ""} /> I explicitly confirm the observable test seams in this Spec.</label>
         <details><summary>Compare previous approved revision</summary><pre class="managed-run-worker-output">${escapeHtml(spec?.previousApprovedMarkdown || "No previous approved revision.")}</pre></details>
+        ${renderPhaseWorkerAttempts(run, "spec_generation", "Spec")}
         <div class="button-row"><button type="button" class="secondary" data-spec-action="generate" ${workerActive || !run.approvals?.shape ? "disabled" : ""}>Generate fresh Spec</button><button type="button" class="secondary" data-spec-action="save" ${workerActive || !run.approvals?.shape || !spec?.markdown?.trim() ? "disabled" : ""}>Save Spec revision</button><button type="button" data-spec-action="approve" ${run.status !== "spec_approval_required" ? "disabled" : ""}>Approve Spec</button></div>
       </section>`;
     }
