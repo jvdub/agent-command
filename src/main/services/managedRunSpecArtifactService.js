@@ -57,6 +57,15 @@ function createManagedRunSpecArtifactService() {
     fs.mkdirSync(directory, { recursive: true });
     return { directory, current: path.join(directory, "spec.md") };
   }
+  function ensureDraft(run) {
+    const resolved = paths(run);
+    if (!fs.existsSync(resolved.current)) {
+      const content = `# Spec\n\n${SPEC_HEADINGS.map((heading) => `## ${heading}\n\n_Draft this section in the Spec session._`).join("\n\n")}\n`;
+      fs.writeFileSync(resolved.current, content, "utf8");
+    }
+    return resolved.current;
+  }
+
 
   function persist(run, markdown, source) {
     const content = validateSpecMarkdown(markdown);
@@ -85,7 +94,7 @@ function createManagedRunSpecArtifactService() {
     return createHash("sha256").update(String(markdown)).digest("hex");
   }
 
-  return { fingerprint, persist, readCurrent };
+  return { ensureDraft, fingerprint, persist, readCurrent };
 }
 
 module.exports = { createManagedRunSpecArtifactService, specPrompt, validateSpecMarkdown };

@@ -4202,7 +4202,7 @@ managedRunsViewController = createManagedRunsView({
   },
   getSessionsForRun: (run) => managedSessionIdsForRun(run, managedSessionOwners).map((sessionId) => {
     const session = sessions.get(sessionId);
-    return session ? { session, role: managedSessionOwners.get(sessionId)?.role || "planner" } : null;
+    return session ? { session, role: managedSessionOwners.get(sessionId)?.role || (sessionId === run.specSessionId ? "spec" : "planner") } : null;
   }).filter(Boolean),
   onOpenSession: openManagedSessionView,
   onRestartSession: restartManagedSession,

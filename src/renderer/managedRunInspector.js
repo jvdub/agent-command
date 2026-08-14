@@ -90,11 +90,11 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
         <h4>Spec evidence</h4>
         <p class="inspector-provenance">Revision ${escapeHtml(spec?.revision || "not generated")} · Shape revision ${escapeHtml(spec?.upstreamShapeRevision || "unknown")}</p>
         <p class="status-meta">${specApproval ? `Approved ${escapeHtml(specApproval.approvedAt)} · Test seams explicitly confirmed` : "Review and approve the current Spec revision."}</p>
-        <label><span>Spec Markdown</span><textarea class="managed-run-plan-editor" data-spec-editor spellcheck="true">${escapeHtml(spec?.markdown || "")}</textarea></label>
+        <label><span>Reviewed Spec Markdown</span><textarea class="managed-run-plan-editor" data-spec-editor readonly>${escapeHtml(spec?.markdown || "")}</textarea></label>
         <label><input type="checkbox" data-spec-test-seams ${specApproval?.revision === spec?.revision ? "checked" : ""} /> I explicitly confirm the observable test seams in this Spec.</label>
         <details><summary>Compare previous approved revision</summary><pre class="managed-run-worker-output">${escapeHtml(spec?.previousApprovedMarkdown || "No previous approved revision.")}</pre></details>
         ${renderPhaseWorkerAttempts(run, "spec_generation", "Spec")}
-        <div class="button-row"><button type="button" class="secondary" data-spec-action="generate" ${workerActive || !run.approvals?.shape ? "disabled" : ""}>Generate fresh Spec</button><button type="button" class="secondary" data-spec-action="save" ${workerActive || !run.approvals?.shape || !spec?.markdown?.trim() ? "disabled" : ""}>Save Spec revision</button><button type="button" data-spec-action="approve" ${run.status !== "spec_approval_required" ? "disabled" : ""}>Approve Spec</button></div>
+        <div class="button-row"><button type="button" class="secondary" data-spec-action="session" ${!run.approvals?.shape ? "disabled" : ""}>${run.specSessionId ? "Open Spec Session" : "Start Spec Session"}</button><button type="button" class="secondary" data-spec-action="refresh-session" ${!run.specSessionId ? "disabled" : ""}>Refresh session draft</button><button type="button" data-spec-action="approve" ${run.status !== "spec_approval_required" ? "disabled" : ""}>Approve Spec</button></div>
       </section>`;
     }
     if (taskId === "tickets") {
@@ -130,7 +130,7 @@ function renderInspector({ run, taskId, selectedWorkerId, workerDetail, workerDe
       </details>`;
     }
     return `<div class="inspector-heading"><p class="eyebrow">Workflow Phase</p><h3>${escapeHtml(taskId[0].toUpperCase() + taskId.slice(1))}</h3></div>
-      ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : ""}
+      ${taskId === "shape" && run.shapeSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.shapeSessionId)}">Open session</button>` : taskId === "spec" && run.specSessionId ? `<button type="button" class="secondary inspector-open-session" data-open-managed-session="${escapeHtml(run.specSessionId)}">Open session</button>` : ""}
       <p class="managed-run-state">${escapeHtml(taskId === run.phase ? run.status : phaseApproval ? "approved" : "locked")}</p>${evidence}`;
   }
   if (["final-verification", "mission-verification"].includes(taskId)) {

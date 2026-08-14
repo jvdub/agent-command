@@ -5,6 +5,7 @@ function run(status, extra = {}) {
 }
 
 test("Spec canvas shows generation, approval, stale, and progression states", () => {
+  expect(currentAction(run("spec_required"))).toMatch(/persistent Spec session/i);
   expect(currentAction(run("spec_generating"))).toMatch(/fresh read-only worker/i);
   expect(journeyStations(run("spec_generating"))[1].phase).toBe("generating");
   const awaiting = run("spec_approval_required");

@@ -97,3 +97,17 @@ test("approval detects a Run Workspace edit and requires a new revision", async 
   expect(run.artifacts.spec.revision).toBe(2);
   expect(run.status).toBe("spec_approval_required");
 });
+
+test("refreshing a Spec session draft creates a validated review revision", () => {
+  const { run, service, runWorkspacePath } = setup();
+  run.specSessionId = "spec-session";
+  const specDirectory = path.join(runWorkspacePath, "spec");
+  fs.mkdirSync(specDirectory, { recursive: true });
+  fs.writeFileSync(path.join(specDirectory, "spec.md"), SPEC.replace("Create an approved Spec.", "Create an interactive Spec."));
+
+  service.refreshSpecReview(run.id);
+
+  expect(run).toMatchObject({ phase: "spec", status: "spec_approval_required" });
+  expect(run.artifacts.spec).toMatchObject({ revision: 1, upstreamShapeRevision: 1 });
+  expect(run.artifacts.spec.markdown).toContain("Create an interactive Spec.");
+});

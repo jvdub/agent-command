@@ -194,7 +194,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       const children = expanded && childSessions.length ? `<div class="managed-run-session-list">${childSessions.map(({ session, role }) => `
         <button type="button" class="managed-run-session-tab ${session.id === getActiveSessionId?.() ? "active" : ""}" data-managed-session-id="${escapeHtml(session.id)}" data-managed-run-id="${escapeHtml(run.id)}" data-managed-session-action="${session.isRunning ? "open" : "restart"}">
           <span class="managed-run-session-dot ${session.isRunning ? "running" : "stopped"}"></span>
-          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped · Click to restart"}</small></span>
+          <span><strong>${escapeHtml(session.label || (role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : "Managed session"))}</strong><small>${role === "planner" ? "Shape conversation" : role === "spec" ? "Spec conversation" : "Managed session"} · ${session.isRunning ? "Running" : "Stopped · Click to restart"}</small></span>
         </button>`).join("")}</div>` : "";
       return `<div class="managed-run-nav-group ${run.id === activeRunId ? "active" : ""}"><div class="managed-run-tab-row">
         <button type="button" class="managed-run-expand" data-managed-run-expand="${escapeHtml(run.id)}" aria-label="${expanded ? "Collapse" : "Expand"} ${escapeHtml(run.title)}" aria-expanded="${expanded}">${expanded ? "&#9662;" : "&#9656;"}</button>
@@ -569,11 +569,14 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         return void perform("Shape approved", () => agenticApp.approveManagedRunShape(activeRunId, { createProjectDocumentation }));
       }
       const specAction = event.target.closest("[data-spec-action]")?.dataset.specAction;
-      if (specAction === "generate") return void perform("Generating Spec", () => agenticApp.generateManagedRunSpec(activeRunId));
-      if (specAction === "save") {
-        const markdown = elements.inspector.querySelector("[data-spec-editor]")?.value || "";
-        return void perform("Spec saved", () => agenticApp.saveManagedRunSpec(activeRunId, markdown));
+      if (specAction === "session") {
+        const run = activeRun();
+        if (!run) return;
+        if (run.specSessionId) return void onOpenSession?.(run.id, run.specSessionId);
+        return void launchInteractive("spec");
       }
+      if (specAction === "refresh-session")
+        return void perform("Refreshing Spec draft", () => agenticApp.refreshManagedRunSpecReview(activeRunId));
       if (specAction === "approve") {
         const testSeamsConfirmed = Boolean(elements.inspector.querySelector("[data-spec-test-seams]")?.checked);
         return void perform("Spec approved", () => agenticApp.approveManagedRunSpec(activeRunId, { testSeamsConfirmed }));
@@ -625,10 +628,6 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
       }
     });
     elements.inspector.addEventListener("input", (event) => {
-      if (event.target.matches("[data-spec-editor]")) {
-        const save = elements.inspector.querySelector('[data-spec-action="save"]');
-        if (save) save.disabled = !event.target.value.trim();
-      }
       if (event.target.matches("[data-tickets-editor]")) {
         const save = elements.inspector.querySelector('[data-tickets-action="save"]');
         if (save) save.disabled = !event.target.value.trim();
@@ -653,16 +652,23 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
         : `No domain-document convention exists. Do not create project files; propose domain material only in ${run.runWorkspacePath}/shape/domain-proposal.md until the user approves creation.`;
       return `You are the persistent Shape worker for this Managed Run. Research repository facts before relying on assumptions. Grill the idea by asking exactly one decision question at a time, waiting for the answer before the next. Seek a shared understanding of goals, constraints, non-goals, risks, and acceptance. Do not implement or commit. Keep the human-readable Shape summary current by editing ${run.runWorkspacePath}/shape/summary.md after each material decision; only the human may approve it. ${domainPolicy} Never edit application code during Shape.`;
     }
-    async function launchInteractive(role) {
+    function specPrompt(run) {
+      const approval = run.approvals?.shape || {};
+      const domainDocuments = run.artifacts?.shape?.domain?.recognizedPaths || [];
+      return `You are the persistent Spec worker for this Managed Run. Collaborate with the user to turn the approved Shape into a precise implementation contract. Read the approved Shape summary at ${run.runWorkspacePath}/${approval.summaryPath} and conversation at ${run.runWorkspacePath}/${approval.conversationPath}; do not ask for either artifact to be pasted into the prompt. Inspect repository context before making implementation decisions. Keep ${run.runWorkspacePath}/spec/spec.md current using exactly these level-two sections: Problem, Solution, User Stories, Implementation Decisions, Testing Decisions, Exclusions, Further Notes. Write at least three User Stories as '- As a ...' or '- As an ...' bullets. Testing Decisions must identify existing observable seams and say which proposed seams require explicit human confirmation. Ask one consequential question at a time when decisions remain. Recognized domain documents: ${domainDocuments.join(", ") || "none"}. Do not implement, commit, or edit application files; only maintain the Spec draft.`;
+    }
+    async function launchInteractive(purpose) {
       const run = activeRun(); if (!run) return;
-      const result = await perform(role === "planner" ? "Shaping" : "Taking over", () =>
-        agenticApp.startManagedRunInteractiveSession(run.id, role));
+      const label = purpose === "planner" ? "Shaping"
+        : purpose === "spec" ? "Starting Spec session"
+          : "Taking over";
+      const result = await perform(label, () =>
+        agenticApp.startManagedRunInteractiveSession(run.id, purpose));
       if (result?.session) {
         collapsedRunIds.delete(run.id);
-        await onSessionStarted?.(result.session, { runId: run.id, role });
-        if (role === "planner") {
-          await agenticApp.writeToSession(result.session.id, `${shapePrompt(run)}\r`);
-        }
+        await onSessionStarted?.(result.session, { runId: run.id, role: purpose });
+        const prompt = purpose === "planner" ? shapePrompt(run) : purpose === "spec" ? specPrompt(run) : null;
+        if (prompt) await agenticApp.writeToSession(result.session.id, `${prompt}\r`);
       }
     }
     elements.shape.addEventListener("click", () => {
@@ -757,7 +763,7 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
 
   return {
     hide, initialize,
-    findRunForSession: (sessionId) => [...runs.values()].find((run) => run.shapeSessionId === sessionId)?.id || null,
+    findRunForSession: (sessionId) => [...runs.values()].find((run) => [run.shapeSessionId, run.specSessionId].includes(sessionId))?.id || null,
     getRun: (runId) => runs.get(runId) || null,
     isActive: () => Boolean(activeRunId) && !elements.view.classList.contains("hidden"),
     refreshNavigation: renderTabs,

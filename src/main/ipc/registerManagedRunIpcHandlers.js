@@ -53,6 +53,9 @@ function registerHandlers(registry, services) {
   registry.register("managed-runs", IPC_CHANNELS.invoke.generateManagedRunSpec, {
     handler: async (_event, runId) => managedRunService.generateSpec(runId),
   });
+  registry.register("managed-runs", IPC_CHANNELS.invoke.refreshManagedRunSpecReview, {
+    handler: async (_event, payload) => managedRunService.refreshSpecReview(payload?.runId),
+  });
   registry.register("managed-runs", IPC_CHANNELS.invoke.saveManagedRunSpec, {
     handler: async (_event, payload) => managedRunService.saveSpec(payload?.runId, payload?.markdown),
   });

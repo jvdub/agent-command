@@ -207,6 +207,8 @@ function createManagedRunService({
       retentionPreferences: { cleanupRunWorkspace: input?.cleanupRunWorkspace !== false, cleanupWorktree: input?.cleanupWorktree !== false, cleanupBranch: input?.cleanupBranch !== false },
       specification,
       status: "shape_required",
+      shapeSessionId: null,
+      specSessionId: null,
       artifacts: {},
       approvals: {},
       plan: null,
@@ -323,27 +325,46 @@ function createManagedRunService({
     return saveAndPublish(run);
   }
 
-  function startInteractiveSession(runId, role) {
+  function linkSpecSession(runId, sessionId) {
+    const run = requireRun(runId);
+    if (run.workflowKind !== "native") throw new Error("Spec sessions require a native Managed Run.");
+    if (!run.approvals?.shape) throw new Error("Approve Shape before starting a Spec session.");
+    const session = sessionService?.listSessions().find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error("Spec session not found.");
+    specArtifactService.ensureDraft(run);
+    run.specSessionId = session.id;
+    run.phase = "spec";
+    run.status = run.artifacts?.spec ? "spec_approval_required" : "spec_required";
+    addRunEvent(run, "Persistent Spec conversation linked to the repository-local Spec draft.");
+    return saveAndPublish(run);
+  }
+
+  function startInteractiveSession(runId, purpose) {
     const run = requireRun(runId);
     if (run.workflowKind !== "native") {
       throw new Error("Interactive managed sessions require a native Managed Run.");
     }
-    if (!new Set(["planner", "implementer"]).has(role)) {
-      throw new Error("Unsupported interactive Managed Run role.");
+    if (!new Set(["planner", "spec", "implementer"]).has(purpose)) {
+      throw new Error("Unsupported interactive Managed Run purpose.");
     }
+    const role = purpose === "spec" ? "planner" : purpose;
     const launch = workerProviderRegistry.buildInteractiveLaunch({
       role,
       selection: run.routing?.[role] || {},
     });
+    const label = purpose === "planner" ? `Shape: ${run.title}`
+      : purpose === "spec" ? `Spec: ${run.title}`
+        : `Take over: ${run.title}`;
     const session = sessionService.startSession({
-      label: role === "planner" ? `Shape: ${run.title}` : `Take over: ${run.title}`,
+      label,
       command: launch.command,
       argsArray: launch.args,
       cols: 120,
       rows: 36,
     }, run.worktreePath || run.repoPath);
     try {
-      if (role === "planner") linkShapeSession(run.id, session.id);
+      if (purpose === "planner") linkShapeSession(run.id, session.id);
+      if (purpose === "spec") linkSpecSession(run.id, session.id);
     } catch (error) {
       sessionService.stopSessionById?.(session.id);
       throw error;
@@ -628,6 +649,19 @@ function createManagedRunService({
     if (!run.approvals.shape) throw new Error("Approved Shape context is required.");
     persistSpecRevision(run, markdown, "human");
     addRunEvent(run, `Spec revision ${run.artifacts.spec.revision} saved; approval required.`);
+    return saveAndPublish(run);
+  }
+
+  function refreshSpecReview(runId) {
+    const run = requireRun(runId);
+    if (!run.specSessionId) throw new Error("Start a Spec session before refreshing its draft.");
+    const draftPath = specArtifactService.ensureDraft(run);
+    const markdown = fs.readFileSync(draftPath, "utf8");
+    if (String(run.artifacts?.spec?.markdown || "").trim() === markdown.trim()) {
+      return summarizeRun(run);
+    }
+    persistSpecRevision(run, markdown, "session");
+    addRunEvent(run, `Spec session draft refreshed as revision ${run.artifacts.spec.revision}; approval required.`);
     return saveAndPublish(run);
   }
 
@@ -1192,6 +1226,7 @@ function createManagedRunService({
     inspectRepository,
     list,
     linkShapeSession,
+    refreshSpecReview,
     refreshShapeDocumentation,
     refreshShapeReview,
     openFile,

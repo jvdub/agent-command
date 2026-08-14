@@ -164,8 +164,15 @@ test("renders Spec revisions and approval only in the selected Workflow Phase pa
   const html = renderInspector({ run, taskId: "spec" });
   expect(html).toContain("Workflow Phase");
   expect(html).toContain('data-spec-editor');
-  expect(html).toContain('data-spec-action="generate"');
-  expect(html).toContain('data-spec-action="save"');
+  expect(html).toContain('data-spec-action="session"');
+  expect(html).toContain("Start Spec Session");
+  expect(html).toContain('data-spec-action="refresh-session"');
+  expect(html).not.toContain('data-spec-action="generate"');
+  const linked = renderInspector({ run: { ...run, specSessionId: "spec-session" }, taskId: "spec" });
+  expect(linked).toContain("Open Spec Session");
+  expect(linked).toContain('data-open-managed-session="spec-session"');
+  expect(html).not.toContain('data-spec-action="save"');
+  expect(html).toContain('data-spec-editor readonly');
   expect(html).toContain('data-spec-action="approve"');
   expect(renderInspector({ run, taskId: "shape" })).not.toContain('data-spec-editor');
 });

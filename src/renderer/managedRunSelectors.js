@@ -90,7 +90,7 @@ function currentAction(run) {
   if (isNativeWorkflow(run) && run.phase === "spec") {
     if (run.status === "spec_generating") return "A fresh read-only worker is synthesizing the Spec.";
     if (run.status === "spec_approval_required") return run.artifacts?.spec?.stale ? "Review the stale Spec revision and confirm its test seams." : "Review the Spec revision and explicitly confirm its test seams.";
-    return "Generate a Spec from the approved Shape context.";
+    return "Open a persistent Spec session and refresh its draft for review.";
   }
   if (isNativeWorkflow(run) && run.phase === "tickets") {
     if (run.status === "tickets_generating") return "A fresh read-only worker is generating the Ticket graph.";
@@ -195,7 +195,7 @@ function journeyStations(run) {
         : index === currentIndex && id === "shape"
           ? ({ shape_required: "ready to shape", shaping: "conversation active", shape_approval_required: "approval required" }[run.status] || "current phase")
           : index === currentIndex && id === "spec"
-            ? ({ spec_required: "ready to generate", spec_generating: "generating", spec_approval_required: run.artifacts?.spec?.stale ? "stale · approval required" : "approval required" }[run.status] || "current phase")
+            ? ({ spec_required: "ready for session", spec_generating: "generating", spec_approval_required: run.artifacts?.spec?.stale ? "stale · approval required" : "approval required" }[run.status] || "current phase")
             : index === currentIndex ? "current phase" : "locked",
       dependencies: index === 0 ? [] : [phases[index - 1][0]],
       attempts: 0,
