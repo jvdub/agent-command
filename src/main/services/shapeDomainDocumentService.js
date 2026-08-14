@@ -3,10 +3,24 @@ const path = require("path");
 const { createHash } = require("crypto");
 const { execFileSync } = require("child_process");
 
+const GIT_REPOSITORY_ENVIRONMENT_KEYS = new Set([
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_WORK_TREE",
+]);
+
+function gitEnvironment() {
+  return Object.fromEntries(Object.entries(process.env).filter(
+    ([key]) => !GIT_REPOSITORY_ENVIRONMENT_KEYS.has(key.toUpperCase()),
+  ));
+}
+
 function git(cwd, args) {
   try {
     return execFileSync("git", ["-c", `safe.directory=${cwd}`, ...args], {
-      cwd, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      cwd, env: gitEnvironment(), encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
     throw new Error(`Git ${args[0]} failed: ${error.stderr?.toString().trim() || error.message}`);

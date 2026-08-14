@@ -20,6 +20,22 @@ function repository() {
 }
 
 describe("Shape domain documentation policy", () => {
+  test("uses the explicit worktree when the app inherits repository-routing Git variables", () => {
+    const cwd = repository();
+    const originalGitDir = process.env.GIT_DIR;
+    const originalGitWorkTree = process.env.GIT_WORK_TREE;
+    process.env.GIT_DIR = "(NULL)";
+    process.env.GIT_WORK_TREE = "(NULL)";
+    try {
+      expect(createShapeDomainDocumentService().preview(cwd)).toMatchObject({ changedPaths: [] });
+    } finally {
+      if (originalGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = originalGitDir;
+      if (originalGitWorkTree === undefined) delete process.env.GIT_WORK_TREE;
+      else process.env.GIT_WORK_TREE = originalGitWorkTree;
+    }
+  });
+
   test("detects the repository's tracked domain convention and canonical terms", () => {
     const cwd = repository();
     fs.writeFileSync(path.join(cwd, "CONTEXT.md"), "# Language\n\n**Managed Run**: durable workflow\n");
