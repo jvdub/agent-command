@@ -227,6 +227,23 @@ test("renders Ticket graph revisions and approval only in the selected Workflow 
   expect(html).toContain("ticket-id has an invalid capability tier.");
 });
 
+test("shows an invalid Tickets session draft without making it approvable", () => {
+  const run = {
+    ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_required",
+    ticketsSessionId: "tickets-session", artifacts: {}, approvals: { spec: { revision: 2 } },
+    drafts: { tickets: {
+      markdown: "# Tickets\n\n## Ticket `draft-ticket`: Still being authored",
+      validationError: "draft-ticket has an invalid capability tier.",
+    } },
+  };
+
+  const html = renderInspector({ run, taskId: "tickets" });
+
+  expect(html).toContain("## Ticket `draft-ticket`: Still being authored");
+  expect(html).toContain("draft-ticket has an invalid capability tier.");
+  expect(html).toContain('data-tickets-action="approve" disabled');
+});
+
 test("shows failed Tickets generation worker evidence in the selected Workflow Phase panel", () => {
   const run = {
     ...fixture(), workflowKind: "native", phase: "tickets", status: "tickets_required",

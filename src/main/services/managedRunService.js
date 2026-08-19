@@ -780,6 +780,7 @@ function createManagedRunService({
       run.drafts.tickets = {
         path: path.relative(run.runWorkspacePath, draftPath).replaceAll(path.sep, "/"),
         validationError,
+        markdown,
         updatedAt: nowIso(),
       };
       run.phase = "tickets";

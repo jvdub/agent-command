@@ -73,6 +73,7 @@ test("refreshing a Tickets session draft creates a validated review revision", (
     phase: "tickets", status: "tickets_required",
     drafts: { tickets: { path: "tickets/tickets.md", validationError: expect.stringMatching(/invalid capability tier/i) } },
   });
+  expect(run.drafts.tickets.markdown).toContain("## Ticket `ticket-id`");
   expect(run.artifacts.tickets).toBeUndefined();
 
   const draft = `# Tickets\n${ticket("first")}`;
