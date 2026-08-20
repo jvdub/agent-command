@@ -15,6 +15,35 @@ function prettyStatus(value) {
   return String(value || "unknown").replaceAll("_", " ");
 }
 
+const INSPECTOR_DRAFT_SELECTORS = [
+  "[data-shape-summary]",
+  "[data-shape-domain-proposal]",
+  "[data-spec-editor]",
+  "[data-tickets-editor]",
+];
+
+function preserveInspectorDraft(inspector, render) {
+  const active = document.activeElement;
+  const selector = INSPECTOR_DRAFT_SELECTORS.find((candidate) => active?.matches?.(candidate));
+  const draft = selector && inspector.contains(active) ? {
+    selector,
+    value: active.value,
+    selectionStart: active.selectionStart,
+    selectionEnd: active.selectionEnd,
+    scrollTop: active.scrollTop,
+  } : null;
+
+  render();
+
+  if (!draft) return;
+  const editor = inspector.querySelector(draft.selector);
+  if (!editor) return;
+  editor.value = draft.value;
+  editor.scrollTop = draft.scrollTop;
+  editor.focus();
+  editor.setSelectionRange(draft.selectionStart, draft.selectionEnd);
+}
+
 async function refreshSelectedSessionReview(run, taskId, { refreshShape, refreshSpec, refreshTickets }) {
   if (taskId === "shape" && run?.shapeSessionId) {
     return refreshShape(run.id);
@@ -244,9 +273,11 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
   function renderInspectorSurface() {
     const scrollTop = elements.inspector.scrollTop;
     const detail = selectedWorkerId ? workerDetailCache.get(selectedWorkerId) : null;
-    elements.inspector.innerHTML = renderInspector({
-      run: activeRun(), taskId: selectedTaskId, selectedWorkerId,
-      workerDetail: detail, workerDetailState,
+    preserveInspectorDraft(elements.inspector, () => {
+      elements.inspector.innerHTML = renderInspector({
+        run: activeRun(), taskId: selectedTaskId, selectedWorkerId,
+        workerDetail: detail, workerDetailState,
+      });
     });
     elements.inspector.scrollTop = scrollTop;
   }
@@ -799,4 +830,4 @@ function createManagedRunsView({ activateView, getActiveSessionId, getSessionsFo
   };
 }
 
-export { buildTicketsSessionPrompt, createManagedRunsView, refreshSelectedSessionReview };
+export { buildTicketsSessionPrompt, createManagedRunsView, preserveInspectorDraft, refreshSelectedSessionReview };
