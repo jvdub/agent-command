@@ -52,74 +52,13 @@ test("user can inspect all Git playbooks and send Review Changes", async ({
     const askAgentButton = window.getByRole("button", { name: "Ask Agent" });
     await expect(askAgentButton).toBeEnabled();
     await askAgentButton.click();
-    for (const [playbookName, requiredGuidance] of [
-      [
-        "Commit Changes",
-        [
-          "staged, unstaged, and untracked",
-          "coherent",
-          "repository conventions",
-          "proportionate",
-          "Semantic",
-          "stage the in-scope repair changes",
-          "do not push it",
-        ],
-      ],
-      [
-        "Commit and Push",
-        [
-          "staged, unstaged, and untracked",
-          "coherent",
-          "stage the in-scope repair changes",
-          "Never push known-bad work",
-          "explicitly approves",
-          "upstream",
-          "remote state",
-        ],
-      ],
-      [
-        "Pull Safely",
-        [
-          "fetch",
-          "ahead/behind",
-          "complete the fast-forward and verify it",
-          "commit, stash, or cancel",
-          "merge or rebase",
-        ],
-      ],
-      [
-        "Create Branch",
-        [
-          "current HEAD",
-          "naming conventions",
-          "propose",
-          "never stash, discard, or commit",
-          "carry existing working-tree changes only when Git can do so safely",
-        ],
-      ],
-      [
-        "Diagnose Git Problem",
-        [
-          "evidence",
-          "safe, reversible, and unambiguous",
-          "locks",
-          "hooks",
-          "authentication",
-          "explicit approval",
-        ],
-      ],
-      [
-        "Resolve Conflicts",
-        [
-          "merge, rebase, cherry-pick, revert",
-          "mechanically clear",
-          "ours or theirs",
-          "abort",
-          "stage",
-          "Continue the active operation only when intent is clear",
-          "validation passes",
-        ],
-      ],
+    for (const [playbookName, outcome] of [
+      ["Commit Changes", "Commit the current changes"],
+      ["Commit and Push", "Commit and push the current changes"],
+      ["Pull Safely", "Pull the latest changes safely"],
+      ["Create Branch", "Create an appropriate branch"],
+      ["Diagnose Git Problem", "Diagnose the Git problem"],
+      ["Resolve Conflicts", "Resolve the current Git conflicts"],
     ]) {
       await window.getByRole("menuitem", { name: playbookName }).click();
       const playbookComposer = window.getByRole("dialog", {
@@ -130,9 +69,8 @@ test("user can inspect all Git playbooks and send Review Changes", async ({
         .getByLabel("Prompt to send to agent")
         .inputValue();
       expect(generatedPrompt).toContain(rootDir);
-      for (const guidance of requiredGuidance) {
-        expect(generatedPrompt).toContain(guidance);
-      }
+      expect(generatedPrompt).toContain(outcome);
+      expect(generatedPrompt.split(/\s+/).length).toBeLessThan(25);
       await playbookComposer.getByRole("button", { name: "Close" }).click();
       await askAgentButton.click();
     }
@@ -150,8 +88,9 @@ test("user can inspect all Git playbooks and send Review Changes", async ({
     const prompt = composer.getByLabel("Prompt to send to agent");
     const initialPrompt = await prompt.inputValue();
     expect(initialPrompt).toContain(rootDir);
-    expect(initialPrompt).toContain("staged, unstaged, and untracked");
-    expect(initialPrompt).toContain("Do not modify");
+    expect(initialPrompt).toContain("Review the current changes");
+    expect(initialPrompt).toContain("Keep this read-only");
+    expect(initialPrompt.split(/\s+/).length).toBeLessThan(25);
 
     await prompt.fill(`${await prompt.inputValue()}\nDISCARD_THIS_DRAFT`);
     await composer.getByRole("button", { name: "Close" }).click();

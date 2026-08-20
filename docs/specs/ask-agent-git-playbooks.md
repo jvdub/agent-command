@@ -18,7 +18,7 @@ Add an **Ask Agent** action to the Changed Files header. The action opens a comp
 6. Diagnose Git Problem
 7. Resolve Conflicts
 
-Selecting a playbook opens an ephemeral composer containing an accurate, token-efficient, provider-neutral prompt. The user may review and edit it before deliberately sending it to the currently selected agent session. The prompt includes only the requested outcome and session working directory and requires the agent to inspect current Git state rather than trusting potentially stale UI state.
+Selecting a playbook opens an ephemeral composer containing a concise, outcome-focused, provider-neutral prompt. The user may review and edit it before deliberately sending it to the currently selected agent session. The prompt includes the requested outcome, session working directory, and only constraints that materially change the expected behavior.
 
 The feature delegates Git execution to the agent. Agentic Command does not stage, commit, pull, push, discard, switch branches, resolve conflicts, or manage credentials itself.
 
@@ -40,8 +40,8 @@ The feature delegates Git execution to the agent. Agentic Command does not stage
 14. As a user, I want manual terminals excluded as playbook targets, so that the feature consistently delegates to an agent.
 15. As a user, I want a warning that readiness detection is not authoritative, so that I decide when the active CLI is ready to receive input.
 16. As a user, I want each prompt to include the session working directory, so that the agent operates in the intended workspace.
-17. As a user, I want prompts to require fresh repository inspection, so that the agent is not anchored to stale Changed Files state.
-18. As a user, I want concise, structured prompts, so that they provide strong guidance without wasting context.
+17. As a user, I want the agent to work from relevant current repository state, so that stale Changed Files data does not mislead it.
+18. As a user, I want concise, outcome-focused prompts, so that delegation is clear without wasting context.
 19. As a user, I want provider-neutral playbooks, so that the feature works consistently across supported agent CLIs.
 20. As a user, I want Review Changes to remain read-only, so that asking for a review cannot mutate my repository.
 21. As a user, I want Review Changes to inspect staged, unstaged, and untracked work, so that its summary covers the complete worktree.
@@ -89,10 +89,10 @@ The feature delegates Git execution to the agent. Agentic Command does not stage
 - Playbooks are canonical application-owned definitions, not installed provider-specific skills. This keeps behavior consistent across supported agent CLIs.
 - The initial catalog contains exactly seven playbooks: Review Changes, Commit Changes, Commit and Push, Pull Safely, Create Branch, Diagnose Git Problem, and Resolve Conflicts.
 - There is no Custom Git Request item; arbitrary requests already belong in the agent terminal, and generated prompts remain editable.
-- Each playbook is rendered as a concise structured prompt containing an objective, required inspection, execution rules, escalation conditions, and completion criteria.
-- Prompts target roughly 100–180 words where the workflow permits it. Accuracy and decision-rich guidance take precedence over an exact count.
+- Each playbook is rendered as a short outcome-focused prompt. It does not repeat routine agent operating procedures.
+- Prompts should normally be one or two sentences. Add a constraint only when it materially changes the expected behavior.
 - Generated prompts include the selected session working directory and requested outcome. They do not embed branch, status, or file-list snapshots.
-- Every playbook requires the agent to inspect live repository state before acting.
+- The prompts rely on the agent to inspect relevant live repository state before acting.
 - Selecting a playbook opens a lightweight ephemeral composer. Selection alone never writes to the PTY.
 - The composer supports editing, copying, sending, and dismissal. Dismissal discards the draft, and drafts are not persisted.
 - Sending writes the complete prompt as one bracketed-paste-safe input followed by submission to the active agent PTY.
@@ -102,15 +102,9 @@ The feature delegates Git execution to the agent. Agentic Command does not stage
 - Ask Agent is available only for the currently selected live agent session associated with the Changed Files workspace. It never targets a manual terminal.
 - Session-readiness heuristics may inform warning copy or disabled states but are not represented as proof that the underlying CLI is waiting for input.
 - The user is responsible for the final Send action after considering whether the agent is ready.
-- Mutating playbooks tell the agent to proceed without routine confirmation after inspection, while requiring user input for ambiguous scope, unrelated changes, destructive operations, unconfigured divergent-history strategy, force-push or history rewrite, and product-level conflict decisions.
-- Commit playbooks treat the full worktree as intended only when it is one clearly coherent unit. They preserve unrelated work and ask before splitting or choosing among multiple coherent units.
-- Commit playbooks discover repository conventions and run proportionate documented checks.
-- Deterministic low-risk issues within scope may be repaired automatically, including formatting, lint autofixes, generated-file synchronization, and clearly mechanical test breakage. Semantic, architectural, unclear, or scope-expanding fixes require user direction.
-- Pull Safely fetches and inspects first, fast-forwards a clean branch when possible, honors explicit repository strategy, and asks before acting through dirty or ambiguously diverged state.
-- Create Branch derives naming from conversation context and repository convention, asks when ambiguous, starts from current HEAD, and never auto-stashes, discards, or commits.
-- Diagnose Git Problem diagnoses before repair and asks before consequential changes to locks, configuration, remotes, history, worktrees, or credentials.
-- Resolve Conflicts identifies the active Git operation, resolves only clear conflicts autonomously, validates the result, continues when safe, and never aborts without explicit direction.
-- Review Changes is strictly read-only and distinguishes confirmed findings from uncertainty.
+- Review Changes explicitly remains read-only.
+- Resolve Conflicts asks the user when the intended resolution is unclear.
+- Other playbooks state the requested outcome and trust the agent's normal operating judgment.
 - Playbook prompts and agent responses remain part of normal terminal history. No parallel execution log or playbook state machine is introduced.
 - Existing application security boundaries remain intact: the renderer uses the narrowed session-write bridge and receives no Node, filesystem, or generic command-execution capability.
 - Existing Changed Files refresh throttling and file-opening behavior remain unchanged except where necessary to host and enable the new control.
@@ -122,7 +116,7 @@ The feature delegates Git execution to the agent. Agentic Command does not stage
 - The preferred and primary test boundary is one renderer-level Electron end-to-end seam adjacent to the existing Changed Files drawer coverage.
 - The end-to-end seam starts a real application session and verifies that Ask Agent appears only for an eligible active agent session.
 - The test verifies that all seven named playbooks are discoverable.
-- The test opens each playbook and verifies its generated prompt communicates the correct objective, required live-state inspection, safety boundary, and session working directory without embedding stale status data.
+- The test opens each playbook and verifies its generated prompt communicates the outcome and session working directory concisely.
 - The test verifies prompt editing, copying, dismissal, and ephemeral behavior.
 - The test verifies a successful Send dispatches exactly one complete prompt to the active agent PTY, closes the composer, and restores terminal focus.
 - The test verifies stopped or unavailable sessions cannot send and manual terminals are never targets.
